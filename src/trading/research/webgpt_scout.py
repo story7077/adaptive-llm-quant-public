@@ -859,6 +859,8 @@ def render_web_scout_prompt(request: WebScoutRequestV1) -> str:
         "will replace those placeholders only after independently verifying the browser "
         "transport bindings. The trusted host also replaces the bundle and source "
         "captured_at values with the verified postflight observation time.\n"
+        "Produce syntactically strict JSON: escape every double quote embedded inside "
+        "a string as \\\" and avoid quoted search phrases in query strings. "
         "Return exactly one JSON object with no Markdown or prose outside it. The JSON must "
         "validate against this schema and additional properties are forbidden:\n"
         f"{schema_json}\n"

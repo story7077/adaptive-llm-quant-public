@@ -319,6 +319,8 @@ def test_prompt_requires_active_browse_and_catalog_wide_alpha_research() -> None
     assert "Do not default to semiconductors, SOXL, or SOXS" in prompt
     assert "social-only claims must be UNVERIFIED" in prompt
     assert "does not create orders" in prompt
+    assert "escape every double quote embedded inside a string" in prompt
+    assert "avoid quoted search phrases in query strings" in prompt
 
 
 def test_happy_path_binds_fresh_browser_conversation_and_request(tmp_path: Path) -> None:
