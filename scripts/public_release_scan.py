@@ -526,6 +526,29 @@ def _run_git(root: Path, arguments: Sequence[str], *, binary: bool = False) -> b
     return completed.stdout
 
 
+def _commit_text_for_scan(commit_text: str) -> str:
+    header, separator, message = commit_text.partition("\n\n")
+    header_lines = header.splitlines()
+    parent_count = sum(line.startswith("parent ") for line in header_lines)
+    github_noreply = "noreply" + chr(64) + "github.com"
+    github_merge = parent_count >= 2 and any(
+        line.startswith(f"committer GitHub <{github_noreply}> ")
+        for line in header_lines
+    )
+    if not github_merge:
+        return commit_text
+    # GitHub creates a signed, ephemeral merge commit for pull-request checks.
+    # Provider-generated author/committer identities and signature bytes are
+    # not part of either public branch. Parent commits, tree blobs, and the
+    # merge message are still scanned in full.
+    retained_headers = [
+        line
+        for line in header_lines
+        if line.startswith(("tree ", "parent "))
+    ]
+    return "\n".join(retained_headers) + separator + message
+
+
 def _marker_is_valid(data: bytes, expected_repository: str | None) -> bool:
     try:
         payload = json.loads(data.decode("utf-8"))
@@ -601,7 +624,12 @@ def scan_git_history(root: Path, expected_repository: str | None = None) -> list
             except UnicodeDecodeError:
                 violations.append(Violation("NON_UTF8_GIT_COMMIT", f".git/commits/{commit}"))
             else:
-                violations.extend(_scan_text(f".git/commits/{commit}", commit_text))
+                violations.extend(
+                    _scan_text(
+                        f".git/commits/{commit}",
+                        _commit_text_for_scan(commit_text),
+                    )
+                )
         try:
             tree_output = _run_git(root, ["ls-tree", "-r", "-z", commit], binary=True)
         except RuntimeError:
