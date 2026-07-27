@@ -316,6 +316,40 @@ class PublicReleaseScannerTests(unittest.TestCase):
             self.assertIn("PERSONAL_EMAIL", {item.rule for item in violations})
             self.assertNotIn(private_email, report)
 
+    def test_github_pull_request_merge_identity_and_signature_are_not_content(self) -> None:
+        private_email = "person" + chr(64) + "private.invalidtld"
+        github_noreply = "noreply" + chr(64) + "github.com"
+        commit_text = "\n".join(
+            (
+                "tree " + ("a" * 40),
+                "parent " + ("b" * 40),
+                "parent " + ("c" * 40),
+                f"author Public User <{private_email}> 1 +0000",
+                f"committer GitHub <{github_noreply}> 1 +0000",
+                "gpgsig -----BEGIN PGP SIGNATURE-----",
+                " "
+                + (
+                    "A1b2C3d4E5f6G7h8I9j0"
+                    + "K1l2M3n4O5p6Q7r8S9t0"
+                )
+                * 2,
+                " -----END PGP SIGNATURE-----",
+                "",
+                "Merge synthetic pull request",
+            )
+        )
+
+        sanitized = SCANNER._commit_text_for_scan(commit_text)
+        violations = SCANNER._scan_text(".git/commits/synthetic", sanitized)
+
+        self.assertEqual(violations, [])
+        self.assertIn("Merge synthetic pull request", sanitized)
+        self.assertNotIn(private_email, sanitized)
+
+        unsafe_message = sanitized + "\n" + "gh" + "p_" + ("Z" * 40)
+        unsafe = SCANNER._scan_text(".git/commits/synthetic", unsafe_message)
+        self.assertIn("GITHUB_TOKEN", {item.rule for item in unsafe})
+
     def test_ignored_local_secret_is_excluded_but_force_added_secret_fails(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
