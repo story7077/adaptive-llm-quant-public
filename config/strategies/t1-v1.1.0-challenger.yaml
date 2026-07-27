@@ -1,0 +1,16 @@
+schema_version: challenger-strategy-config-v1
+strategy_id: T1
+strategy_version: 1.1.0
+parent_version: 1.0.0
+hypothesis_id: T1_BREADTH_DEFINITION_REVISION_V1
+status: REJECTED
+target_universe_source: VERSIONED_AVAILABLE_DATA_CATALOG
+example_universe: [QQQ, SOXX]
+decision_horizon: H5D
+breadth:
+  definition: EQUAL_WEIGHT_SLOW_MA_AND_INTERMEDIATE_RETURN
+  minimum_point_in_time_coverage: 0.90
+rejection:
+  reason_code: PIT_CONSTITUENT_HISTORY_INCOMPLETE
+  mandatory_test: pit_constituent_leakage
+  shadow_allowed: false

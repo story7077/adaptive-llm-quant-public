@@ -1,0 +1,1214 @@
+diff --git a/src/trading/strategies/alpha_v2/model.py b/src/trading/strategies/alpha_v2/model.py
+--- /dev/null
++++ b/src/trading/strategies/alpha_v2/model.py
+@@ -0,0 +1,815 @@
++"""Versioned long-only five-session reversal Challenger.
++
++The callable is pure: it consumes one decoded CandidateDecisionRequestV1
++object and returns one decoded CandidateDecisionResponseV1 object. It does not
++read files or external state.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import json
++import math
++import re
++from datetime import datetime, timezone
++from typing import Any
++
++
++STRATEGY_ID = "alpha"
++STRATEGY_VERSION = "1.1.4"
++
++_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
++_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$")
++_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.-]{0,14}$")
++_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
++
++_REQUEST_KEYS = {
++    "schema_version",
++    "request_id",
++    "challenger_id",
++    "candidate_artifact_hash",
++    "strategy_id",
++    "strategy_version",
++    "decision_time",
++    "signal_data_cutoff",
++    "variant",
++    "instruments",
++    "constraints",
++    "strategy_parameters",
++    "strategy_parameters_hash",
++    "source_data_manifest_hash",
++    "request_hash",
++}
++_VARIANT_KEYS = {
++    "parameter_neighborhood_id",
++    "data_ablation_id",
++    "date_shift_id",
++    "inversion_id",
++    "shuffle_id",
++}
++_INSTRUMENT_KEYS = {
++    "symbol",
++    "current_weight",
++    "membership_available_at",
++    "membership_valid_from",
++    "membership_valid_until",
++    "instrument_is_non_survivor",
++    "features",
++}
++_FEATURE_KEYS = {
++    "name",
++    "value",
++    "source_event_time",
++    "available_at",
++    "source_revision",
++    "revision_available_at",
++    "revision_was_known_at_cutoff",
++    "source_hash",
++}
++_CONSTRAINT_KEYS = {
++    "long_only",
++    "leverage_permitted",
++    "new_symbols_permitted",
++    "maximum_gross_weight",
++    "minimum_cash_weight",
++    "maximum_weight_by_symbol",
++    "numeric_tolerance",
++}
++
++# Requests can pin exact feature names in strategy_parameters. These aliases
++# provide deterministic defaults for host-prepared feature payloads.
++_REVERSAL_ALIASES: tuple[tuple[str, float], ...] = (
++    ("five_session_reversal", 1.0),
++    ("reversal_5_session", 1.0),
++    ("reversal_5d", 1.0),
++    ("five_day_reversal", 1.0),
++    ("five_session_return", -1.0),
++    ("return_5_session", -1.0),
++    ("return_5d", -1.0),
++    ("five_day_return", -1.0),
++    ("total_return_5d", -1.0),
++    ("five_session_price_return", -1.0),
++)
++_VOLATILITY_ALIASES: tuple[str, ...] = (
++    "realized_volatility_20_session",
++    "volatility_20_session",
++    "realized_volatility_20d",
++    "volatility_20d",
++    "five_session_volatility",
++    "realized_volatility",
++    "volatility",
++    "vol_20d",
++)
++
++
++def decide(raw_request: dict[str, Any]) -> dict[str, Any]:
++    """Return long-only target weights for the request's instruments."""
++
++    request = _validate_request(raw_request)
++    cutoff = _parse_timestamp(request["signal_data_cutoff"], "signal_data_cutoff")
++    instruments = request["instruments"]
++    parameters = request["strategy_parameters"]
++    constraints = request["constraints"]
++
++    membership_known = {
++        instrument["symbol"]: _membership_was_known(instrument, cutoff)
++        for instrument in instruments
++    }
++    coverage = _known_feature_coverage(instruments, membership_known, cutoff)
++    reversal_name, reversal_sign = _select_reversal_feature(parameters, coverage)
++    volatility_name = _select_volatility_feature(parameters, coverage)
++    reversal_bound = _positive_parameter(
++        parameters,
++        ("reversal_bound", "reversal_clip", "reversal_clip_absolute"),
++        default=0.25,
++    )
++    volatility_floor = _positive_parameter(
++        parameters,
++        ("volatility_floor", "minimum_volatility"),
++        default=1.0e-12,
++    )
++
++    reversal_values: dict[str, float] = {}
++    volatility_values: dict[str, float] = {}
++    if reversal_name is not None:
++        for instrument in instruments:
++            symbol = instrument["symbol"]
++            if not membership_known[symbol]:
++                continue
++            feature = _latest_known_feature(instrument, reversal_name, cutoff)
++            if feature is None:
++                continue
++            signed_value = reversal_sign * float(feature["value"])
++            reversal_values[symbol] = max(
++                -reversal_bound, min(reversal_bound, signed_value)
++            )
++
++    if volatility_name is not None:
++        for instrument in instruments:
++            symbol = instrument["symbol"]
++            if not membership_known[symbol]:
++                continue
++            feature = _latest_known_feature(instrument, volatility_name, cutoff)
++            if feature is None:
++                continue
++            value = float(feature["value"])
++            if value > 0.0:
++                volatility_values[symbol] = max(value, volatility_floor)
++
++    ranked_scores = _centered_rank(reversal_values)
++    scores = {
++        instrument["symbol"]: ranked_scores.get(instrument["symbol"], 0.0)
++        for instrument in instruments
++    }
++    maximum_weight_by_symbol = constraints["maximum_weight_by_symbol"]
++    symbol_caps = {
++        instrument["symbol"]: float(
++            maximum_weight_by_symbol.get(instrument["symbol"], 0.0)
++        )
++        for instrument in instruments
++    }
++    gross_limit = min(
++        float(constraints["maximum_gross_weight"]),
++        1.0 - float(constraints["minimum_cash_weight"]),
++    )
++    selected_volatility = {
++        symbol: volatility_values[symbol]
++        for symbol, score in scores.items()
++        if score > 0.0
++        and symbol in volatility_values
++        and symbol_caps[symbol] > 0.0
++    }
++    weights = _allocate_inverse_volatility(
++        selected_volatility, symbol_caps, gross_limit
++    )
++    weights = _enforce_weight_limits(weights, symbol_caps, gross_limit)
++
++    targets = [
++        {
++            "symbol": symbol,
++            "score": float(scores[symbol]),
++            "target_weight": float(weights.get(symbol, 0.0)),
++        }
++        for symbol in sorted(scores)
++    ]
++    gross_weight = math.fsum(target["target_weight"] for target in targets)
++    response: dict[str, Any] = {
++        "schema_version": "candidate_decision_response_v1",
++        "request_id": request["request_id"],
++        "request_hash": request["request_hash"],
++        "challenger_id": request["challenger_id"],
++        "candidate_artifact_hash": request["candidate_artifact_hash"],
++        "targets": targets,
++        "diagnostics": {
++            "strategy_id": STRATEGY_ID,
++            "strategy_version": STRATEGY_VERSION,
++            "eligible_instrument_count": len(selected_volatility),
++            "gross_target_weight": float(gross_weight),
++            "cash_weight": float(max(0.0, 1.0 - gross_weight)),
++        },
++    }
++    response["output_hash"] = _canonical_sha256(response)
++    return response
++
++
++def _validate_request(raw_request: dict[str, Any]) -> dict[str, Any]:
++    if type(raw_request) is not dict:
++        raise TypeError("candidate decision request must be a raw JSON object")
++    _require_exact_keys(raw_request, _REQUEST_KEYS, "request")
++
++    if raw_request["schema_version"] != "candidate_decision_request_v1":
++        raise ValueError("unsupported request schema_version")
++    _require_identifier(raw_request["request_id"], "request_id")
++    _require_identifier(raw_request["challenger_id"], "challenger_id")
++    _require_sha256(raw_request["candidate_artifact_hash"], "candidate_artifact_hash")
++    _require_identifier(raw_request["strategy_id"], "strategy_id")
++    _require_version(raw_request["strategy_version"], "strategy_version")
++    if raw_request["strategy_id"] != STRATEGY_ID:
++        raise ValueError("request strategy_id does not match this Challenger")
++    if raw_request["strategy_version"] != STRATEGY_VERSION:
++        raise ValueError("request strategy_version does not match this Challenger")
++
++    decision_time = _parse_timestamp(raw_request["decision_time"], "decision_time")
++    cutoff = _parse_timestamp(
++        raw_request["signal_data_cutoff"], "signal_data_cutoff"
++    )
++    if cutoff > decision_time:
++        raise ValueError("signal_data_cutoff cannot be after decision_time")
++
++    variant = _require_object(raw_request["variant"], "variant")
++    _require_exact_keys(variant, _VARIANT_KEYS, "variant")
++    for key in sorted(_VARIANT_KEYS):
++        _require_identifier(variant[key], f"variant.{key}")
++
++    instruments = raw_request["instruments"]
++    if type(instruments) is not list or not instruments:
++        raise ValueError("instruments must be a non-empty JSON array")
++    seen_symbols: set[str] = set()
++    for index, instrument_value in enumerate(instruments):
++        label = f"instruments[{index}]"
++        instrument = _require_object(instrument_value, label)
++        _require_exact_keys(instrument, _INSTRUMENT_KEYS, label)
++        symbol = _require_symbol(instrument["symbol"], f"{label}.symbol")
++        if symbol in seen_symbols:
++            raise ValueError(f"duplicate instrument symbol: {symbol}")
++        seen_symbols.add(symbol)
++
++        _bounded_number(
++            instrument["current_weight"],
++            f"{label}.current_weight",
++            minimum=0.0,
++            maximum=1.0,
++        )
++        _parse_timestamp(
++            instrument["membership_available_at"],
++            f"{label}.membership_available_at",
++        )
++        valid_from = _parse_timestamp(
++            instrument["membership_valid_from"],
++            f"{label}.membership_valid_from",
++        )
++        valid_until_value = instrument["membership_valid_until"]
++        if valid_until_value is not None:
++            valid_until = _parse_timestamp(
++                valid_until_value, f"{label}.membership_valid_until"
++            )
++            if valid_until <= valid_from:
++                raise ValueError(f"{label} has an empty membership interval")
++        if type(instrument["instrument_is_non_survivor"]) is not bool:
++            raise ValueError(f"{label}.instrument_is_non_survivor must be boolean")
++
++        features = instrument["features"]
++        if type(features) is not list or not features:
++            raise ValueError(f"{label}.features must be a non-empty JSON array")
++        for feature_index, feature_value in enumerate(features):
++            feature_label = f"{label}.features[{feature_index}]"
++            feature = _require_object(feature_value, feature_label)
++            _require_exact_keys(feature, _FEATURE_KEYS, feature_label)
++            _require_identifier(feature["name"], f"{feature_label}.name")
++            _finite_number(feature["value"], f"{feature_label}.value")
++            _parse_timestamp(
++                feature["source_event_time"],
++                f"{feature_label}.source_event_time",
++            )
++            _parse_timestamp(
++                feature["available_at"], f"{feature_label}.available_at"
++            )
++            revision = feature["source_revision"]
++            if type(revision) is not int or revision < 0:
++                raise ValueError(
++                    f"{feature_label}.source_revision must be a non-negative integer"
++                )
++            _parse_timestamp(
++                feature["revision_available_at"],
++                f"{feature_label}.revision_available_at",
++            )
++            if type(feature["revision_was_known_at_cutoff"]) is not bool:
++                raise ValueError(
++                    f"{feature_label}.revision_was_known_at_cutoff must be boolean"
++                )
++            _require_sha256(feature["source_hash"], f"{feature_label}.source_hash")
++
++    constraints = _require_object(raw_request["constraints"], "constraints")
++    _require_exact_keys(constraints, _CONSTRAINT_KEYS, "constraints")
++    if constraints["long_only"] is not True:
++        raise ValueError("constraints.long_only must be true")
++    if constraints["leverage_permitted"] is not False:
++        raise ValueError("constraints.leverage_permitted must be false")
++    if constraints["new_symbols_permitted"] is not False:
++        raise ValueError("constraints.new_symbols_permitted must be false")
++    _bounded_number(
++        constraints["maximum_gross_weight"],
++        "constraints.maximum_gross_weight",
++        minimum=0.0,
++        maximum=1.0,
++        minimum_exclusive=True,
++    )
++    _bounded_number(
++        constraints["minimum_cash_weight"],
++        "constraints.minimum_cash_weight",
++        minimum=0.0,
++        maximum=1.0,
++        maximum_exclusive=True,
++    )
++    _bounded_number(
++        constraints["numeric_tolerance"],
++        "constraints.numeric_tolerance",
++        minimum=0.0,
++        minimum_exclusive=True,
++    )
++    caps = _require_object(
++        constraints["maximum_weight_by_symbol"],
++        "constraints.maximum_weight_by_symbol",
++    )
++    if not caps:
++        raise ValueError("constraints.maximum_weight_by_symbol cannot be empty")
++    for symbol, cap in caps.items():
++        _require_symbol(symbol, "constraints.maximum_weight_by_symbol key")
++        _bounded_number(
++            cap,
++            f"constraints.maximum_weight_by_symbol.{symbol}",
++            minimum=0.0,
++            maximum=1.0,
++        )
++
++    parameters = _require_object(
++        raw_request["strategy_parameters"], "strategy_parameters"
++    )
++    _validate_json_value(parameters, "strategy_parameters")
++    _require_sha256(
++        raw_request["strategy_parameters_hash"], "strategy_parameters_hash"
++    )
++    _require_sha256(
++        raw_request["source_data_manifest_hash"], "source_data_manifest_hash"
++    )
++    _require_sha256(raw_request["request_hash"], "request_hash")
++    return raw_request
++
++
++def _membership_was_known(instrument: dict[str, Any], cutoff: datetime) -> bool:
++    if _parse_timestamp(
++        instrument["membership_available_at"], "membership_available_at"
++    ) > cutoff:
++        return False
++    if _parse_timestamp(
++        instrument["membership_valid_from"], "membership_valid_from"
++    ) > cutoff:
++        return False
++    valid_until = instrument["membership_valid_until"]
++    if valid_until is not None and cutoff >= _parse_timestamp(
++        valid_until, "membership_valid_until"
++    ):
++        return False
++    return True
++
++
++def _feature_was_known(feature: dict[str, Any], cutoff: datetime) -> bool:
++    return (
++        feature["revision_was_known_at_cutoff"] is True
++        and _parse_timestamp(feature["source_event_time"], "source_event_time")
++        <= cutoff
++        and _parse_timestamp(feature["available_at"], "available_at") <= cutoff
++        and _parse_timestamp(
++            feature["revision_available_at"], "revision_available_at"
++        )
++        <= cutoff
++    )
++
++
++def _known_feature_coverage(
++    instruments: list[dict[str, Any]],
++    membership_known: dict[str, bool],
++    cutoff: datetime,
++) -> dict[str, int]:
++    coverage: dict[str, int] = {}
++    for instrument in instruments:
++        if not membership_known[instrument["symbol"]]:
++            continue
++        names = {
++            feature["name"]
++            for feature in instrument["features"]
++            if _feature_was_known(feature, cutoff)
++        }
++        for name in names:
++            coverage[name] = coverage.get(name, 0) + 1
++    return coverage
++
++
++def _select_reversal_feature(
++    parameters: dict[str, Any], coverage: dict[str, int]
++) -> tuple[str | None, float]:
++    explicit_name = _string_parameter(
++        parameters,
++        (
++            "reversal_feature_name",
++            "five_session_reversal_feature_name",
++            "signal_feature_name",
++            "reversal_feature",
++        ),
++    )
++    explicit_sign = _signed_parameter(
++        parameters, ("reversal_feature_sign", "signal_feature_sign")
++    )
++    if explicit_name is not None:
++        _require_identifier(explicit_name, "strategy_parameters reversal feature")
++        return (
++            explicit_name,
++            explicit_sign
++            if explicit_sign is not None
++            else _infer_reversal_sign(explicit_name),
++        )
++
++    covered_aliases = [
++        (name, sign, coverage.get(name, 0), index)
++        for index, (name, sign) in enumerate(_REVERSAL_ALIASES)
++        if coverage.get(name, 0) > 0
++    ]
++    if covered_aliases:
++        name, sign, _, _ = min(
++            covered_aliases, key=lambda item: (-item[2], item[3])
++        )
++        return name, explicit_sign if explicit_sign is not None else sign
++
++    pattern_names = [
++        name for name in coverage if _looks_like_five_session_signal(name)
++    ]
++    if not pattern_names:
++        return None, explicit_sign if explicit_sign is not None else -1.0
++    name = min(pattern_names, key=lambda item: (-coverage[item], item))
++    return (
++        name,
++        explicit_sign if explicit_sign is not None else _infer_reversal_sign(name),
++    )
++
++
++def _select_volatility_feature(
++    parameters: dict[str, Any], coverage: dict[str, int]
++) -> str | None:
++    explicit_name = _string_parameter(
++        parameters,
++        (
++            "volatility_feature_name",
++            "risk_feature_name",
++            "volatility_feature",
++        ),
++    )
++    if explicit_name is not None:
++        _require_identifier(explicit_name, "strategy_parameters volatility feature")
++        return explicit_name
++
++    covered_aliases = [
++        (name, coverage.get(name, 0), index)
++        for index, name in enumerate(_VOLATILITY_ALIASES)
++        if coverage.get(name, 0) > 0
++    ]
++    if covered_aliases:
++        name, _, _ = min(covered_aliases, key=lambda item: (-item[1], item[2]))
++        return name
++
++    pattern_names = [
++        name
++        for name in coverage
++        if ("volatility" in name.lower() or name.lower().startswith("vol_"))
++        and "inverse" not in name.lower()
++    ]
++    if not pattern_names:
++        return None
++    return min(pattern_names, key=lambda item: (-coverage[item], item))
++
++
++def _latest_known_feature(
++    instrument: dict[str, Any], feature_name: str, cutoff: datetime
++) -> dict[str, Any] | None:
++    candidates = [
++        feature
++        for feature in instrument["features"]
++        if feature["name"] == feature_name and _feature_was_known(feature, cutoff)
++    ]
++    if not candidates:
++        return None
++    return max(
++        candidates,
++        key=lambda feature: (
++            _parse_timestamp(feature["source_event_time"], "source_event_time"),
++            int(feature["source_revision"]),
++            _parse_timestamp(
++                feature["revision_available_at"], "revision_available_at"
++            ),
++            feature["source_hash"],
++        ),
++    )
++
++
++def _centered_rank(values: dict[str, float]) -> dict[str, float]:
++    """Average-rank values onto [-1, 1], assigning tied universes zero."""
++
++    if len(values) < 2:
++        return {symbol: 0.0 for symbol in values}
++    ordered = sorted(values.items(), key=lambda item: (item[1], item[0]))
++    result: dict[str, float] = {}
++    index = 0
++    denominator = float(len(ordered) - 1)
++    while index < len(ordered):
++        group_end = index + 1
++        while (
++            group_end < len(ordered)
++            and ordered[group_end][1] == ordered[index][1]
++        ):
++            group_end += 1
++        average_zero_based_rank = (index + group_end - 1) / 2.0
++        score = 2.0 * average_zero_based_rank / denominator - 1.0
++        for group_index in range(index, group_end):
++            result[ordered[group_index][0]] = float(score)
++        index = group_end
++    return result
++
++
++def _allocate_inverse_volatility(
++    volatility_by_symbol: dict[str, float],
++    caps_by_symbol: dict[str, float],
++    gross_limit: float,
++) -> dict[str, float]:
++    """Water-fill inverse-volatility weights under immutable symbol caps."""
++
++    weights = {symbol: 0.0 for symbol in volatility_by_symbol}
++    active = {
++        symbol
++        for symbol, volatility in volatility_by_symbol.items()
++        if volatility > 0.0 and caps_by_symbol.get(symbol, 0.0) > 0.0
++    }
++    if not active or gross_limit <= 0.0:
++        return weights
++
++    budget = min(
++        float(gross_limit),
++        math.fsum(float(caps_by_symbol[symbol]) for symbol in active),
++    )
++    remaining = budget
++    inverse_volatility = {
++        symbol: 1.0 / float(volatility_by_symbol[symbol]) for symbol in active
++    }
++
++    while active and remaining > 0.0:
++        denominator = math.fsum(inverse_volatility[symbol] for symbol in active)
++        if not math.isfinite(denominator) or denominator <= 0.0:
++            break
++        proposed = {
++            symbol: remaining * inverse_volatility[symbol] / denominator
++            for symbol in active
++        }
++        newly_capped = {
++            symbol
++            for symbol in active
++            if proposed[symbol] >= float(caps_by_symbol[symbol])
++        }
++        if not newly_capped:
++            for symbol in active:
++                weights[symbol] = proposed[symbol]
++            remaining = 0.0
++            break
++        for symbol in sorted(newly_capped):
++            cap = float(caps_by_symbol[symbol])
++            weights[symbol] = cap
++            remaining = max(0.0, remaining - cap)
++            active.remove(symbol)
++    return weights
++
++
++def _enforce_weight_limits(
++    weights: dict[str, float],
++    caps_by_symbol: dict[str, float],
++    gross_limit: float,
++) -> dict[str, float]:
++    safe = {
++        symbol: min(max(0.0, float(weight)), float(caps_by_symbol[symbol]))
++        for symbol, weight in weights.items()
++    }
++    limit = max(0.0, float(gross_limit))
++    gross = math.fsum(safe.values())
++    if gross <= limit:
++        return safe
++
++    excess = gross - limit
++    for symbol in sorted(safe, reverse=True):
++        reduction = min(safe[symbol], excess)
++        safe[symbol] -= reduction
++        excess -= reduction
++        if excess <= 0.0:
++            break
++    gross = math.fsum(safe.values())
++    if gross > limit and gross > 0.0:
++        scale = limit / gross
++        safe = {symbol: weight * scale for symbol, weight in safe.items()}
++    return safe
++
++
++def _canonical_sha256(value: Any) -> str:
++    canonical = _canonicalize(value)
++    encoded = json.dumps(
++        canonical,
++        ensure_ascii=False,
++        allow_nan=False,
++        separators=(",", ":"),
++        sort_keys=True,
++    ).encode("utf-8")
++    return hashlib.sha256(encoded).hexdigest()
++
++
++def _canonicalize(value: Any) -> Any:
++    if value is None or type(value) in (bool, str, int):
++        return value
++    if type(value) is float:
++        if not math.isfinite(value):
++            raise ValueError("canonical JSON cannot contain non-finite floats")
++        return float(format(value, ".12g"))
++    if type(value) is list:
++        return [_canonicalize(item) for item in value]
++    if type(value) is dict:
++        if any(type(key) is not str for key in value):
++            raise TypeError("canonical JSON object keys must be strings")
++        return {key: _canonicalize(value[key]) for key in sorted(value)}
++    raise TypeError(f"unsupported canonical JSON type: {type(value).__name__}")
++
++
++def _parse_timestamp(value: Any, label: str) -> datetime:
++    if type(value) is not str:
++        raise ValueError(f"{label} must be a timestamp string")
++    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
++    try:
++        parsed = datetime.fromisoformat(normalized)
++    except ValueError as exc:
++        raise ValueError(f"{label} is not a valid date-time") from exc
++    if parsed.tzinfo is None or parsed.utcoffset() is None:
++        raise ValueError(f"{label} must include a UTC offset")
++    return parsed.astimezone(timezone.utc)
++
++
++def _require_object(value: Any, label: str) -> dict[str, Any]:
++    if type(value) is not dict:
++        raise ValueError(f"{label} must be a JSON object")
++    return value
++
++
++def _require_exact_keys(
++    value: dict[str, Any], expected: set[str], label: str
++) -> None:
++    if any(type(key) is not str for key in value):
++        raise ValueError(f"{label} keys must be strings")
++    actual = set(value)
++    if actual != expected:
++        missing = sorted(expected - actual)
++        extra = sorted(actual - expected)
++        raise ValueError(f"{label} has missing keys {missing} and extra keys {extra}")
++
++
++def _require_identifier(value: Any, label: str) -> str:
++    if type(value) is not str or _IDENTIFIER_RE.fullmatch(value) is None:
++        raise ValueError(f"{label} is not a valid identifier")
++    return value
++
++
++def _require_version(value: Any, label: str) -> str:
++    if type(value) is not str or _VERSION_RE.fullmatch(value) is None:
++        raise ValueError(f"{label} is not a valid version")
++    return value
++
++
++def _require_symbol(value: Any, label: str) -> str:
++    if type(value) is not str or _SYMBOL_RE.fullmatch(value) is None:
++        raise ValueError(f"{label} is not a valid symbol")
++    return value
++
++
++def _require_sha256(value: Any, label: str) -> str:
++    if type(value) is not str or _SHA256_RE.fullmatch(value) is None:
++        raise ValueError(f"{label} is not a lowercase SHA-256 digest")
++    return value
++
++
++def _finite_number(value: Any, label: str) -> float:
++    if type(value) not in (int, float):
++        raise ValueError(f"{label} must be a number")
++    try:
++        number = float(value)
++    except OverflowError as exc:
++        raise ValueError(f"{label} must be finite") from exc
++    if not math.isfinite(number):
++        raise ValueError(f"{label} must be finite")
++    return number
++
++
++def _bounded_number(
++    value: Any,
++    label: str,
++    *,
++    minimum: float | None = None,
++    maximum: float | None = None,
++    minimum_exclusive: bool = False,
++    maximum_exclusive: bool = False,
++) -> float:
++    number = _finite_number(value, label)
++    if minimum is not None and (
++        number < minimum or (minimum_exclusive and number == minimum)
++    ):
++        raise ValueError(f"{label} is below its minimum")
++    if maximum is not None and (
++        number > maximum or (maximum_exclusive and number == maximum)
++    ):
++        raise ValueError(f"{label} is above its maximum")
++    return number
++
++
++def _validate_json_value(value: Any, label: str) -> None:
++    if value is None or type(value) in (bool, str, int):
++        return
++    if type(value) is float:
++        if not math.isfinite(value):
++            raise ValueError(f"{label} cannot contain non-finite values")
++        return
++    if type(value) is list:
++        for index, item in enumerate(value):
++            _validate_json_value(item, f"{label}[{index}]")
++        return
++    if type(value) is dict:
++        for key, item in value.items():
++            if type(key) is not str:
++                raise ValueError(f"{label} object keys must be strings")
++            _validate_json_value(item, f"{label}.{key}")
++        return
++    raise ValueError(f"{label} contains a non-JSON value")
++
++
++def _string_parameter(
++    parameters: dict[str, Any], names: tuple[str, ...]
++) -> str | None:
++    present = [(name, parameters[name]) for name in names if name in parameters]
++    if not present:
++        return None
++    if any(type(value) is not str for _, value in present):
++        raise ValueError(f"{present[0][0]} must be a string")
++    values = {value for _, value in present}
++    if len(values) != 1:
++        raise ValueError(
++            f"conflicting strategy parameters: {[name for name, _ in present]}"
++        )
++    return present[0][1]
++
++
++def _signed_parameter(
++    parameters: dict[str, Any], names: tuple[str, ...]
++) -> float | None:
++    present = [(name, parameters[name]) for name in names if name in parameters]
++    if not present:
++        return None
++    values = {_finite_number(value, name) for name, value in present}
++    if len(values) != 1 or next(iter(values)) not in (-1.0, 1.0):
++        raise ValueError(f"{present[0][0]} must be consistently -1 or 1")
++    return next(iter(values))
++
++
++def _positive_parameter(
++    parameters: dict[str, Any], names: tuple[str, ...], *, default: float
++) -> float:
++    present = [(name, parameters[name]) for name in names if name in parameters]
++    if not present:
++        return default
++    values = {_finite_number(value, name) for name, value in present}
++    if len(values) != 1:
++        raise ValueError(
++            f"conflicting strategy parameters: {[name for name, _ in present]}"
++        )
++    value = next(iter(values))
++    if value <= 0.0:
++        raise ValueError(f"{present[0][0]} must be positive")
++    return value
++
++
++def _looks_like_five_session_signal(name: str) -> bool:
++    lowered = name.lower()
++    has_horizon = "five" in lowered or "5" in lowered
++    has_signal = "reversal" in lowered or "return" in lowered
++    return has_horizon and has_signal
++
++
++def _infer_reversal_sign(name: str) -> float:
++    return 1.0 if "reversal" in name.lower() else -1.0
+diff --git a/tests/unit/test_alpha_v2.py b/tests/unit/test_alpha_v2.py
+--- /dev/null
++++ b/tests/unit/test_alpha_v2.py
+@@ -0,0 +1,391 @@
++from __future__ import annotations
++
++import copy
++import hashlib
++import importlib
++import inspect
++import json
++import math
++import random
++import sys
++from pathlib import Path
++from typing import Any
++
++import pytest
++
++
++WORKTREE = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(WORKTREE / "src"))
++model = importlib.import_module("trading.strategies.alpha_v2.model")
++
++
++def _feature(
++    name: str,
++    value: float,
++    *,
++    source_event_time: str = "2026-07-24T20:00:00Z",
++    available_at: str = "2026-07-24T20:01:00Z",
++    source_revision: int = 0,
++    revision_available_at: str = "2026-07-24T20:01:00Z",
++    known: bool = True,
++    source_hash: str = "1" * 64,
++) -> dict[str, Any]:
++    return {
++        "name": name,
++        "value": value,
++        "source_event_time": source_event_time,
++        "available_at": available_at,
++        "source_revision": source_revision,
++        "revision_available_at": revision_available_at,
++        "revision_was_known_at_cutoff": known,
++        "source_hash": source_hash,
++    }
++
++
++def _instrument(
++    symbol: str, five_session_return: float, volatility: float
++) -> dict[str, Any]:
++    marker = "1" if symbol == "EXPA" else "2"
++    return {
++        "symbol": symbol,
++        "current_weight": 0.0,
++        "membership_available_at": "2020-01-01T00:00:00Z",
++        "membership_valid_from": "2020-01-01T00:00:00Z",
++        "membership_valid_until": None,
++        "instrument_is_non_survivor": False,
++        "features": [
++            _feature(
++                "five_session_return",
++                five_session_return,
++                source_hash=marker * 64,
++            ),
++            _feature(
++                "volatility_20d",
++                volatility,
++                source_hash=str(int(marker) + 2) * 64,
++            ),
++        ],
++    }
++
++
++def _request() -> dict[str, Any]:
++    return {
++        "schema_version": "candidate_decision_request_v1",
++        "request_id": "candidate-request-1",
++        "challenger_id": "challenger-alpha-1.1.4",
++        "candidate_artifact_hash": "a" * 64,
++        "strategy_id": "alpha",
++        "strategy_version": "1.1.4",
++        "decision_time": "2026-07-27T21:00:00Z",
++        "signal_data_cutoff": "2026-07-27T20:00:00Z",
++        "variant": {
++            "parameter_neighborhood_id": "baseline",
++            "data_ablation_id": "none",
++            "date_shift_id": "none",
++            "inversion_id": "none",
++            "shuffle_id": "none",
++        },
++        "instruments": [
++            _instrument("EXPB", 0.05, 0.10),
++            _instrument("EXPA", -0.10, 0.20),
++        ],
++        "constraints": {
++            "long_only": True,
++            "leverage_permitted": False,
++            "new_symbols_permitted": False,
++            "maximum_gross_weight": 0.80,
++            "minimum_cash_weight": 0.20,
++            "maximum_weight_by_symbol": {"EXPA": 0.60, "EXPB": 0.60},
++            "numeric_tolerance": 1.0e-12,
++        },
++        "strategy_parameters": {
++            "reversal_feature_name": "five_session_return",
++            "volatility_feature_name": "volatility_20d",
++            "reversal_bound": 0.25,
++        },
++        "strategy_parameters_hash": "b" * 64,
++        "source_data_manifest_hash": "c" * 64,
++        "request_hash": "d" * 64,
++    }
++
++
++def _canonicalize(value: Any) -> Any:
++    if value is None or type(value) in (bool, str, int):
++        return value
++    if type(value) is float:
++        if not math.isfinite(value):
++            raise ValueError
++        return float(format(value, ".12g"))
++    if type(value) is list:
++        return [_canonicalize(item) for item in value]
++    if type(value) is dict:
++        return {key: _canonicalize(value[key]) for key in sorted(value)}
++    raise TypeError
++
++
++def _canonical_hash(value: Any) -> str:
++    payload = json.dumps(
++        _canonicalize(value),
++        ensure_ascii=False,
++        allow_nan=False,
++        separators=(",", ":"),
++        sort_keys=True,
++    ).encode("utf-8")
++    return hashlib.sha256(payload).hexdigest()
++
++
++def _target(response: dict[str, Any], symbol: str) -> dict[str, Any]:
++    return next(item for item in response["targets"] if item["symbol"] == symbol)
++
++
++def _all_keys(value: Any) -> set[str]:
++    result: set[str] = set()
++    if type(value) is dict:
++        result.update(value)
++        for item in value.values():
++            result.update(_all_keys(item))
++    elif type(value) is list:
++        for item in value:
++            result.update(_all_keys(item))
++    return result
++
++
++def test_canonical_hash_rounds_floats_and_preserves_array_order() -> None:
++    left = {
++        "z": [1.23456789012345, 9.87654321098765],
++        "a": {"integer": 7, "flag": True, "nothing": None},
++    }
++    reordered_keys = {"a": left["a"], "z": left["z"]}
++    reversed_array = {"a": left["a"], "z": list(reversed(left["z"]))}
++
++    assert model._canonical_sha256(left) == _canonical_hash(left)
++    assert model._canonical_sha256(left) == model._canonical_sha256(reordered_keys)
++    assert model._canonical_sha256(left) != model._canonical_sha256(reversed_array)
++    with pytest.raises(ValueError):
++        model._canonical_sha256({"bad": float("inf")})
++
++
++def test_exact_candidate_decision_abi_and_canonical_output_hash() -> None:
++    assert len(inspect.signature(model.decide).parameters) == 1
++    request = _request()
++    before = copy.deepcopy(request)
++    response = model.decide(request)
++
++    assert request == before
++    assert set(response) == {
++        "schema_version",
++        "request_id",
++        "request_hash",
++        "challenger_id",
++        "candidate_artifact_hash",
++        "targets",
++        "diagnostics",
++        "output_hash",
++    }
++    assert response["schema_version"] == "candidate_decision_response_v1"
++    for key in (
++        "request_id",
++        "request_hash",
++        "challenger_id",
++        "candidate_artifact_hash",
++    ):
++        assert response[key] == request[key]
++    assert [item["symbol"] for item in response["targets"]] == ["EXPA", "EXPB"]
++    assert all(
++        set(item) == {"symbol", "score", "target_weight"}
++        for item in response["targets"]
++    )
++    unhashed = {key: value for key, value in response.items() if key != "output_hash"}
++    assert response["output_hash"] == _canonical_hash(unhashed)
++    assert json.loads(json.dumps(response, allow_nan=False)) == response
++    assert _all_keys(response).isdisjoint(
++        {
++            "orders",
++            "fills",
++            "realized_return",
++            "expected_return",
++            "pnl",
++            "broker_action",
++        }
++    )
++
++
++def test_long_only_caps_gross_limit_and_cash_floor_are_binding() -> None:
++    request = _request()
++    request["constraints"]["maximum_gross_weight"] = 0.90
++    request["constraints"]["minimum_cash_weight"] = 0.25
++    request["constraints"]["maximum_weight_by_symbol"]["EXPA"] = 0.30
++    response = model.decide(request)
++
++    assert _target(response, "EXPA")["score"] == 1.0
++    assert _target(response, "EXPB")["score"] == -1.0
++    assert _target(response, "EXPA")["target_weight"] == pytest.approx(0.30)
++    assert _target(response, "EXPB")["target_weight"] == 0.0
++    gross = math.fsum(item["target_weight"] for item in response["targets"])
++    assert gross <= 0.75
++    assert 1.0 - gross >= 0.25
++
++
++def test_missing_host_symbol_cap_fails_closed_to_zero_weight() -> None:
++    request = _request()
++    del request["constraints"]["maximum_weight_by_symbol"]["EXPA"]
++    response = model.decide(request)
++
++    assert _target(response, "EXPA")["score"] == 1.0
++    assert _target(response, "EXPA")["target_weight"] == 0.0
++    assert {item["symbol"] for item in response["targets"]} == {"EXPA", "EXPB"}
++
++
++def test_pit_filter_ignores_future_and_unknown_revisions() -> None:
++    baseline = _request()
++    challenged = copy.deepcopy(baseline)
++    expa = next(
++        item for item in challenged["instruments"] if item["symbol"] == "EXPA"
++    )
++    expa["features"].extend(
++        [
++            _feature(
++                "five_session_return",
++                0.95,
++                source_event_time="2026-07-27T19:00:00Z",
++                available_at="2026-07-27T20:00:01Z",
++                revision_available_at="2026-07-27T20:00:01Z",
++                source_revision=1,
++                source_hash="5" * 64,
++            ),
++            _feature(
++                "five_session_return",
++                0.90,
++                source_event_time="2026-07-27T19:00:00Z",
++                available_at="2026-07-27T19:30:00Z",
++                revision_available_at="2026-07-27T19:30:00Z",
++                source_revision=2,
++                known=False,
++                source_hash="6" * 64,
++            ),
++        ]
++    )
++
++    assert model.decide(challenged) == model.decide(baseline)
++
++
++def test_valid_non_survivor_is_not_dropped_from_pit_universe() -> None:
++    request = _request()
++    expa = next(item for item in request["instruments"] if item["symbol"] == "EXPA")
++    expa["instrument_is_non_survivor"] = True
++    expa["membership_valid_until"] = "2026-07-28T00:00:00Z"
++
++    response = model.decide(request)
++    assert [item["symbol"] for item in response["targets"]] == ["EXPA", "EXPB"]
++    assert _target(response, "EXPA")["target_weight"] > 0.0
++
++
++def test_membership_unknown_at_cutoff_cannot_receive_weight() -> None:
++    request = _request()
++    expa = next(item for item in request["instruments"] if item["symbol"] == "EXPA")
++    expa["membership_available_at"] = "2026-07-27T20:00:01Z"
++
++    response = model.decide(request)
++    assert _target(response, "EXPA")["score"] == 0.0
++    assert _target(response, "EXPA")["target_weight"] == 0.0
++
++
++def test_date_shift_placebo_can_reverse_the_selected_instrument() -> None:
++    baseline = _request()
++    shifted = copy.deepcopy(baseline)
++    shifted["variant"]["date_shift_id"] = "one-completed-session"
++    shifted["request_hash"] = "e" * 64
++    for instrument in shifted["instruments"]:
++        reversal = next(
++            feature
++            for feature in instrument["features"]
++            if feature["name"] == "five_session_return"
++        )
++        reversal["value"] *= -1.0
++
++    baseline_response = model.decide(baseline)
++    shifted_response = model.decide(shifted)
++    assert _target(baseline_response, "EXPA")["target_weight"] > 0.0
++    assert _target(baseline_response, "EXPB")["target_weight"] == 0.0
++    assert _target(shifted_response, "EXPA")["target_weight"] == 0.0
++    assert _target(shifted_response, "EXPB")["target_weight"] > 0.0
++
++
++def test_opaque_placebo_label_does_not_leak_into_signal() -> None:
++    baseline = _request()
++    label_only = copy.deepcopy(baseline)
++    label_only["variant"]["date_shift_id"] = "label-only-placebo"
++
++    assert model.decide(label_only) == model.decide(baseline)
++
++
++def test_data_ablation_returns_cash_instead_of_inventing_signal() -> None:
++    request = _request()
++    request["variant"]["data_ablation_id"] = "remove-reversal"
++    for instrument in request["instruments"]:
++        instrument["features"] = [
++            feature
++            for feature in instrument["features"]
++            if feature["name"] != "five_session_return"
++        ]
++
++    response = model.decide(request)
++    assert all(item["score"] == 0.0 for item in response["targets"])
++    assert all(item["target_weight"] == 0.0 for item in response["targets"])
++    assert response["diagnostics"]["cash_weight"] == 1.0
++
++
++def test_input_permutations_cannot_change_sorted_targets_or_hash() -> None:
++    request = _request()
++    permuted = copy.deepcopy(request)
++    permuted["instruments"].reverse()
++    for instrument in permuted["instruments"]:
++        instrument["features"].reverse()
++
++    assert model.decide(permuted) == model.decide(request)
++
++
++def test_capped_inverse_volatility_property_in_parameter_neighborhoods() -> None:
++    generator = random.Random(114)
++    for _ in range(250):
++        volatilities = {
++            "EXPA": 10.0 ** generator.uniform(-5.0, 1.0),
++            "EXPB": 10.0 ** generator.uniform(-5.0, 1.0),
++        }
++        caps = {
++            "EXPA": generator.uniform(0.0, 1.0),
++            "EXPB": generator.uniform(0.0, 1.0),
++        }
++        gross_limit = generator.uniform(0.0, 1.0)
++        weights = model._allocate_inverse_volatility(
++            volatilities, caps, gross_limit
++        )
++        weights = model._enforce_weight_limits(weights, caps, gross_limit)
++
++        assert set(weights) == {"EXPA", "EXPB"}
++        assert all(math.isfinite(value) and value >= 0.0 for value in weights.values())
++        assert weights["EXPA"] <= caps["EXPA"] + 1.0e-15
++        assert weights["EXPB"] <= caps["EXPB"] + 1.0e-15
++        assert math.fsum(weights.values()) <= gross_limit + 1.0e-15
++
++
++@pytest.mark.parametrize(
++    "mutation",
++    [
++        lambda request: request["instruments"].append(
++            copy.deepcopy(request["instruments"][0])
++        ),
++        lambda request: request["instruments"][0]["features"][0].update(
++            value=float("nan")
++        ),
++        lambda request: request.update(strategy_version="1.0.0"),
++        lambda request: request["constraints"].update(leverage_permitted=True),
++        lambda request: request["constraints"].update(new_symbols_permitted=True),
++        lambda request: request.update(unexpected=True),
++    ],
++)
++def test_malformed_or_unsafe_requests_fail_closed(mutation: Any) -> None:
++    request = _request()
++    mutation(request)
++    with pytest.raises((TypeError, ValueError)):
++        model.decide(request)
