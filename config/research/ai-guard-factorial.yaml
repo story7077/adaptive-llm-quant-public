@@ -1,0 +1,31 @@
+schema_version: ai-guard-factorial-config-v1
+experiment_version: ai_guard_factorial_v1
+base_core: B0-VOL
+arms:
+  B0-VOL:
+    deterministic_loss_guard: false
+    operational_risk_commander: false
+  B3-GUARD:
+    deterministic_loss_guard: true
+    operational_risk_commander: false
+  B3-AI:
+    deterministic_loss_guard: false
+    operational_risk_commander: true
+  B3-AI-GUARD:
+    deterministic_loss_guard: true
+    operational_risk_commander: true
+matched_conditions:
+  independent_state: true
+  common_market_input: true
+  common_decision_time: true
+  common_execution_scenario: true
+  common_cost_model: true
+  common_starting_capital: true
+  decision_schedule_version: research-daily-v1
+  execution_scenario_version: matched-paper-v1
+  cost_model_version: paper-cost-v1
+report:
+  guard_main_effect: true
+  ai_main_effect: true
+  ai_guard_interaction_effect: true
+  prohibit_ai_alpha_label_without_factorial_attribution: true

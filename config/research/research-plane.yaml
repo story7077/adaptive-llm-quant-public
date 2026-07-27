@@ -1,0 +1,210 @@
+schema_version: research-plane-config-v1
+algorithm_version: adaptive_research_plane_v1
+
+safety:
+  real_order_routing: false
+  automatic_promotion_enabled: false
+  champion_in_place_mutation: false
+  raw_oos_access: false
+  credential_access: false
+
+schedule:
+  schedule_version: research_schedule_v1
+  timezone: America/New_York
+  market_calendar_version: alpaca_market_calendar_v1
+  daily_aggregation_time: "18:00"
+  daily_post_close_delay_minutes: 15
+  weekly_research_day: SATURDAY
+  weekly_research_time: "10:00"
+  evidence_trigger_minimum_new_sources: 8
+  planning_lookback_days: 35
+  dispatch_lease_seconds: 900
+  maximum_dispatch_attempts: 3
+  worker_poll_seconds: 60
+  status_history_limit: 20
+
+models:
+  web_scout:
+    family: GPT-5.6 Sol Pro
+    reasoning_profile: xhigh
+    access_path: CHATGPT_WEB_AGBROWSE
+    api_fallback_allowed: false
+    conversation_reuse_allowed: false
+  codex_commander:
+    model: gpt-5.6-sol
+    reasoning_profile: max
+    session_resume_allowed: false
+  candidate_builder:
+    model: gpt-5.6-sol
+    reasoning_profile: max
+    session_resume_allowed: false
+
+universe:
+  asset_classes: [US_EQUITY, US_ETF]
+  source: VERSIONED_AVAILABLE_DATA_CATALOG
+  hardcoded_symbol_allowlist: false
+  leveraged_and_inverse_products_require_explicit_proposal: true
+
+experiment_budget:
+  maximum_submissions_per_family: 12
+  maximum_oos_uses_per_family: 6
+  maximum_hypotheses_per_family: 24
+
+oos:
+  minimum_common_sessions: 126
+  minimum_mean_daily_difference: 0.0
+  detail_return_policy: AGGREGATES_AND_REASON_CODES_ONLY
+  annualization_sessions: 252
+  newey_west_lag: 5
+  bootstrap_seed: 7077
+  bootstrap_block_length: 10
+  bootstrap_samples: 2000
+  base_cost_bps: 10
+  request_ttl_seconds: 900
+  worker_timeout_seconds: 60
+  cost_sensitivity_bps: [0, 5, 10]
+  trusted_producer_version: trusted_candidate_evaluation_v1
+
+shadow:
+  minimum_forward_sessions: 63
+  minimum_independent_trades: 30
+  starting_capital_usd: "100000.00"
+  matched_execution_required: true
+  paper_parameters:
+    contract_version: shadow-paper-v1
+    commission_rate: "0.001"
+    commission_waiver_threshold_usd: "0"
+    delay_penalty_bps: "1"
+    displayed_participation_rate: "0.10"
+    adv_participation_rate: "0.025"
+    minimum_order_notional_usd: "25"
+    quantity_quantum: "0.000001"
+    price_quantum: "0.0001"
+    sensitivity_5_bps: "5"
+    sensitivity_10_bps: "10"
+    basis_points_per_unit_return: "10000"
+    maximum_quote_age_seconds: 15
+    weight_tolerance: "0.000001"
+    real_order_routing: false
+
+promotion:
+  automatic_promotion_enabled: false
+  require_manual_approval: true
+  minimum_common_oos_sessions: 126
+  minimum_forward_sessions: 63
+  minimum_independent_trades: 30
+  require_positive_net_excess_return: true
+  require_replay_reproducibility: true
+  require_all_mandatory_falsification: true
+  evaluation_contract:
+    schema_version: promotion_evaluation_contract_v1
+    contract_version: research-promotion-thresholds-v1
+    minimum_common_oos_sessions: 126
+    minimum_forward_sessions: 63
+    minimum_independent_trades: 30
+    minimum_annualized_net_excess_return_after_cost: 0.0
+    minimum_matched_annualized_difference: 0.0
+    minimum_economic_effect: 0.01
+    maximum_drawdown: 0.20
+    maximum_tail_loss: 0.05
+    maximum_annualized_turnover: 12.0
+    minimum_capacity_usd: 100000.0
+    minimum_regime_pass_fraction: 0.67
+    maximum_runtime_error_rate: 0.01
+
+candidate_patch:
+  allowed_prefixes:
+    - src/trading/features/
+    - src/trading/strategies/
+    - src/trading/calibration/
+    - src/trading/research/
+    - src/trading/experiments/
+    - config/strategies/
+    - config/research/
+    - tests/unit/
+    - tests/property/
+    - tests/research/
+    - docs/research/
+  forbidden_prefixes:
+    - src/trading/risk/
+    - src/trading/execution/
+    - src/trading/ledger/
+    - src/trading/security/
+    - src/trading/broker/
+    - migrations/
+    - credentials/
+  forbidden_exact:
+    - src/trading/persistence/db.py
+    - src/trading/persistence/models.py
+    - .github/workflows/public-release-security.yml
+
+candidate_execution:
+  isolation_kind: CODEX_WINDOWS_RESTRICTED_TOKEN
+  isolation_version: 1.0.0
+  timeout_seconds: 10
+  maximum_stdout_bytes: 32768
+  maximum_stderr_bytes: 8192
+  maximum_memory_bytes: 268435456
+  maximum_processes: 4
+
+falsification:
+  mandatory:
+    - future_data_leakage
+    - pit_constituent_leakage
+    - revised_data_backfill_leakage
+    - survivor_bias
+    - lookahead_bias
+    - parameter_instability
+    - date_shift_placebo
+    - signal_direction_inversion_placebo
+    - symbol_label_shuffle
+    - single_symbol_or_month_dependence
+    - top_five_trades_removed
+    - cost_stress_1x_2x_3x
+    - execution_delay_stress
+    - spread_widening_stress
+    - liquidity_capacity_stress
+    - market_beta_neutralization
+    - sector_beta_neutralization
+    - known_factor_neutralization
+    - regime_split
+    - parameter_neighborhood_stability
+    - partial_data_removal_sensitivity
+    - experiment_budget
+  evaluation_contract:
+    schema_version: falsification_evaluation_contract_v1
+    contract_version: research-falsification-thresholds-v1
+    minimum_observation_count: 504
+    minimum_session_count: 126
+    maximum_source_age_seconds: 604800
+    minimum_universe_coverage_ratio: 0.90
+    minimum_non_survivor_coverage_ratio: 0.90
+    minimum_variant_session_coverage_ratio: 0.90
+    minimum_base_mean_net_return: 0.0
+    maximum_parameter_relative_deviation: 0.50
+    minimum_neighborhood_edge_ratio: 0.50
+    minimum_neighborhood_pass_fraction: 0.75
+    maximum_placebo_edge_ratio: 0.25
+    maximum_single_symbol_positive_edge_share: 0.35
+    maximum_single_month_positive_edge_share: 0.35
+    top_trade_count: 5
+    minimum_top_trades_removed_edge_ratio: 0.50
+    cost_stress_multipliers: [1.0, 2.0, 3.0]
+    minimum_cost_stress_mean_net_return: 0.0
+    delay_stress_multiplier: 3.0
+    minimum_delay_stress_mean_net_return: 0.0
+    spread_stress_multiplier: 3.0
+    minimum_spread_stress_mean_net_return: 0.0
+    basis_points_per_unit_return: 10000.0
+    maximum_adv_participation_ratio: 0.025
+    minimum_capacity_pass_fraction: 0.95
+    minimum_market_neutral_edge_ratio: 0.50
+    minimum_sector_neutral_edge_ratio: 0.50
+    minimum_known_factor_neutral_edge_ratio: 0.50
+    regression_variance_epsilon: 0.000000000001
+    minimum_regime_observations: 20
+    minimum_regime_pass_fraction: 0.67
+    minimum_regime_mean_net_return: 0.0
+    minimum_ablation_edge_ratio: 0.50
+    minimum_ablation_pass_fraction: 0.75
+    numeric_tolerance: 0.000000000001

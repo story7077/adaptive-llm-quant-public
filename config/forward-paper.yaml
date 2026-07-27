@@ -1,0 +1,68 @@
+version: forward_paper_v1
+
+order_enabled_arms:
+  - B0-CASH
+  - B0-QQQ
+  - B0-VOL
+  - B3-RISK
+
+evaluation:
+  version: forward_evaluation_v1
+  primary_matched_comparison: [B3-RISK, B0-VOL]
+  interpretation: AI_RISK_LAYER_PLUS_TRANSITION_VS_IDENTICAL_VOL_CORE_TRANSITION
+  inactive_design_comparison: [B3-RISK, B2]
+
+baseline_contract:
+  version: b0_forward_core_v1
+  rebalance_time_et: "15:45"
+  qqq_buy_and_hold_weight: 1.0
+  target_annualized_vol: 0.12
+  vol_lookback_trading_days: 20
+  min_rebalance_weight_delta: 0.05
+  cash_symbol: USD_CASH
+  core_symbol: QQQ
+  benchmark_core_cap_exempt_arms: [B0-QQQ, B0-VOL, B3-RISK]
+
+transition:
+  version: inherited_account_transition_v1
+  max_one_way_daily_turnover: 0.25
+  min_order_notional_usd: 1.00
+  buy_cash_reserve_fraction: 0.01
+  spend_unsettled_sale_proceeds: false
+  sell_priority:
+    - LEVERAGED
+    - SEMICONDUCTOR_SELL_ONLY
+    - OTHER_SURPLUS
+
+loss_controls:
+  version: b3_loss_guard_v1
+  applies_to_arms: [B3-RISK]
+  benchmark_controls_remain_pure: true
+  force_reduce_core_fraction: 0.50
+  force_reduce_priority:
+    - FLATTEN_LEVERAGED_ETFS
+    - REDUCE_SEMICONDUCTOR_CLUSTER_TO_CAP
+    - REDUCE_QQQ_CORE_TO_LATCHED_TARGET
+
+execution:
+  version: iex_quote_toss_cost_v1
+  poll_minutes: 1
+  displayed_side_participation_fraction: 0.10
+  max_20d_iex_adv_fraction: 0.025
+  decision_price_guard_bps: 100
+  quantity_precision: "0.000001"
+  execution_scenario_id: iex_quote_toss_2026_05_14_v1
+
+strategy_candidates:
+  version: forward_candidate_registry_v1
+  record_at_et: "15:45"
+  strategies:
+    T1:
+      version: t1_v1
+      blocked_reason: PIT_SOXX_MEMBERSHIP_AND_OOS_CALIBRATION_REQUIRED
+    R1:
+      version: r1_v1
+      blocked_reason: COMPLETE_INTRADAY_AND_SAME_CLOCK_HISTORY_AND_OOS_CALIBRATION_REQUIRED
+    X1:
+      version: x1_v1
+      blocked_reason: TRADING_GRADE_PIT_CANDIDATES_AND_VERSIONED_OOS_CALIBRATION_REQUIRED

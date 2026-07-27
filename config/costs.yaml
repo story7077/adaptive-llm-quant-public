@@ -1,0 +1,21 @@
+version: toss_us_equities_2026_05_14_v1
+effective_from: "2026-05-14T00:00:00Z"
+commission:
+  source: "https://p.tossinvest.com/ko/open-api"
+  source_reviewed_at: "2026-07-26T00:00:00Z"
+  us_equity_rate: 0.001
+  waive_if_order_total_usd_lte: 10.00
+regulatory_fees:
+  source: pending_adapter_verification
+  sell_rate: 0.0
+execution:
+  conservative_half_spread_bps: 4.0
+  delay_penalty_bps: 1.0
+  impact_bps: 0.0
+fx:
+  policy_version: fx_disabled_phase0_usd_base
+  conversion_cost_bps: 0.0
+notes:
+  - "Official Toss Open API page states a 0.1% US equity commission."
+  - "Taxes, regulatory charges, and FX costs remain versioned but are not invented in Phase 0."
+

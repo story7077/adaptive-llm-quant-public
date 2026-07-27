@@ -1,0 +1,44 @@
+version: alpaca_paper_canary_v1
+execution_lane: ALPACA_PAPER_CANARY
+provider: ALPACA
+rest_base_url: https://paper-api.alpaca.markets
+source_arm: Q1-LLM
+allowed_symbols: [QQQ, SOXX]
+real_order_routing: false
+
+activation:
+  environment_gate: TRADING_Q1_ALPACA_PAPER_ENABLED
+  require_clean_account_on_first_bind: true
+  require_dedicated_account: true
+  reject_foreign_open_orders: true
+  reject_foreign_positions: true
+
+orders:
+  order_type: limit
+  time_in_force: day
+  extended_hours: false
+  whole_shares_only: true
+  minimum_order_notional_usd: 25.0
+  limit_offset_bps: 2.0
+  price_increment_usd: 0.01
+  client_order_id_prefix: q1p
+  maximum_client_order_id_length: 128
+  maximum_open_orders_per_symbol: 1
+  no_risk_increase_after_et: "13:00"
+
+transport:
+  request_timeout_seconds: 10
+  reconciliation_lookup_attempts: 3
+  reconciliation_lookup_interval_seconds: 2
+  maximum_consecutive_failures: 3
+
+market_data:
+  maximum_quote_age_seconds: 15
+  maximum_multi_symbol_quote_skew_seconds: 2
+  required_stream_status: CONNECTED
+
+reconciliation:
+  account_snapshot_interval_seconds: 5
+  order_history_limit: 500
+  fill_activity_page_size: 100
+  unknown_outcome_state: BLOCKED_BY_BROKER_RECONCILIATION

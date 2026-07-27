@@ -1,0 +1,25 @@
+version: strategies_v1
+T1:
+  enabled: true
+  horizon: H5D
+  decision_time_et: "15:45"
+  signal_floor: 0.5
+  risk_unit_horizon_vol: 0.01
+  max_risk_units: 1.5
+R1:
+  enabled: true
+  horizon: H4
+  decision_times_et: ["11:00", "14:00"]
+  signal_floor: 2.0
+  max_holding_minutes: 240
+  overnight_allowed: false
+  risk_unit_horizon_vol: 0.01
+  max_risk_units: 0.5
+X1:
+  enabled: true
+  horizon: H5D
+  decision_time_et: "15:45"
+  lookbacks: [21, 63]
+  risk_unit_horizon_vol: 0.01
+  max_risk_units: 1.5
+

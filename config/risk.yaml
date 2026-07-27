@@ -1,0 +1,25 @@
+version: risk_v2
+risk:
+  soft_daily_loss_fraction: 0.015
+  hard_daily_loss_fraction: 0.025
+  block_entries_drawdown_fraction: 0.08
+  force_reduce_drawdown_fraction: 0.12
+  max_forecast_annualized_vol: 0.15
+  max_single_symbol_weight: 0.35
+  max_semiconductor_cluster_weight: 0.55
+  max_leveraged_etf_weight: 0.15
+  max_combined_leveraged_etf_weight: 0.20
+  grandfather_existing_breaches: true
+  block_orders_that_increase_existing_breach: true
+  max_one_way_daily_turnover: 0.25
+  max_quote_age_seconds_regular: 15
+  max_quote_skew_seconds: 20
+  max_quote_age_seconds_research: 300
+  max_spread_bps:
+    QQQ: 15
+    SOXX: 25
+    SMH: 25
+    XLK: 20
+    default: 40
+  max_reconciliation_mismatch_usd: 1.00
+  max_repeated_order_rejections: 3
