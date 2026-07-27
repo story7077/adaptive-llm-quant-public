@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from trading.domain.hashing import canonical_hash, canonical_json
+from trading.runtime.provenance import workspace_code_version
 from trading.settings import EXPECTED_ARMS, Settings, load_config_bundle
 
 
@@ -21,6 +22,25 @@ def test_canonical_hash_supports_versioned_session_dates() -> None:
     assert canonical_json({"session_date": date(2026, 7, 27)}) == (
         '{"session_date":"2026-07-27"}'
     )
+
+
+def test_workspace_code_version_is_line_ending_invariant(tmp_path: Path) -> None:
+    paths = (
+        tmp_path / "pyproject.toml",
+        tmp_path / "alembic.ini",
+        tmp_path / "src" / "trading" / "module.py",
+        tmp_path / "migrations" / "versions" / "0001_example.py",
+        tmp_path / "migrations" / "script.py.mako",
+    )
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"first\r\nsecond\r\n")
+
+    windows_version = workspace_code_version(tmp_path)
+    for path in paths:
+        path.write_bytes(b"first\nsecond\n")
+
+    assert workspace_code_version(tmp_path) == windows_version
 
 
 def test_all_configs_validate(repository_root) -> None:
