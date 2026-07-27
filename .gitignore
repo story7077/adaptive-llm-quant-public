@@ -1,0 +1,58 @@
+# Local credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+.local/
+config/paper-account.yaml
+config/providers.yaml
+
+# Research/browser raw material
+data/raw/**
+!data/raw/.gitignore
+runs/
+artifacts/
+browser-profile/
+chrome-profile/
+user-data-dir/
+playwright-report/
+test-results/
+*.har
+*.trace.zip
+cookies*.json
+storage-state*.json
+
+# Private keys and credential containers
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Python and test/build output
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
+.venv/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Local databases, logs, and editor/OS files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+node_modules/
