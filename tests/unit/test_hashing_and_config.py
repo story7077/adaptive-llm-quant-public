@@ -43,6 +43,33 @@ def test_workspace_code_version_is_line_ending_invariant(tmp_path: Path) -> None
     assert workspace_code_version(tmp_path) == windows_version
 
 
+def test_workspace_code_version_includes_challenger_source(tmp_path: Path) -> None:
+    required_paths = (
+        tmp_path / "pyproject.toml",
+        tmp_path / "alembic.ini",
+        tmp_path / "src" / "trading" / "module.py",
+        tmp_path / "migrations" / "versions" / "0001_example.py",
+        tmp_path / "migrations" / "script.py.mako",
+    )
+    for path in required_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("stable\n", encoding="utf-8")
+
+    baseline = workspace_code_version(tmp_path)
+    challenger = (
+        tmp_path
+        / "src"
+        / "trading"
+        / "strategies"
+        / "challengers"
+        / "example.py"
+    )
+    challenger.parent.mkdir(parents=True)
+    challenger.write_text("VERSION = '1.0.0'\n", encoding="utf-8")
+
+    assert workspace_code_version(tmp_path) != baseline
+
+
 def test_all_configs_validate(repository_root) -> None:
     bundle = load_config_bundle(repository_root / "config")
     assert tuple(bundle.get("experiments.yaml")["arms"]) == EXPECTED_ARMS
