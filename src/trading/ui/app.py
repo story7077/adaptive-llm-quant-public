@@ -567,6 +567,8 @@ def create_app(
     app.state.paper_cycles = paper_cycles
     app.state.database_engine = engine
     app.state.webgpt_readiness = None
+    app.state.history_last_refresh = None
+    app.state.history_last_error = None
     app.state.q1_worker_state = (
         "STATUS_ONLY_PAPER_RUNTIME_DISABLED"
         if q1_mode
@@ -813,11 +815,18 @@ def create_app(
         timeframe: str = "1Min",
         limit: int = Query(120, ge=1, le=500),
     ) -> dict[str, Any]:
-        return live_market_service.snapshot(
+        snapshot = live_market_service.snapshot(
             symbol=symbol,
             timeframe=timeframe,
             limit=limit,
         )
+        snapshot["history_refresh"] = history_refresh_status(
+            enabled=active_settings.market_data_enabled,
+            configured=active_settings.has_alpaca_credentials,
+            last_refresh=app.state.history_last_refresh,
+            last_error=app.state.history_last_error,
+        )
+        return snapshot
 
     @app.get("/api/control/schema")
     def output_schema() -> dict[str, Any]:
@@ -896,6 +905,45 @@ async def _periodic_history_backfill(
                     "inserted": result.inserted,
                     "at": result.end.isoformat(),
                 }
+
+
+def history_refresh_status(
+    *,
+    enabled: bool,
+    configured: bool,
+    last_refresh: dict[str, Any] | None,
+    last_error: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not enabled:
+        status = "DISABLED"
+    elif not configured:
+        status = "AUTH_REQUIRED"
+    elif last_error is not None:
+        status = "ERROR"
+    elif last_refresh is not None:
+        status = "READY"
+    else:
+        status = "PENDING"
+    return {
+        "status": status,
+        "last_success": (
+            None
+            if last_refresh is None
+            else {
+                "fetched": last_refresh.get("fetched"),
+                "inserted": last_refresh.get("inserted"),
+                "at": last_refresh.get("at"),
+            }
+        ),
+        "last_error": (
+            None
+            if last_error is None
+            else {
+                "error_code": last_error.get("error_code"),
+                "at": last_error.get("at"),
+            }
+        ),
+    }
 
 
 def _factorial_status(

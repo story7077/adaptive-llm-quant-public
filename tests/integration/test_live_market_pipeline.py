@@ -15,7 +15,7 @@ from trading.data.market_repository import MarketDataRepository
 from trading.domain.contracts import MarketBar, MarketQuote, MarketTradeEvent
 from trading.domain.enums import MarketConnectionState
 from trading.domain.time import FrozenClock
-from trading.ui.app import create_app
+from trading.ui.app import create_app, history_refresh_status
 
 
 def test_append_only_market_data_dedupes_and_projects_latest_bar_revision(
@@ -149,9 +149,45 @@ def test_market_snapshot_api_keeps_live_market_separate_from_synthetic_portfolio
     assert live.json()["source"]["provider"] == "alpaca"
     assert live.json()["source"]["connection_state"] == "AUTH_REQUIRED"
     assert live.json()["filters"]["selected_symbol"] == "SOXL"
+    assert live.json()["history_refresh"] == {
+        "status": "AUTH_REQUIRED",
+        "last_success": None,
+        "last_error": None,
+    }
     assert synthetic.status_code == 200
     assert synthetic.json()["source"]["mode"] == "SYNTHETIC"
     assert invalid.status_code == 400
+
+
+def test_history_refresh_status_exposes_only_sanitized_failure_metadata() -> None:
+    status = history_refresh_status(
+        enabled=True,
+        configured=True,
+        last_refresh={
+            "fetched": 242,
+            "inserted": 2,
+            "at": "2026-07-29T00:24:06+00:00",
+            "detail": "success metadata must also remain bounded",
+        },
+        last_error={
+            "error_code": "RUNTIMEERROR",
+            "detail": "credential-shaped detail must remain private",
+            "at": "2026-07-29T06:24:06+00:00",
+        },
+    )
+
+    assert status == {
+        "status": "ERROR",
+        "last_success": {
+            "fetched": 242,
+            "inserted": 2,
+            "at": "2026-07-29T00:24:06+00:00",
+        },
+        "last_error": {
+            "error_code": "RUNTIMEERROR",
+            "at": "2026-07-29T06:24:06+00:00",
+        },
+    }
 
 
 def _bar(
