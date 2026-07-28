@@ -184,6 +184,30 @@ automatically, feed memory to a model, promote a Challenger, or create orders.
 See [Recursive improvement](research/recursive-improvement.md) and
 [Experiment outcome ledger](research/experiment-outcome-ledger.md).
 
+### Portfolio-level Delta-Sharpe and OOS V2 (PR 3)
+
+Migration `0016_portfolio_delta_sharpe_v2` stores one append-only
+`PortfolioComparisonContractV1` per registered Candidate artifact. Create and
+persist that allocation/integration contract before reserving OOS budget.
+Creation after an OOS reservation or result fails closed.
+
+The production V2 lockbox uses a fresh worker and private-root dataset exactly
+like V1, while binding the full-portfolio comparison contract. It returns only
+bounded aggregate Sharpes, DeltaSharpe confidence bounds, cost-stress results,
+reason codes, and hashes. Never copy private rows or raw bootstrap samples to
+logs, the database, UI, Commander, Builder, or a public artifact.
+
+`research status` reports
+`recursive_improvement.portfolio_delta_sharpe.status=IMPLEMENTED_DISABLED` and
+the immutable comparison-contract count. There is intentionally no CLI that
+lets an operator inject daily returns. OOS production calls must use the
+trusted Candidate evaluation producer and `OosLockboxServiceV2`.
+
+Promotion V2 independently requires positive configured OOS and shadow
+DeltaSharpe lower bounds plus the worst-cost gate and all legacy risk,
+capacity, replay, and falsification gates. It can only produce eligibility;
+manual approval and explicit Champion designation remain separate.
+
 Select exactly one Research Commander with optimistic version checking:
 
 ```powershell

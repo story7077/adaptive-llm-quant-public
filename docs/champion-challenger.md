@@ -135,13 +135,18 @@ Promotion criteria include:
 - acceptable error rate;
 - reproducible replay;
 - all mandatory tests passing.
+- for V2, independently passing OOS and shadow whole-portfolio DeltaSharpe
+  lower bounds, the worst-cost lower bound, and the pre-OOS allocation binding.
 
 Meeting every criterion creates `ELIGIBLE_REQUIRES_MANUAL_APPROVAL`.
 `automatic_promotion_enabled=true` is rejected by the domain contract.
 
 ## Trusted production promotion path
 
-Production eligibility is derived only from `TrustedPromotionEvaluationV1`.
+Legacy eligibility is derived from `TrustedPromotionEvaluationV1`. New
+whole-portfolio evaluations use `TrustedPromotionEvaluationV2`; V2 keeps every
+V1 gate and additionally binds `PortfolioComparisonContractV1`,
+`OosLockboxResultV2`, and `TrustedShadowPerformanceSummaryV2`.
 The older caller-supplied boolean promotion helper is retained for legacy test
 readability and is not exposed through the CLI or UI.
 
@@ -174,8 +179,10 @@ broker order.
 Migration `0011_trusted_promotion_designation` introduces the append-only shadow
 summary, promotion evidence, trusted evaluation, and Champion designation
 tables. Migration `0013_candidate_artifact_registry` adds the immutable
-ResearchRequest/Proposal/Manifest-bound Candidate build handoff. It is the
-repository migration head.
+ResearchRequest/Proposal/Manifest-bound Candidate build handoff. Migration
+`0016_portfolio_delta_sharpe_v2` adds the immutable pre-OOS portfolio comparison
+contract. V2 evidence and evaluations use the existing append-only evidence and
+evaluation stores without changing the human designation boundary.
 
 ## Example Challenger
 

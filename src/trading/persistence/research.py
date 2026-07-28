@@ -21,6 +21,7 @@ from trading.persistence.models import (
     FalsificationReportRow,
     OosBudgetReservationRow,
     OosLockboxResultRow,
+    PortfolioComparisonContractRow,
     ResearchCandidateArtifactRow,
     ResearchChampionDesignationRow,
     ResearchCommanderSelectionRow,
@@ -51,6 +52,18 @@ from trading.research.contracts import (
     ResearchRequestV1,
 )
 from trading.research.experiment_outcomes import AlgorithmProposalV2
+from trading.research.oos_v2 import OosLockboxResultV2
+from trading.research.portfolio_delta_sharpe import (
+    PortfolioComparisonContractV1,
+)
+from trading.research.promotion_v2 import (
+    PromotionEvaluationContractV2,
+    PromotionEvidenceV2,
+    TrustedPromotionEvaluationV2,
+    TrustedShadowPerformanceSummaryV2,
+    build_promotion_evidence_v2,
+    evaluate_trusted_promotion_evidence_v2,
+)
 from trading.research.v2_contracts import (
     ResearchDecisionV2,
     ResearchRequestV2,
@@ -61,6 +74,7 @@ if TYPE_CHECKING:
         ExperimentOutcomeRepository,
     )
     from trading.persistence.meta_controller import MetaControllerRepository
+    from trading.persistence.portfolio_sharpe import PortfolioSharpeRepository
     from trading.research.oos_lockbox import OosEvaluationRequest
 from trading.research.evidence import ResearchEvidenceBundleV1
 from trading.research.promotion import REQUIRED_PROMOTION_CRITERIA
@@ -159,6 +173,15 @@ class ResearchRepository:
         )
 
         return MetaControllerRepository(self._session_factory)
+
+    def portfolio_sharpe(self) -> PortfolioSharpeRepository:
+        """Return the trusted whole-portfolio comparison repository."""
+
+        from trading.persistence.portfolio_sharpe import (
+            PortfolioSharpeRepository,
+        )
+
+        return PortfolioSharpeRepository(self._session_factory)
 
     def select_commander(
         self,
@@ -453,31 +476,62 @@ class ResearchRepository:
                     raise ResearchPersistenceError(
                         "AlgorithmProposalV2 ID hash conflict"
                     )
-                return proposal.proposal_id
-            session.add(
-                AlgorithmProposalV2Row(
-                    proposal_id=proposal.proposal_id,
-                    research_cycle_id=cycle.research_cycle_id,
-                    hypothesis_id=proposal.hypothesis_id,
-                    parent_strategy_id=proposal.parent_strategy_id,
-                    parent_strategy_version=(
-                        proposal.parent_strategy_version
-                    ),
-                    proposed_strategy_id=proposal.proposed_strategy_id,
-                    proposed_strategy_version=(
-                        proposal.proposed_strategy_version
-                    ),
-                    primary_action_kind=(
-                        proposal.primary_action_kind.value
-                    ),
-                    action_plan_hash=(
-                        decision.research_action_plan_hash
-                    ),
-                    proposal_hash=proposal.proposal_hash,
-                    payload_json=model_payload(proposal),
-                    created_at=received,
+            else:
+                session.add(
+                    AlgorithmProposalV2Row(
+                        proposal_id=proposal.proposal_id,
+                        research_cycle_id=cycle.research_cycle_id,
+                        hypothesis_id=proposal.hypothesis_id,
+                        parent_strategy_id=proposal.parent_strategy_id,
+                        parent_strategy_version=(
+                            proposal.parent_strategy_version
+                        ),
+                        proposed_strategy_id=proposal.proposed_strategy_id,
+                        proposed_strategy_version=(
+                            proposal.proposed_strategy_version
+                        ),
+                        primary_action_kind=(
+                            proposal.primary_action_kind.value
+                        ),
+                        action_plan_hash=(
+                            decision.research_action_plan_hash
+                        ),
+                        proposal_hash=proposal.proposal_hash,
+                        payload_json=model_payload(proposal),
+                        created_at=received,
+                    )
                 )
+            compatibility = session.get(
+                AlgorithmProposalRow,
+                proposal.proposal_id,
             )
+            if compatibility is not None:
+                if compatibility.proposal_hash != proposal.proposal_hash:
+                    raise ResearchPersistenceError(
+                        "AlgorithmProposalV2 compatibility-row conflict"
+                    )
+            else:
+                session.add(
+                    AlgorithmProposalRow(
+                        proposal_id=proposal.proposal_id,
+                        research_cycle_id=cycle.research_cycle_id,
+                        hypothesis_id=proposal.hypothesis_id,
+                        parent_strategy_id=proposal.parent_strategy_id,
+                        parent_strategy_version=(
+                            proposal.parent_strategy_version
+                        ),
+                        proposed_strategy_id=proposal.proposed_strategy_id,
+                        proposed_strategy_version=(
+                            proposal.proposed_strategy_version
+                        ),
+                        proposal_hash=proposal.proposal_hash,
+                        evidence_manifest_hash=canonical_hash(
+                            sorted(proposal.evidence_source_ids)
+                        ),
+                        payload_json=model_payload(proposal),
+                        created_at=received,
+                    )
+                )
             return proposal.proposal_id
 
     def store_evidence_bundle(
@@ -571,7 +625,9 @@ class ResearchRepository:
             if proposal_row is None:
                 raise ResearchPersistenceError("unknown accepted proposal")
             try:
-                proposal = AlgorithmProposalV1.model_validate(proposal_row.payload_json)
+                proposal = _algorithm_proposal_from_payload(
+                    proposal_row.payload_json
+                )
             except ValueError as exc:
                 raise ResearchPersistenceError("stored proposal payload is invalid") from exc
             cycle = session.get(
@@ -682,8 +738,12 @@ class ResearchRepository:
             if cycle_row is None:
                 raise ResearchPersistenceError("candidate artifact Research cycle is missing")
             try:
-                request = ResearchRequestV1.model_validate(cycle_row.payload_json)
-                proposal = AlgorithmProposalV1.model_validate(proposal_row.payload_json)
+                request = _research_request_from_payload(
+                    cycle_row.payload_json
+                )
+                proposal = _algorithm_proposal_from_payload(
+                    proposal_row.payload_json
+                )
                 manifest = ChallengerManifestV1.model_validate(manifest_row.payload_json)
                 bundle.assert_bound_to(
                     request=request,
@@ -1389,6 +1449,181 @@ class ResearchRepository:
             )
             return True
 
+    def store_oos_result_v2(
+        self,
+        result: OosLockboxResultV2,
+        *,
+        created_at: datetime,
+        candidate_artifact_hash: str,
+        champion_shadow: ShadowArmIdentity | None = None,
+        challenger_shadow: ShadowArmIdentity | None = None,
+    ) -> bool:
+        """Persist one portfolio-level OOS result and atomically apply its gate."""
+
+        timestamp = require_aware_utc(created_at)
+        if result.candidate_artifact_hash != candidate_artifact_hash:
+            raise ResearchPersistenceError(
+                "OOS V2 result Candidate artifact binding mismatch"
+            )
+        with self._session_factory.begin() as session:
+            manifest = self._challenger_for_update(
+                session,
+                result.challenger_id,
+            )
+            candidate = self._require_registered_candidate_artifact(
+                session,
+                challenger_id=result.challenger_id,
+                candidate_artifact_hash=candidate_artifact_hash,
+            )
+            comparison_row = session.scalar(
+                select(PortfolioComparisonContractRow).where(
+                    PortfolioComparisonContractRow.challenger_id
+                    == result.challenger_id,
+                    PortfolioComparisonContractRow.candidate_artifact_hash
+                    == candidate_artifact_hash,
+                    PortfolioComparisonContractRow.contract_hash
+                    == result.portfolio_comparison_contract_hash,
+                )
+            )
+            if comparison_row is None:
+                raise ResearchPersistenceError(
+                    "OOS V2 requires its immutable portfolio contract"
+                )
+            comparison = PortfolioComparisonContractV1.model_validate(
+                comparison_row.payload_json
+            )
+            if (
+                comparison.candidate_artifact_hash != candidate.bundle_hash
+                or comparison.created_at > result.evaluated_at
+                or not result.portfolio_contract_binding_valid
+                or not result.allocation_policy_fixed_before_oos
+            ):
+                raise ResearchPersistenceError(
+                    "OOS V2 portfolio contract binding is invalid"
+                )
+            passed_report = session.scalar(
+                select(FalsificationReportRow).where(
+                    FalsificationReportRow.challenger_id
+                    == result.challenger_id,
+                    FalsificationReportRow.mandatory_passed.is_(True),
+                )
+            )
+            passed_replay = session.scalar(
+                select(ResearchReplayArtifactRow).where(
+                    ResearchReplayArtifactRow.challenger_id
+                    == result.challenger_id,
+                    ResearchReplayArtifactRow.candidate_artifact_hash
+                    == candidate_artifact_hash,
+                    ResearchReplayArtifactRow.deterministic_match.is_(True),
+                )
+            )
+            if passed_report is None or passed_replay is None:
+                raise ResearchPersistenceError(
+                    "OOS V2 requires falsification and replay"
+                )
+            parsed_report = FalsificationReportV1.model_validate(
+                passed_report.payload_json
+            )
+            self._require_falsification_bindings(
+                parsed_report,
+                candidate_artifact_hash=candidate.bundle_hash,
+                evaluation_contract_hash=result.evaluation_contract_hash,
+                data_manifest_hash=passed_replay.data_manifest_hash,
+                replay_hash=passed_replay.artifact_hash,
+            )
+            if result.experiment_family != manifest.experiment_family:
+                raise ResearchPersistenceError(
+                    "OOS V2 experiment family does not match Challenger"
+                )
+            existing = session.scalar(
+                select(OosLockboxResultRow).where(
+                    OosLockboxResultRow.challenger_id
+                    == result.challenger_id,
+                    OosLockboxResultRow.submission_number
+                    == result.submission_number,
+                )
+            )
+            if existing is not None:
+                if existing.result_hash != result.result_hash:
+                    raise ResearchPersistenceError(
+                        "OOS V2 submission hash conflict"
+                    )
+                return False
+            current = self._current_challenger_status(session, manifest)
+            if current is not ChallengerStatus.PROPOSED:
+                raise ResearchPersistenceError(
+                    f"OOS V2 requires PROPOSED, got {current.value}"
+                )
+            if result.verdict is OosVerdict.PASS:
+                if champion_shadow is None or challenger_shadow is None:
+                    raise ResearchPersistenceError(
+                        "passed OOS V2 requires matched shadow arms"
+                    )
+                self._validate_shadow_pair(
+                    session,
+                    manifest=manifest,
+                    champion=champion_shadow,
+                    challenger=challenger_shadow,
+                )
+            elif champion_shadow is not None or challenger_shadow is not None:
+                raise ResearchPersistenceError(
+                    "failed OOS V2 cannot register shadow arms"
+                )
+            oos_result_id = stable_id(
+                "oos-result-v2",
+                result.challenger_id,
+                result.submission_number,
+                result.portfolio_comparison_contract_hash,
+            )
+            session.add(
+                OosLockboxResultRow(
+                    oos_result_id=oos_result_id,
+                    challenger_id=result.challenger_id,
+                    experiment_family=result.experiment_family,
+                    submission_number=result.submission_number,
+                    candidate_artifact_hash=result.candidate_artifact_hash,
+                    evaluation_contract_hash=result.evaluation_contract_hash,
+                    verdict=result.verdict.value,
+                    common_sessions=result.common_sessions,
+                    result_hash=result.result_hash,
+                    payload_json=model_payload(result),
+                    evaluated_at=result.evaluated_at,
+                    created_at=timestamp,
+                )
+            )
+            if result.verdict is OosVerdict.FAIL:
+                self._append_challenger_transition(
+                    session,
+                    manifest=manifest,
+                    to_status=ChallengerStatus.OOS_REJECTED,
+                    reason_code="PORTFOLIO_DELTA_SHARPE_OOS_REJECTED",
+                    artifact_hash=result.result_hash,
+                    idempotency_key=f"oos-v2-rejected:{result.result_hash}",
+                    created_at=timestamp,
+                )
+                return True
+            assert champion_shadow is not None
+            assert challenger_shadow is not None
+            self._register_shadow_pair(
+                session,
+                manifest=manifest,
+                oos_result_id=oos_result_id,
+                result_hash=result.result_hash,
+                champion=champion_shadow,
+                challenger=challenger_shadow,
+                created_at=timestamp,
+            )
+            self._append_challenger_transition(
+                session,
+                manifest=manifest,
+                to_status=ChallengerStatus.SHADOW_PENDING,
+                reason_code="PORTFOLIO_DELTA_SHARPE_OOS_PASSED",
+                artifact_hash=result.result_hash,
+                idempotency_key=f"shadow-v2-pending:{result.result_hash}",
+                created_at=timestamp,
+            )
+            return True
+
     def start_shadow_evaluation(
         self,
         *,
@@ -1443,6 +1678,28 @@ class ResearchRepository:
                 )
             )
             return None if row is None else OosLockboxResultV1.model_validate(row.payload_json)
+
+    def oos_result_v2(
+        self,
+        *,
+        challenger_id: str,
+        submission_number: int,
+    ) -> OosLockboxResultV2 | None:
+        with self._session_factory() as session:
+            row = session.scalar(
+                select(OosLockboxResultRow).where(
+                    OosLockboxResultRow.challenger_id == challenger_id,
+                    OosLockboxResultRow.submission_number == submission_number,
+                )
+            )
+            if row is None:
+                return None
+            try:
+                return OosLockboxResultV2.model_validate(row.payload_json)
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "stored OOS result is not V2"
+                ) from exc
 
     def shadow_pair(self, challenger_id: str) -> tuple[dict[str, Any], ...]:
         with self._session_factory() as session:
@@ -1508,6 +1765,128 @@ class ResearchRepository:
                     run_id=summary.run_id,
                     source_summary_hash=summary.source_summary.summary_hash,
                     materialized_evidence_hash=(summary.materialized_evidence_hash),
+                    summary_hash=summary.summary_hash,
+                    common_sessions=summary.forward_sessions,
+                    data_available_cutoff=summary.data_available_cutoff,
+                    payload_json=model_payload(summary),
+                    created_at=summary.created_at,
+                )
+            )
+            return True
+
+    def record_shadow_performance_summary_v2(
+        self,
+        summary: TrustedShadowPerformanceSummaryV2,
+    ) -> bool:
+        """Persist aggregate-only paired portfolio Sharpe shadow evidence."""
+
+        with self._session_factory.begin() as session:
+            manifest = self._challenger_for_update(
+                session,
+                summary.challenger_id,
+            )
+            existing = session.get(
+                ResearchShadowPerformanceSummaryRow,
+                summary.summary_id,
+            )
+            if existing is not None:
+                if existing.summary_hash != summary.summary_hash:
+                    raise ResearchPersistenceError(
+                        "shadow V2 performance summary hash conflict"
+                    )
+                return False
+            if (
+                self._current_challenger_status(session, manifest)
+                is not ChallengerStatus.SHADOW_RUNNING
+            ):
+                raise ResearchPersistenceError(
+                    "shadow V2 summary requires SHADOW_RUNNING"
+                )
+            comparison_row = session.scalar(
+                select(PortfolioComparisonContractRow).where(
+                    PortfolioComparisonContractRow.challenger_id
+                    == summary.challenger_id,
+                    PortfolioComparisonContractRow.contract_hash
+                    == summary.portfolio_comparison_contract_hash,
+                    PortfolioComparisonContractRow.candidate_artifact_hash
+                    == summary.candidate_artifact_hash,
+                )
+            )
+            if comparison_row is None:
+                raise ResearchPersistenceError(
+                    "shadow V2 summary lost its portfolio contract"
+                )
+            comparison = PortfolioComparisonContractV1.model_validate(
+                comparison_row.payload_json
+            )
+            if (
+                comparison.champion_portfolio_manifest_hash
+                != summary.champion_portfolio_manifest_hash
+                or comparison.candidate_portfolio_manifest_hash
+                != summary.candidate_portfolio_manifest_hash
+            ):
+                raise ResearchPersistenceError(
+                    "shadow V2 portfolio manifest binding mismatch"
+                )
+            registrations = tuple(
+                session.scalars(
+                    select(ResearchShadowArmRegistrationRow).where(
+                        ResearchShadowArmRegistrationRow.challenger_id
+                        == summary.challenger_id
+                    )
+                )
+            )
+            if (
+                len(registrations) != 2
+                or {item.shadow_pair_id for item in registrations}
+                != {summary.shadow_pair_id}
+                or {item.execution_contract_hash for item in registrations}
+                != {summary.execution_contract_hash}
+                or any(item.real_order_routing for item in registrations)
+            ):
+                raise ResearchPersistenceError(
+                    "shadow V2 matched execution binding mismatch"
+                )
+            oos_row = session.scalar(
+                select(OosLockboxResultRow).where(
+                    OosLockboxResultRow.challenger_id
+                    == summary.challenger_id,
+                    OosLockboxResultRow.candidate_artifact_hash
+                    == summary.candidate_artifact_hash,
+                    OosLockboxResultRow.verdict == OosVerdict.PASS.value,
+                )
+            )
+            if oos_row is None:
+                raise ResearchPersistenceError(
+                    "shadow V2 summary requires passed OOS V2"
+                )
+            try:
+                oos = OosLockboxResultV2.model_validate(
+                    oos_row.payload_json
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "shadow V2 summary requires an OOS V2 result"
+                ) from exc
+            if (
+                oos.portfolio_comparison_contract_hash
+                != summary.portfolio_comparison_contract_hash
+            ):
+                raise ResearchPersistenceError(
+                    "shadow and OOS portfolio contracts differ"
+                )
+            session.add(
+                ResearchShadowPerformanceSummaryRow(
+                    summary_id=summary.summary_id,
+                    challenger_id=summary.challenger_id,
+                    shadow_pair_id=summary.shadow_pair_id,
+                    run_id=summary.run_id,
+                    source_summary_hash=(
+                        summary.materialized_evidence_hash
+                    ),
+                    materialized_evidence_hash=(
+                        summary.materialized_evidence_hash
+                    ),
                     summary_hash=summary.summary_hash,
                     common_sessions=summary.forward_sessions,
                     data_available_cutoff=summary.data_available_cutoff,
@@ -1636,6 +2015,181 @@ class ResearchRepository:
                 created_at=timestamp,
             )
 
+    def build_trusted_promotion_evidence_v2(
+        self,
+        *,
+        challenger_id: str,
+        created_at: datetime,
+    ) -> PromotionEvidenceV2:
+        timestamp = require_aware_utc(created_at)
+        with self._session_factory() as session:
+            manifest = session.get(ChallengerManifestRow, challenger_id)
+            if manifest is None:
+                raise ResearchPersistenceError("unknown Challenger")
+            summary_rows = tuple(
+                session.scalars(
+                    select(ResearchShadowPerformanceSummaryRow)
+                    .where(
+                        ResearchShadowPerformanceSummaryRow.challenger_id
+                        == challenger_id
+                    )
+                    .order_by(
+                        desc(
+                            ResearchShadowPerformanceSummaryRow.data_available_cutoff
+                        ),
+                        desc(
+                            ResearchShadowPerformanceSummaryRow.created_at
+                        ),
+                        desc(
+                            ResearchShadowPerformanceSummaryRow.summary_id
+                        ),
+                    )
+                )
+            )
+            summary: TrustedShadowPerformanceSummaryV2 | None = None
+            summary_row: ResearchShadowPerformanceSummaryRow | None = None
+            for candidate_row in summary_rows:
+                try:
+                    candidate_summary = (
+                        TrustedShadowPerformanceSummaryV2.model_validate(
+                            candidate_row.payload_json
+                        )
+                    )
+                except ValueError:
+                    continue
+                summary = candidate_summary
+                summary_row = candidate_row
+                break
+            if summary is None or summary_row is None:
+                raise ResearchPersistenceError(
+                    "promotion V2 requires a shadow V2 summary"
+                )
+            oos_rows = tuple(
+                session.scalars(
+                    select(OosLockboxResultRow)
+                    .where(
+                        OosLockboxResultRow.challenger_id == challenger_id,
+                        OosLockboxResultRow.candidate_artifact_hash
+                        == summary.candidate_artifact_hash,
+                        OosLockboxResultRow.verdict
+                        == OosVerdict.PASS.value,
+                    )
+                    .order_by(
+                        OosLockboxResultRow.submission_number,
+                        OosLockboxResultRow.evaluated_at,
+                        OosLockboxResultRow.oos_result_id,
+                    )
+                )
+            )
+            oos: OosLockboxResultV2 | None = None
+            oos_row: OosLockboxResultRow | None = None
+            for candidate_row in oos_rows:
+                try:
+                    candidate_oos = OosLockboxResultV2.model_validate(
+                        candidate_row.payload_json
+                    )
+                except ValueError:
+                    continue
+                oos = candidate_oos
+                oos_row = candidate_row
+                break
+            falsification_row = session.scalar(
+                select(FalsificationReportRow).where(
+                    FalsificationReportRow.challenger_id == challenger_id,
+                    FalsificationReportRow.mandatory_passed.is_(True),
+                )
+            )
+            replay_row = session.scalar(
+                select(ResearchReplayArtifactRow).where(
+                    ResearchReplayArtifactRow.challenger_id == challenger_id,
+                    ResearchReplayArtifactRow.candidate_artifact_hash
+                    == summary.candidate_artifact_hash,
+                    ResearchReplayArtifactRow.deterministic_match.is_(True),
+                )
+            )
+            comparison_row = session.scalar(
+                select(PortfolioComparisonContractRow).where(
+                    PortfolioComparisonContractRow.challenger_id
+                    == challenger_id,
+                    PortfolioComparisonContractRow.contract_hash
+                    == summary.portfolio_comparison_contract_hash,
+                )
+            )
+            if (
+                oos is None
+                or oos_row is None
+                or falsification_row is None
+                or replay_row is None
+                or comparison_row is None
+            ):
+                raise ResearchPersistenceError(
+                    "promotion V2 prerequisites are incomplete"
+                )
+            comparison = PortfolioComparisonContractV1.model_validate(
+                comparison_row.payload_json
+            )
+            latest_designation = self._latest_champion_designation(session)
+            current_champion_version = (
+                summary.current_champion_version
+                if latest_designation is None
+                else latest_designation.strategy_version
+            )
+            if current_champion_version != summary.current_champion_version:
+                raise ResearchPersistenceError(
+                    "shadow V2 summary is stale against current Champion"
+                )
+            cutoff = max(
+                summary.data_available_cutoff,
+                FalsificationReportV1.model_validate(
+                    falsification_row.payload_json
+                ).created_at,
+                _payload_timestamp(replay_row.payload_json, "created_at"),
+                oos.evaluated_at,
+            )
+            if timestamp < cutoff:
+                raise ResearchPersistenceError(
+                    "promotion V2 evidence predates source cutoff"
+                )
+            evidence_id = stable_id(
+                "promotion-evidence-v2",
+                challenger_id,
+                summary.summary_hash,
+                falsification_row.report_hash,
+                oos.result_hash,
+                replay_row.first_replay_hash,
+                comparison.contract_hash,
+                current_champion_version,
+            )
+            return build_promotion_evidence_v2(
+                evidence_id=evidence_id,
+                challenger_id=challenger_id,
+                current_champion_version=current_champion_version,
+                candidate_version=manifest.strategy_version,
+                candidate_artifact_hash=summary.candidate_artifact_hash,
+                comparison_contract=comparison,
+                falsification_report_hash=falsification_row.report_hash,
+                oos_result=oos,
+                shadow_summary=summary,
+                replay_hash=replay_row.first_replay_hash,
+                annualized_net_excess_return_after_cost=(
+                    summary.annualized_net_excess_return_after_cost
+                ),
+                matched_annualized_difference=(
+                    summary.matched_annualized_difference
+                ),
+                economic_effect=summary.economic_effect,
+                maximum_drawdown=summary.maximum_drawdown,
+                tail_loss=summary.tail_loss,
+                annualized_turnover=summary.annualized_turnover,
+                estimated_capacity_usd=summary.estimated_capacity_usd,
+                regime_pass_fraction=summary.regime_pass_fraction,
+                runtime_error_rate=summary.runtime_error_rate,
+                replay_reproducible=True,
+                mandatory_tests_passed=True,
+                data_available_cutoff=cutoff,
+                created_at=timestamp,
+            )
+
     def trusted_promotion_evaluation(
         self,
         *,
@@ -1669,6 +2223,50 @@ class ResearchRepository:
                 PromotionEvidenceV1.model_validate(evidence_row.payload_json),
                 TrustedPromotionEvaluationV1.model_validate(row.payload_json),
             )
+
+    def trusted_promotion_evaluation_v2(
+        self,
+        *,
+        evidence_id: str,
+        contract_hash: str,
+    ) -> tuple[PromotionEvidenceV2, TrustedPromotionEvaluationV2] | None:
+        with self._session_factory() as session:
+            row = session.scalar(
+                select(TrustedPromotionEvaluationRow)
+                .where(
+                    TrustedPromotionEvaluationRow.evidence_id == evidence_id,
+                    TrustedPromotionEvaluationRow.contract_hash
+                    == contract_hash,
+                )
+                .order_by(
+                    TrustedPromotionEvaluationRow.created_at,
+                    TrustedPromotionEvaluationRow.evaluation_id,
+                )
+                .limit(1)
+            )
+            if row is None:
+                return None
+            evidence_row = session.get(
+                ResearchPromotionEvidenceRow,
+                row.evidence_id,
+            )
+            if evidence_row is None:
+                raise ResearchPersistenceError(
+                    "trusted V2 evaluation lost its promotion evidence"
+                )
+            try:
+                return (
+                    PromotionEvidenceV2.model_validate(
+                        evidence_row.payload_json
+                    ),
+                    TrustedPromotionEvaluationV2.model_validate(
+                        row.payload_json
+                    ),
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "stored trusted evaluation is not V2"
+                ) from exc
 
     def record_trusted_promotion_evaluation(
         self,
@@ -1766,6 +2364,146 @@ class ResearchRepository:
                 )
             return True
 
+    def record_trusted_promotion_evaluation_v2(
+        self,
+        *,
+        evidence: PromotionEvidenceV2,
+        contract: PromotionEvaluationContractV2,
+        evaluation: TrustedPromotionEvaluationV2,
+    ) -> bool:
+        expected = evaluate_trusted_promotion_evidence_v2(
+            evidence=evidence,
+            contract=contract,
+            created_at=evaluation.created_at,
+        )
+        if expected.evaluation_hash != evaluation.evaluation_hash:
+            raise ResearchPersistenceError(
+                "trusted promotion V2 evaluation does not match its contract"
+            )
+        decision = evaluation.decision
+        with self._session_factory.begin() as session:
+            self._champion_designation_lock(session)
+            manifest = self._challenger_for_update(
+                session,
+                evidence.challenger_id,
+            )
+            existing = session.get(
+                TrustedPromotionEvaluationRow,
+                evaluation.evaluation_id,
+            )
+            if existing is not None:
+                if existing.evaluation_hash != evaluation.evaluation_hash:
+                    raise ResearchPersistenceError(
+                        "trusted promotion V2 evaluation hash conflict"
+                    )
+                return False
+            if (
+                self._current_challenger_status(session, manifest)
+                is not ChallengerStatus.SHADOW_RUNNING
+            ):
+                raise ResearchPersistenceError(
+                    "trusted promotion V2 evaluation requires SHADOW_RUNNING"
+                )
+            summary_row = session.get(
+                ResearchShadowPerformanceSummaryRow,
+                evidence.shadow_summary.summary_id,
+            )
+            comparison_row = session.scalar(
+                select(PortfolioComparisonContractRow).where(
+                    PortfolioComparisonContractRow.challenger_id
+                    == evidence.challenger_id,
+                    PortfolioComparisonContractRow.contract_hash
+                    == evidence.portfolio_comparison_contract_hash,
+                )
+            )
+            oos_row = session.scalar(
+                select(OosLockboxResultRow).where(
+                    OosLockboxResultRow.challenger_id
+                    == evidence.challenger_id,
+                    OosLockboxResultRow.result_hash
+                    == evidence.oos_result.result_hash,
+                    OosLockboxResultRow.verdict == OosVerdict.PASS.value,
+                )
+            )
+            if (
+                summary_row is None
+                or summary_row.summary_hash
+                != evidence.shadow_summary.summary_hash
+                or comparison_row is None
+                or oos_row is None
+                or not evidence.portfolio_contract_binding_valid
+                or not evidence.allocation_policy_fixed_before_oos
+            ):
+                raise ResearchPersistenceError(
+                    "trusted promotion V2 evidence binding mismatch"
+                )
+            if (
+                evaluation.evidence_hash != evidence.evidence_hash
+                or evaluation.portfolio_comparison_contract_hash
+                != evidence.portfolio_comparison_contract_hash
+                or decision.challenger_id != evidence.challenger_id
+                or decision.current_champion_version
+                != evidence.current_champion_version
+                or decision.candidate_version != evidence.candidate_version
+                or decision.replay_hash != evidence.replay_hash
+            ):
+                raise ResearchPersistenceError(
+                    "trusted promotion V2 decision binding mismatch"
+                )
+            evidence_row = session.get(
+                ResearchPromotionEvidenceRow,
+                evidence.evidence_id,
+            )
+            if evidence_row is not None:
+                if evidence_row.evidence_hash != evidence.evidence_hash:
+                    raise ResearchPersistenceError(
+                        "promotion V2 evidence hash conflict"
+                    )
+            else:
+                session.add(
+                    ResearchPromotionEvidenceRow(
+                        evidence_id=evidence.evidence_id,
+                        challenger_id=evidence.challenger_id,
+                        shadow_summary_id=summary_row.summary_id,
+                        evidence_hash=evidence.evidence_hash,
+                        payload_json=model_payload(evidence),
+                        created_at=evidence.created_at,
+                    )
+                )
+            self._add_promotion_decision(session, decision)
+            session.add(
+                TrustedPromotionEvaluationRow(
+                    evaluation_id=evaluation.evaluation_id,
+                    evidence_id=evidence.evidence_id,
+                    challenger_id=evidence.challenger_id,
+                    promotion_decision_id=decision.promotion_decision_id,
+                    evidence_hash=evidence.evidence_hash,
+                    contract_hash=evaluation.contract_hash,
+                    verdict=decision.verdict.value,
+                    evaluation_hash=evaluation.evaluation_hash,
+                    payload_json=model_payload(evaluation),
+                    created_at=evaluation.created_at,
+                )
+            )
+            if (
+                decision.verdict
+                is PromotionVerdict.ELIGIBLE_REQUIRES_MANUAL_APPROVAL
+            ):
+                self._append_challenger_transition(
+                    session,
+                    manifest=manifest,
+                    to_status=ChallengerStatus.PROMOTION_ELIGIBLE,
+                    reason_code=(
+                        "PORTFOLIO_DELTA_SHARPE_PROMOTION_CRITERIA_SATISFIED"
+                    ),
+                    artifact_hash=evaluation.evaluation_hash,
+                    idempotency_key=(
+                        f"trusted-promotion-v2:{evaluation.evaluation_hash}"
+                    ),
+                    created_at=evaluation.created_at,
+                )
+            return True
+
     def record_trusted_manual_promotion_approval(
         self,
         *,
@@ -1789,7 +2527,9 @@ class ResearchRepository:
                 session,
                 challenger_id=challenger_id,
             )
-            evaluation = TrustedPromotionEvaluationV1.model_validate(evaluation_row.payload_json)
+            evaluation = _trusted_promotion_evaluation_from_payload(
+                evaluation_row.payload_json
+            )
             eligible = evaluation.decision
             latest_designation = self._latest_champion_designation(session)
             if (
@@ -2257,7 +2997,7 @@ class ResearchRepository:
 
     @staticmethod
     def _validate_stored_proposal(
-        proposal: AlgorithmProposalV1,
+        proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
         proposal_row: AlgorithmProposalRow,
     ) -> None:
         stored_bindings: tuple[tuple[str, object, object], ...] = (
@@ -2424,7 +3164,7 @@ class ResearchRepository:
     def _validate_challenger_registration(
         *,
         manifest: ChallengerManifestV1,
-        proposal: AlgorithmProposalV1,
+        proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
         proposal_row: AlgorithmProposalRow,
         cycle: ResearchCycleRow,
     ) -> None:
@@ -2820,7 +3560,9 @@ class ResearchRepository:
                 session,
                 challenger_id=challenger_id,
             )
-            evaluation = TrustedPromotionEvaluationV1.model_validate(evaluation_row.payload_json)
+            evaluation = _trusted_promotion_evaluation_from_payload(
+                evaluation_row.payload_json
+            )
             eligible = evaluation.decision
             manual_row = session.scalar(
                 select(ResearchPromotionDecisionRow)
@@ -2866,7 +3608,9 @@ class ResearchRepository:
             )
             if evidence_row is None:
                 raise ResearchPersistenceError("trusted evaluation lost its promotion evidence")
-            evidence = PromotionEvidenceV1.model_validate(evidence_row.payload_json)
+            evidence = _promotion_evidence_from_payload(
+                evidence_row.payload_json
+            )
             sequence = 1 if latest is None else latest.sequence + 1
             payload = {
                 "schema_version": "champion_designation_v1",
@@ -3138,6 +3882,38 @@ class ResearchRepository:
             or reservation.evaluation_contract_hash != request.evaluation_contract_hash
         ):
             raise ResearchPersistenceError("OOS budget reservation idempotency conflict")
+
+
+def _trusted_promotion_evaluation_from_payload(
+    payload: dict[str, Any],
+) -> TrustedPromotionEvaluationV1 | TrustedPromotionEvaluationV2:
+    if payload.get("schema_version") == "trusted_promotion_evaluation_v2":
+        return TrustedPromotionEvaluationV2.model_validate(payload)
+    return TrustedPromotionEvaluationV1.model_validate(payload)
+
+
+def _promotion_evidence_from_payload(
+    payload: dict[str, Any],
+) -> PromotionEvidenceV1 | PromotionEvidenceV2:
+    if payload.get("schema_version") == "promotion_evidence_v2":
+        return PromotionEvidenceV2.model_validate(payload)
+    return PromotionEvidenceV1.model_validate(payload)
+
+
+def _algorithm_proposal_from_payload(
+    payload: dict[str, Any],
+) -> AlgorithmProposalV1 | AlgorithmProposalV2:
+    if payload.get("schema_version") == "algorithm_proposal_v2":
+        return AlgorithmProposalV2.model_validate(payload)
+    return AlgorithmProposalV1.model_validate(payload)
+
+
+def _research_request_from_payload(
+    payload: dict[str, Any],
+) -> ResearchRequestV1 | ResearchRequestV2:
+    if payload.get("schema_version") == "research_request_v2":
+        return ResearchRequestV2.model_validate(payload)
+    return ResearchRequestV1.model_validate(payload)
 
 
 def _payload_timestamp(payload: dict[str, Any], field_name: str) -> datetime:

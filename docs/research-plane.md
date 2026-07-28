@@ -242,6 +242,12 @@ aggregate statistics, reason codes, common-session count, and budget usage.
 Candidate processes never receive private dates, trades, daily returns,
 positions, orders, or fills.
 
+For V2, one immutable pre-OOS portfolio comparison contract fixes how the
+Candidate sleeve is integrated into the complete Champion portfolio. The
+private worker computes Candidate and Champion full-portfolio Sharpe separately,
+uses paired stationary bootstrap indices, and returns only aggregate
+DeltaSharpe bounds and 1x/2x/3x cost results.
+
 Only an OOS `PASS` may become `SHADOW_PENDING`. Champion and Challenger shadow
 arms must be independent but share the same execution contract. This produces a
 matched comparison rather than a comparison contaminated by different prices,
@@ -257,9 +263,10 @@ Promotion eligibility checks all predeclared economic, risk, capacity, stability
 error-rate, and replay requirements. Passing creates
 `ELIGIBLE_REQUIRES_MANUAL_APPROVAL`; it does not change the Champion.
 
-Only `TrustedPromotionEvaluationV1`, built from immutable matched-shadow
-evidence plus actual passed falsification, OOS, and replay artifacts, drives the
-production eligibility path. Automatic promotion is structurally rejected.
+V1 remains readable. New portfolio comparisons use
+`TrustedPromotionEvaluationV2`, built from independently passing OOS V2 and
+matched shadow V2 evidence plus actual falsification, replay, portfolio-binding,
+and legacy risk/capacity gates. Automatic promotion is structurally rejected.
 An explicit human approval records review without changing status. A separate
 human Champion designation command must then supply the expected current
 version; designation and the `PROMOTED` event commit atomically while all prior

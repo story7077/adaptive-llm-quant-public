@@ -655,6 +655,9 @@ def create_app(
         )
         persisted_status = research_repository.status()
         meta_controller_status = meta_controller_repository.status()
+        portfolio_sharpe_status = (
+            research_repository.portfolio_sharpe().status()
+        )
         return {
             **persisted_status,
             "recursive_improvement": recursive_improvement_status(
@@ -663,6 +666,7 @@ def create_app(
                     persisted_status["experiment_outcome_ledger"]
                 ),
                 meta_controller_ledger=meta_controller_status,
+                portfolio_sharpe_ledger=portfolio_sharpe_status,
             ),
             "research_plane_version": (
                 research_config.config.algorithm_version

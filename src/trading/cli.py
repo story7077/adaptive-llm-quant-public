@@ -198,7 +198,7 @@ research_app.add_typer(research_outcome_app, name="outcome")
 research_app.add_typer(research_memory_app, name="memory")
 research_app.add_typer(research_meta_policy_app, name="meta-policy")
 
-EXPECTED_DATABASE_REVISION = "0015_meta_controller_v1"
+EXPECTED_DATABASE_REVISION = "0016_portfolio_delta_sharpe_v2"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -802,8 +802,10 @@ def research_status() -> None:
     _require_research_paper_only(settings)
     factory = make_session_factory(engine)
     research_config = load_research_config(settings.config_dir)
-    persisted_status = ResearchRepository(factory).status()
+    research_repository = ResearchRepository(factory)
+    persisted_status = research_repository.status()
     meta_controller_status = MetaControllerRepository(factory).status()
+    portfolio_sharpe_status = research_repository.portfolio_sharpe().status()
     payload = {
         **persisted_status,
         "recursive_improvement": recursive_improvement_status(
@@ -812,6 +814,7 @@ def research_status() -> None:
                 persisted_status["experiment_outcome_ledger"]
             ),
             meta_controller_ledger=meta_controller_status,
+            portfolio_sharpe_ledger=portfolio_sharpe_status,
         ),
         "scheduler": ResearchSchedulerService(
             repository=ResearchSchedulerRepository(factory),

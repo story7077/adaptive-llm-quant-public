@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "PortfolioCostStressResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_portfolio_sharpe": {
+          "title": "Candidate Portfolio Sharpe",
+          "type": "number"
+        },
+        "champion_portfolio_sharpe": {
+          "title": "Champion Portfolio Sharpe",
+          "type": "number"
+        },
+        "cost_multiplier": {
+          "exclusiveMinimum": 0,
+          "title": "Cost Multiplier",
+          "type": "number"
+        },
+        "delta_sharpe_lcb": {
+          "title": "Delta Sharpe Lcb",
+          "type": "number"
+        },
+        "delta_sharpe_point": {
+          "title": "Delta Sharpe Point",
+          "type": "number"
+        },
+        "delta_sharpe_ucb": {
+          "title": "Delta Sharpe Ucb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cost_multiplier",
+        "candidate_portfolio_sharpe",
+        "champion_portfolio_sharpe",
+        "delta_sharpe_point",
+        "delta_sharpe_lcb",
+        "delta_sharpe_ucb"
+      ],
+      "title": "PortfolioCostStressResultV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/portfolio-delta-sharpe-result-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidate_portfolio_sharpe": {
+      "title": "Candidate Portfolio Sharpe",
+      "type": "number"
+    },
+    "champion_portfolio_sharpe": {
+      "title": "Champion Portfolio Sharpe",
+      "type": "number"
+    },
+    "common_sessions": {
+      "exclusiveMinimum": 1,
+      "title": "Common Sessions",
+      "type": "integer"
+    },
+    "cost_stress_results": {
+      "items": {
+        "$ref": "#/$defs/PortfolioCostStressResultV1"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Cost Stress Results",
+      "type": "array"
+    },
+    "delta_sharpe_lcb": {
+      "title": "Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "delta_sharpe_point": {
+      "title": "Delta Sharpe Point",
+      "type": "number"
+    },
+    "delta_sharpe_ucb": {
+      "title": "Delta Sharpe Ucb",
+      "type": "number"
+    },
+    "derived_bootstrap_seed_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Derived Bootstrap Seed Hash",
+      "type": "string"
+    },
+    "evaluation_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evaluation Contract Hash",
+      "type": "string"
+    },
+    "portfolio_comparison_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Portfolio Comparison Contract Hash",
+      "type": "string"
+    },
+    "result_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Result Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "portfolio_delta_sharpe_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "worst_cost_delta_sharpe_lcb": {
+      "title": "Worst Cost Delta Sharpe Lcb",
+      "type": "number"
+    }
+  },
+  "required": [
+    "portfolio_comparison_contract_hash",
+    "evaluation_contract_hash",
+    "derived_bootstrap_seed_hash",
+    "common_sessions",
+    "candidate_portfolio_sharpe",
+    "champion_portfolio_sharpe",
+    "delta_sharpe_point",
+    "delta_sharpe_lcb",
+    "delta_sharpe_ucb",
+    "worst_cost_delta_sharpe_lcb",
+    "cost_stress_results",
+    "result_hash"
+  ],
+  "title": "PortfolioDeltaSharpeResultV1",
+  "type": "object"
+}

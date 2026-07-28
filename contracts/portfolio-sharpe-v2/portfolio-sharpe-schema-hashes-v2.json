@@ -1,0 +1,16 @@
+{
+  "canonical_source": "adaptive-llm-quant-public",
+  "schema_version": "portfolio_sharpe_schema_hashes_v2",
+  "schemas": {
+    "oos-lockbox-result-v2.schema.json": "706da71f4df0dc7ac4521f7e9422deabbfb3e7f69c70b8d0c4eb21fc0a396d40",
+    "oos-worker-request-v2.schema.json": "f0ea6d31c92f1011e0358180882b7ce55fcd3aba22c6e9e8a843a90f7b4a0cca",
+    "oos-worker-response-v2.schema.json": "5c3fe869b2a90dff421e7cb6bff921f647398e5ae6e2e91e28ba73f746fc5d52",
+    "portfolio-comparison-contract-v1.schema.json": "edd148fd85470ecf4b7609819f1cae60b77102dcd7fb635ce8ee3c4f344a2c6c",
+    "portfolio-delta-sharpe-result-v1.schema.json": "a6a62fac336eb9cbc03527133b2d8929fa9a7a0127bc98f0206556cfebab4428",
+    "private-oos-dataset-manifest-v2.schema.json": "0145f90529b4db44df2c31ef5541d50e554d2efdace87acc65cfcdb53e3cec3a",
+    "promotion-evaluation-contract-v2.schema.json": "47e3c2f9768e3b579a1779cfac8908cb9edb22921de0c48552c5a4cbf0923ca1",
+    "promotion-evidence-v2.schema.json": "1b830964221082171364c3abdeec2922588571656b3d8d612f64bed6b1ea01bd",
+    "trusted-promotion-evaluation-v2.schema.json": "1c4309c35a43fb72b988461f29e314b3748be5e10412b5c4abaec29347a2d91a",
+    "trusted-shadow-performance-summary-v2.schema.json": "852f2a162bd99e77657fdc8ec0fe570b28ad9ba0a46f588bd54585b7dfe0288c"
+  }
+}

@@ -28,7 +28,7 @@ def test_meta_controller_migration_downgrade_and_reupgrade(
     database_url = (
         f"sqlite+pysqlite:///{(tmp_path / 'meta-controller.db').as_posix()}"
     )
-    upgrade_database(database_url)
+    upgrade_database(database_url, REVISION)
     engine = create_database_engine(database_url)
     assert current_revision(engine) == REVISION
     assert set(TABLES).issubset(inspect(engine).get_table_names())
@@ -76,7 +76,7 @@ def test_meta_controller_migration_downgrade_and_reupgrade(
     assert not set(TABLES).intersection(inspect(downgraded).get_table_names())
     downgraded.dispose()
 
-    upgrade_database(database_url)
+    upgrade_database(database_url, REVISION)
     upgraded = create_database_engine(database_url)
     assert current_revision(upgraded) == REVISION
     assert set(TABLES).issubset(inspect(upgraded).get_table_names())

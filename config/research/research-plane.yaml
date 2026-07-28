@@ -242,13 +242,16 @@ recursive_improvement:
     annualization_sessions: 252
     minimum_common_sessions: 126
     minimum_independent_trades: 30
+    configured_bootstrap_seed: 7077
     bootstrap_samples: 5000
     bootstrap_block_length: 10
     lower_quantile: 0.025
     variance_epsilon: 1.0e-12
+    maximum_absolute_daily_return: 1.0
     minimum_delta_sharpe_lcb: 0.0
     minimum_worst_cost_delta_sharpe_lcb: 0.0
     cost_stress_multipliers: [1.0, 2.0, 3.0]
+    trusted_producer_version: trusted_candidate_evaluation_v2
 
   meta_oos:
     enabled: false

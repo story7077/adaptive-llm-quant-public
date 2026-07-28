@@ -15,6 +15,8 @@ from trading.research.contracts import (
     ResearchCommanderKind,
     ResearchRequestV1,
 )
+from trading.research.experiment_outcomes import AlgorithmProposalV2
+from trading.research.v2_contracts import ResearchRequestV2
 
 
 class CandidateRequestBindingV1(DomainModel):
@@ -83,8 +85,8 @@ class CandidateArtifactBundleV1(DomainModel):
     def assert_bound_to(
         self,
         *,
-        request: ResearchRequestV1,
-        proposal: AlgorithmProposalV1,
+        request: ResearchRequestV1 | ResearchRequestV2,
+        proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
         manifest: ChallengerManifestV1,
     ) -> None:
         binding = self.request_binding
