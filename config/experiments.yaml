@@ -1,0 +1,22 @@
+version: experiments_v1
+paper_nav_usd: 100000
+arms:
+  - B0-CASH
+  - B0-QQQ
+  - B0-VOL
+  - B1
+  - B2
+  - B3-RISK
+  - B3-FULL
+primary_comparisons:
+  - [B2, B1]
+  - [B3-RISK, B2]
+  - [B3-FULL, B3-RISK]
+bootstrap:
+  samples: 10000
+  block_length_weeks: 4
+risk_aversion_gamma: 4.0
+minimum_effect:
+  annualized_ce_fraction: 0.01
+  annual_cost_multiple: 3.0
+

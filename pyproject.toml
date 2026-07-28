@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adaptive-llm-quant"
+version = "0.1.0"
+description = "Replayable Phase 0 foundation for an adaptive LLM quant trading system"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.16,<2",
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic>=2.11,<3",
+  "python-dotenv>=1.1,<2",
+  "PyYAML>=6.0,<7",
+  "SQLAlchemy>=2.0,<3",
+  "typer>=0.16,<1",
+  "uvicorn>=0.35,<1",
+  "websockets>=15,<16",
+]
+
+[project.scripts]
+trading = "trading.cli:app"
+
+[dependency-groups]
+dev = [
+  "hypothesis>=6.135,<7",
+  "pyright>=1.1.400,<2",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trading"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = [
+  "src/trading/domain",
+  "src/trading/control",
+  "src/trading/dashboard",
+  "src/trading/experiments",
+  "src/trading/ledger",
+  "src/trading/llm",
+  "src/trading/execution",
+  "src/trading/data",
+  "src/trading/runtime",
+  "src/trading/quant",
+  "src/trading/risk",
+  "src/trading/settlement",
+  "src/trading/evaluation",
+  "src/trading/research",
+  "src/trading/strategies/challengers",
+  "src/trading/persistence/models.py",
+  "src/trading/persistence/alpaca_paper.py",
+  "src/trading/persistence/paper.py",
+  "src/trading/persistence/q1.py",
+  "src/trading/persistence/q1_runtime.py",
+  "src/trading/persistence/research.py",
+]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"

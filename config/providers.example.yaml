@@ -1,0 +1,16 @@
+version: providers_v1
+market_data:
+  enabled: true
+  provider: alpaca
+  feed: iex
+  coverage: single_exchange
+news:
+  enabled: false
+  provider: disabled
+llm:
+  enabled: false
+  provider: disabled
+broker:
+  enabled: false
+  provider: paper
+production_unlock: false

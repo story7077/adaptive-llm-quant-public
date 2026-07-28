@@ -1,0 +1,19 @@
+version: portfolio_v1
+portfolio:
+  target_annualized_vol: 0.12
+  hard_max_annualized_vol: 0.15
+  max_gross_exposure: 1.0
+  min_cash_weight: 0.0
+  max_single_etf_weight: 0.35
+  max_cluster_weights:
+    US_TECH: 0.70
+    SEMICONDUCTOR: 0.55
+    RATES_CREDIT: 0.50
+  max_strategy_risk_contribution: 0.40
+  h4_risk_budget_fraction: 0.20
+  h5d_risk_budget_fraction: 0.80
+  max_one_way_daily_turnover: 0.25
+  min_expected_edge_to_cost_ratio: 1.50
+  min_target_weight_change: 0.01
+  leverage_etf_max_risk_contribution: 0.0
+

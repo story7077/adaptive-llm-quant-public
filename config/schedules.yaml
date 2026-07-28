@@ -1,0 +1,11 @@
+version: schedules_v2
+timezone: America/New_York
+runtime_poll_seconds: 5
+bootstrap_quote_timeout_minutes: 30
+cycle_grace_minutes: 5
+nav_snapshot_minutes: 15
+decision_times_et: ["11:00", "14:00", "15:45"]
+news_poll_minutes: 60
+controller_review_minutes: 60
+daily_report_time_et: "16:15"
+daily_reconciliation_time_et: "17:30"

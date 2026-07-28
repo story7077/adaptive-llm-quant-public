@@ -1,0 +1,50 @@
+version: universe_v2
+base_currency: USD
+symbols:
+  - SPY
+  - QQQ
+  - IWM
+  - SOXX
+  - SMH
+  - XLK
+  - TLT
+  - HYG
+  - GLD
+  - SGOV
+  - NVDA
+  - TSM
+  - KLAC
+  - LRCX
+  - MU
+  - SOXL
+  - SOXS
+  - USD_CASH
+sell_only_symbols:
+  - NVDA
+  - TSM
+  - KLAC
+  - LRCX
+  - MU
+  - SOXL
+leveraged_symbols:
+  - SOXL
+  - SOXS
+daily_exposure_multiplier:
+  SOXL: 3.0
+  SOXS: -3.0
+entry_symbols:
+  - SPY
+  - QQQ
+  - IWM
+  - SOXX
+  - SMH
+  - XLK
+  - TLT
+  - HYG
+  - GLD
+  - SGOV
+  - SOXS
+clusters:
+  US_TECH: [QQQ, SOXX, SMH, XLK, NVDA, TSM, KLAC, LRCX, MU, SOXL, SOXS]
+  SEMICONDUCTOR: [SOXX, SMH, NVDA, TSM, KLAC, LRCX, MU, SOXL, SOXS]
+  RATES_CREDIT: [TLT, HYG]

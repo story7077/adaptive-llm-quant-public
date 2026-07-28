@@ -1,0 +1,38 @@
+schema_version: "paper-account.v1"
+account_id: "synthetic-paper-account"
+version: 1
+base_currency: "USD"
+source: "SYNTHETIC_EXAMPLE"
+
+cash:
+  - currency: "USD"
+    amount: "100000.00"
+    tradable: true
+    exclusion_reason: null
+  - currency: "KRW"
+    amount: "0"
+    tradable: false
+    exclusion_reason: "SYNTHETIC_NON_TRADABLE_EXAMPLE"
+
+positions:
+  - symbol: "SPY"
+    quantity: "11"
+    currency: "USD"
+  - symbol: "QQQ"
+    quantity: "7"
+    currency: "USD"
+  - symbol: "IWM"
+    quantity: "13"
+    currency: "USD"
+  - symbol: "SMH"
+    quantity: "9"
+    currency: "USD"
+  - symbol: "TLT"
+    quantity: "17"
+    currency: "USD"
+  - symbol: "HYG"
+    quantity: "19"
+    currency: "USD"
+  - symbol: "GLD"
+    quantity: "6"
+    currency: "USD"

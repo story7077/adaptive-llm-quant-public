@@ -1,0 +1,63 @@
+{
+  "arms": {
+    "B0-CASH": {
+      "fill_count": 0,
+      "ledger_hash": "e332fa786b12ab88ae5d59dd27d09510c004f06d2812dda0f39a45a5b6da7ca4",
+      "nav_hash": "c9d4170e65df8e98f929cd207ab66b4e4edadcdb01f7377221b00106e5c78bf4",
+      "order_count": 0,
+      "target_hash": "d87c7a0d6446cd4cd60c678f8f891e6e560c99df49ee3926b4c674621fe7f0f5"
+    },
+    "B0-QQQ": {
+      "fill_count": 1,
+      "ledger_hash": "96bdb04dea8c518eda2f9b5408fd8d628efa0312b4f82719457597c8c8631dc8",
+      "nav_hash": "08cd65af869b74c685c4b08d96bf3bf30dfe669e0689dd92ec8799d6d10d9c24",
+      "order_count": 1,
+      "target_hash": "d649b5511bcf76f395ea013b18c86d11987bfffcb21abcd1f2630084b0e9c899"
+    },
+    "B0-VOL": {
+      "fill_count": 2,
+      "ledger_hash": "f239afea174b46b63d0022f3e9dae41135c47d08badf7d1093b0632b0f0c58c6",
+      "nav_hash": "ef3bae9aab1134aad7a896821370f1b6f3ab291cb0d55390a71d4b0e97cb7d55",
+      "order_count": 2,
+      "target_hash": "acedfad593f843dd8f1326912338e630d2e172931c90f04b16c1b143b5bf0a55"
+    },
+    "B1": {
+      "fill_count": 3,
+      "ledger_hash": "be78a06bb1d5dd248d60872372e7f5792b4e40804fdc7e271549bd2c5f9891ce",
+      "nav_hash": "91556adc1f961d71dff18db89a987cc08f02d60944fce17817c98b56aa8cd19a",
+      "order_count": 3,
+      "target_hash": "621731bd0f508f44b84f51bd98b764beacc87bda3fe87e485d0f45754146bd73"
+    },
+    "B2": {
+      "fill_count": 3,
+      "ledger_hash": "21bfcea41d296b653ce005a11a00e4d792b5c5f049adbfd4d1092f8e2a8b2dd5",
+      "nav_hash": "d2b60f171f1a8e4c8d25163b27d6ed12e3636b169002a48773bf9ee82a2baa9a",
+      "order_count": 3,
+      "target_hash": "621731bd0f508f44b84f51bd98b764beacc87bda3fe87e485d0f45754146bd73"
+    },
+    "B3-FULL": {
+      "fill_count": 3,
+      "ledger_hash": "32f835abbd061220e23bc204d3d2f76bfd7cd683f2e56feb6f10a5f4a22bb7cc",
+      "nav_hash": "c69cb754c5f5ae4ec9d65b71cca2c82d004f9376e11541d23b86ec471ba4d7be",
+      "order_count": 3,
+      "target_hash": "621731bd0f508f44b84f51bd98b764beacc87bda3fe87e485d0f45754146bd73"
+    },
+    "B3-RISK": {
+      "fill_count": 3,
+      "ledger_hash": "2737d03a4fbadb182eaf7f20b3d29e0922c3ede9243c95d70ae75228cd71c228",
+      "nav_hash": "90d04015290529b895f3c5cfd2e3b9e1034b2314bcfc2b2f1fad48647b324193",
+      "order_count": 3,
+      "target_hash": "3c2c7e245945a39afd18307f16a0b67798e89f55f7338189aa608481a89d7d98"
+    }
+  },
+  "counts": {
+    "feature_snapshots": 3,
+    "forecasts": 3,
+    "news_events": 1,
+    "partial_fills": 1,
+    "policy_patches": 1,
+    "symbols": 3,
+    "trading_days": 10
+  },
+  "result_hash": "292924fc3878a8e2a3905fe81fcab1e9aa67dfdee788ef70a0305f4291c1b4b1"
+}

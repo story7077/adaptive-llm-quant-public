@@ -1,0 +1,1798 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%233182f6'/%3E%3Cpath d='m3 11 3-4 2 2 5-6' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E">
+  <title>Quant Commander</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --panel: #15181d;
+      --panel-soft: #191d23;
+      --line: #262b33;
+      --line-strong: #343b46;
+      --text: #f2f4f6;
+      --muted: #8b95a1;
+      --muted-2: #6b7683;
+      --blue: #3182f6;
+      --blue-soft: rgba(49, 130, 246, .13);
+      --up: #f04452;
+      --up-soft: rgba(240, 68, 82, .12);
+      --down: #3182f6;
+      --down-soft: rgba(49, 130, 246, .12);
+      --green: #20c997;
+      --green-soft: rgba(32, 201, 151, .12);
+      --amber: #f5b83b;
+      --amber-soft: rgba(245, 184, 59, .12);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--bg);
+      font: 14px/1.5 Inter, Pretendard, "Segoe UI", sans-serif;
+    }
+    button, select, textarea { font: inherit; }
+    button { color: inherit; }
+    .shell { width: min(1320px, calc(100% - 40px)); margin: 0 auto; padding: 0 0 72px; }
+    .topbar {
+      position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+      min-height: 72px; margin-bottom: 26px; background: rgba(11, 13, 16, .9);
+      border-bottom: 1px solid rgba(38, 43, 51, .75); backdrop-filter: blur(18px);
+    }
+    .topbar-inner {
+      width: min(1320px, calc(100% - 40px)); margin: 0 auto;
+      display: flex; align-items: center; gap: 26px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -.025em; }
+    .brand-mark {
+      width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px;
+      background: var(--blue); box-shadow: 0 8px 24px rgba(49,130,246,.25);
+    }
+    .brand-mark svg { width: 17px; height: 17px; }
+    .nav { display: flex; gap: 4px; }
+    .nav-button {
+      border: 0; background: transparent; color: var(--muted); cursor: pointer;
+      padding: 9px 12px; border-radius: 9px; font-weight: 700;
+    }
+    .nav-button:hover { color: var(--text); background: var(--panel-soft); }
+    .nav-button.active { color: var(--text); background: var(--panel-soft); }
+    .top-status { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px;
+      border-radius: 999px; font-size: 11px; font-weight: 750; white-space: nowrap;
+    }
+    .pill.synthetic { color: #b9d7ff; background: var(--blue-soft); }
+    .pill.safe { color: #79dfc1; background: var(--green-soft); }
+    .pill.live { color: #79dfc1; background: var(--green-soft); }
+    .pill.warn { color: #ffd276; background: var(--amber-soft); }
+    .pill.bad { color: #ff929c; background: var(--up-soft); }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .view[hidden] { display: none; }
+    .page-head {
+      display: flex; justify-content: space-between; align-items: end; gap: 24px;
+      margin-bottom: 22px;
+    }
+    .eyebrow {
+      margin-bottom: 5px; color: var(--blue); font-size: 11px; font-weight: 800;
+      letter-spacing: .12em; text-transform: uppercase;
+    }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -.045em; line-height: 1.16; }
+    .subtitle { max-width: 690px; margin: 8px 0 0; color: var(--muted); }
+    .toolbar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    select, textarea {
+      color: var(--text); background: #0f1216; border: 1px solid var(--line);
+      border-radius: 11px; outline: none;
+    }
+    select { min-width: 160px; padding: 9px 34px 9px 11px; }
+    select:focus, textarea:focus { border-color: var(--blue); }
+    .button {
+      border: 0; padding: 10px 14px; border-radius: 10px; cursor: pointer;
+      background: var(--blue); color: white; font-weight: 750;
+    }
+    .button:hover { filter: brightness(1.08); }
+    .button:disabled { opacity: .38; cursor: not-allowed; filter: none; }
+    .button.secondary { color: var(--text); background: var(--panel-soft); border: 1px solid var(--line); }
+    .button.compact { padding: 8px 10px; font-size: 12px; }
+    .panel {
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      min-width: 0; box-shadow: 0 16px 44px rgba(0,0,0,.16);
+    }
+    .panel-pad { padding: 20px; }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 19px 20px; border-bottom: 1px solid var(--line);
+    }
+    .panel-head h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
+    .panel-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.72fr) minmax(310px, .78fr); gap: 16px; }
+    .chart-panel { min-height: 520px; overflow: hidden; }
+    .symbol-tabs { display: flex; gap: 5px; flex-wrap: wrap; }
+    .symbol-button {
+      border: 0; padding: 8px 11px; border-radius: 9px; cursor: pointer;
+      color: var(--muted); background: transparent; font-weight: 750;
+    }
+    .symbol-button:hover { color: var(--text); background: var(--panel-soft); }
+    .symbol-button.active { color: white; background: var(--blue); }
+    .quote { padding: 4px 22px 0; }
+    .quote-title { color: var(--muted); font-size: 13px; }
+    .quote-line { display: flex; align-items: baseline; gap: 11px; margin-top: 3px; }
+    .quote-price { font-size: clamp(28px, 4vw, 39px); font-weight: 800; letter-spacing: -.04em; }
+    .quote-change { font-size: 14px; font-weight: 750; }
+    .positive { color: var(--up); }
+    .negative { color: var(--down); }
+    .neutral { color: var(--muted); }
+    .chart-wrap { position: relative; padding: 8px 12px 0; }
+    #candleChart { width: 100%; height: 350px; display: block; overflow: visible; }
+    .chart-tooltip {
+      position: absolute; z-index: 4; display: none; pointer-events: none;
+      min-width: 158px; padding: 10px 11px; border: 1px solid var(--line-strong);
+      border-radius: 11px; background: rgba(15,18,22,.96); box-shadow: 0 10px 36px rgba(0,0,0,.36);
+      font: 11px/1.55 "Cascadia Code", Consolas, monospace;
+    }
+    .chart-tooltip strong { display: block; margin-bottom: 4px; color: var(--text); font-family: inherit; }
+    .chart-foot {
+      display: flex; justify-content: space-between; gap: 12px; margin: 3px 20px 17px;
+      color: var(--muted-2); font-size: 11px;
+    }
+    .account-card { padding: 22px; min-height: 520px; }
+    .account-top { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+    .account-label { color: var(--muted); font-size: 12px; }
+    .account-nav { margin: 7px 0 2px; font-size: 31px; font-weight: 800; letter-spacing: -.04em; }
+    .account-pnl { font-size: 13px; font-weight: 750; }
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 20px; }
+    .metric {
+      padding: 13px; border: 1px solid var(--line); border-radius: 13px;
+      background: var(--panel-soft);
+    }
+    .metric span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+    .metric strong { display: block; font-size: 14px; }
+    .divider { height: 1px; margin: 20px 0; background: var(--line); }
+    .runtime-strip {
+      display: grid; grid-template-columns: 1.2fr repeat(4, minmax(120px, .7fr));
+      gap: 1px; margin-bottom: 16px; overflow: hidden; background: var(--line);
+    }
+    .runtime-cell { padding: 14px 16px; background: var(--panel); min-width: 0; }
+    .runtime-cell span { display: block; color: var(--muted); font-size: 10px; margin-bottom: 4px; }
+    .runtime-cell strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .q1-status-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+      padding: 18px 20px 20px;
+    }
+    .q1-status-card {
+      min-width: 0; padding: 14px; border: 1px solid var(--line);
+      border-radius: 13px; background: var(--panel-soft);
+    }
+    .q1-status-card span {
+      display: block; margin-bottom: 7px; color: var(--muted);
+      font-size: 10px; font-weight: 750; letter-spacing: .04em;
+    }
+    .q1-status-card strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
+    .q1-status-card pre {
+      max-height: 165px; margin: 0; overflow: auto; color: #c7cdd4;
+      font: 10px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .section-label { margin-bottom: 10px; color: var(--muted); font-size: 11px; font-weight: 750; }
+    .arm-list { display: grid; gap: 7px; }
+    .arm-row {
+      display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px;
+      width: 100%; padding: 9px 10px; border: 0; border-radius: 10px;
+      color: var(--text); background: transparent; cursor: pointer; text-align: left;
+    }
+    .arm-row:hover { background: var(--panel-soft); }
+    .arm-row.active { background: var(--blue-soft); }
+    .arm-row .arm-name { font-weight: 750; }
+    .arm-row .arm-nav { color: #c7cdd4; font-variant-numeric: tabular-nums; }
+    .arm-row .arm-return { min-width: 62px; text-align: right; font-size: 12px; font-weight: 750; }
+    .reconcile {
+      display: flex; align-items: center; gap: 8px; margin-top: 17px; padding: 10px 11px;
+      border-radius: 11px; color: #74dec0; background: var(--green-soft); font-size: 11px;
+    }
+    .reconcile.bad { color: #ff929c; background: var(--up-soft); }
+    .section-gap { margin-top: 16px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 13px 14px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+    th { color: var(--muted); font-weight: 650; font-size: 11px; }
+    th:first-child, td:first-child { padding-left: 20px; text-align: left; }
+    th:last-child, td:last-child { padding-right: 20px; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: rgba(255,255,255,.015); }
+    .asset { display: flex; align-items: center; gap: 10px; }
+    .asset-icon {
+      width: 34px; height: 34px; display: grid; place-items: center; flex: none;
+      border-radius: 11px; color: #d8e9ff; background: var(--blue-soft); font-weight: 850; font-size: 11px;
+    }
+    .asset-name strong { display: block; font-size: 13px; }
+    .asset-name span { display: block; max-width: 220px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+    .weight-track { width: 78px; height: 4px; margin: 4px 0 0 auto; border-radius: 99px; background: #252b34; overflow: hidden; }
+    .weight-track i { display: block; height: 100%; background: var(--blue); border-radius: inherit; }
+    .empty { padding: 28px 20px !important; text-align: center !important; color: var(--muted); }
+    .activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .badge {
+      display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 7px;
+      font-size: 9px; font-weight: 850; letter-spacing: .03em;
+    }
+    .badge.FILLED, .badge.MATCHED, .badge.ACCEPTED { color: #74dec0; background: var(--green-soft); }
+    .badge.PARTIAL, .badge.NO_CHANGE { color: #ffd276; background: var(--amber-soft); }
+    .badge.OPEN { color: #b9d7ff; background: var(--blue-soft); }
+    .badge.REJECTED, .badge.MISMATCH { color: #ff929c; background: var(--up-soft); }
+    .paper-panel { display: grid; grid-template-columns: 1.2fr 2fr; gap: 24px; padding: 22px; }
+    .paper-panel h2 { margin: 0 0 6px; font-size: 17px; }
+    .paper-panel p { margin: 0; color: var(--muted); font-size: 12px; }
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .flow-step {
+      min-height: 88px; padding: 12px; border: 1px solid var(--line); border-radius: 12px;
+      background: var(--panel-soft);
+    }
+    .flow-step b { display: block; color: var(--blue); font-size: 10px; margin-bottom: 6px; }
+    .flow-step strong { display: block; font-size: 12px; }
+    .flow-step span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .source-line { margin-top: 11px; color: var(--muted-2); font-size: 10px; }
+    .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .wide { grid-column: 1 / -1; }
+    .providers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .provider {
+      position: relative; padding: 16px; min-height: 144px; border: 1px solid var(--line);
+      background: var(--panel-soft); border-radius: 14px; cursor: pointer; transition: .16s ease;
+    }
+    .provider:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+    .provider.selected { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue) inset; }
+    .provider.pending { border-color: #8f7cff; }
+    .provider input { position: absolute; opacity: 0; pointer-events: none; }
+    .provider-name { font-weight: 800; font-size: 16px; margin-bottom: 7px; }
+    .provider-meta { color: var(--muted); font-size: 11px; }
+    .provider-desc { margin-top: 14px; color: #c2c8d0; font-size: 12px; }
+    .active-strip {
+      display: flex; justify-content: space-between; gap: 12px; align-items: center;
+      margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line);
+    }
+    .value { font-family: "Cascadia Code", Consolas, monospace; color: #8ab9ff; }
+    label.field { display: block; color: var(--muted); margin-bottom: 6px; font-size: 11px; }
+    textarea {
+      width: 100%; min-height: 156px; resize: vertical; padding: 12px;
+      font: 12px/1.55 "Cascadia Code", Consolas, monospace;
+    }
+    .form-row { display: grid; grid-template-columns: 155px 1fr; gap: 12px; margin-bottom: 12px; }
+    .actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+    .status { min-height: 22px; margin-top: 7px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    .status.ok { color: #74dec0; }
+    .status.bad { color: #ff929c; }
+    .prompt {
+      margin-top: 12px; padding: 12px; border-radius: 10px; background: #0d1014;
+      border: 1px solid var(--line); color: #aeb6c0; white-space: pre-wrap; max-height: 180px;
+      overflow: auto; font: 11px/1.5 "Cascadia Code", Consolas, monospace;
+    }
+    .policy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .policy { padding: 14px; border: 1px solid var(--line); background: var(--panel-soft); border-radius: 12px; }
+    .policy-title { display: flex; justify-content: space-between; margin-bottom: 9px; font-weight: 750; }
+    .policy-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .policy-metric { padding: 8px; border-radius: 8px; background: #101318; }
+    .policy-metric span { display: block; color: var(--muted); font-size: 9px; }
+    .policy-metric strong { font-size: 12px; }
+    .loading { opacity: .5; pointer-events: none; }
+    .global-error {
+      display: none; margin-bottom: 14px; padding: 11px 13px; border: 1px solid rgba(240,68,82,.3);
+      border-radius: 11px; color: #ff9aa3; background: var(--up-soft); font-size: 12px;
+    }
+    @media (max-width: 1020px) {
+      .hero-grid, .activity-grid, .paper-panel { grid-template-columns: 1fr; }
+      .account-card { min-height: auto; }
+    }
+    @media (max-width: 760px) {
+      .shell, .topbar-inner { width: min(100% - 24px, 1320px); }
+      .topbar-inner { gap: 12px; }
+      .brand span:last-child { display: none; }
+      .top-status .safe { display: none; }
+      .page-head { align-items: start; flex-direction: column; }
+      .control-grid, .providers, .policy-grid, .form-row, .runtime-strip, .q1-status-grid { grid-template-columns: 1fr; }
+      .wide { grid-column: auto; }
+      .flow { grid-template-columns: 1fr 1fr; }
+      .quote-line { align-items: start; flex-direction: column; gap: 2px; }
+      .chart-foot { flex-direction: column; }
+      #candleChart { height: 210px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 17.5 9.4 12l3.3 3.1L19 6.5" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span>Quant Commander</span>
+      </div>
+      <nav class="nav" aria-label="주요 화면">
+        <button class="nav-button active" data-view="tradingView">거래 현황</button>
+        <button class="nav-button" data-view="controlView">AI 제어</button>
+        <button class="nav-button" data-view="researchView">Research</button>
+      </nav>
+      <div class="top-status">
+        <span id="sourcePill" class="pill synthetic"><span class="dot"></span>SYNTHETIC</span>
+        <span class="pill safe"><span class="dot"></span>실계좌 주문 차단</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div id="globalError" class="global-error"></div>
+
+    <section id="tradingView" class="view">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Paper portfolio</div>
+          <h1>모의투자 현황</h1>
+          <p class="subtitle">시장 데이터, 현재 보유 종목, 주문 의도와 실제 모의 체결을 같은 시점 기준으로 확인합니다.</p>
+        </div>
+        <div class="toolbar">
+          <select id="marketSource" aria-label="시장 데이터 출처 선택">
+            <option value="live">ALPACA · IEX 실시간</option>
+            <option value="synthetic">SYNTHETIC demo</option>
+          </select>
+          <select id="dashboardArm" aria-label="실험 arm 선택"></select>
+          <button id="dashboardRefresh" class="button secondary compact">새로고침</button>
+        </div>
+      </div>
+
+      <article class="panel runtime-strip" aria-label="forward paper runtime">
+        <div class="runtime-cell"><span id="paperAlgorithmLabel">FORWARD PAPER</span><strong id="paperRuntimeState">불러오는 중</strong></div>
+        <div class="runtime-cell"><span>성과 시작 T0</span><strong id="paperT0">대기</strong></div>
+        <div class="runtime-cell"><span>초기 USD NAV</span><strong id="paperInitialNav">—</strong></div>
+        <div class="runtime-cell"><span>스케줄러 heartbeat</span><strong id="paperHeartbeat">—</strong></div>
+        <div class="runtime-cell"><span>최근/다음 cycle</span><strong id="paperCycleState">—</strong></div>
+      </article>
+
+      <article id="q1StatusPanel" class="panel" aria-label="q1 math core status" hidden>
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">q1_math_core_v1</div>
+            <h2>수학 코어·안전 상태</h2>
+            <p>전략 arm은 cash-only T0에서 시작하며 HOLD와 LIVE-MIRROR는 별도로 표시합니다.</p>
+          </div>
+          <div class="toolbar">
+            <span id="q1AlpacaPaperRouting" class="pill warn">ALPACA_PAPER_CANARY · DISABLED</span>
+            <span id="q1Routing" class="pill safe">real_order_routing=false</span>
+          </div>
+        </div>
+        <div class="q1-status-grid">
+          <div class="q1-status-card"><span>EVALUATION ANCHOR</span><strong id="q1AnchorDetail">대기</strong></div>
+          <div class="q1-status-card"><span>ACTUAL SESSION / NORMAL CUTOFF</span><strong id="q1SessionDetail">캘린더 대기</strong></div>
+          <div class="q1-status-card"><span>SETTLED / UNSETTLED CASH</span><strong id="q1CashDetail">arm 상태 대기</strong></div>
+          <div class="q1-status-card"><span>TARGET / ACTUAL WEIGHTS</span><pre id="q1WeightsDetail">결정 대기</pre></div>
+          <div class="q1-status-card"><span>LATEST SIGNAL DIAGNOSTICS</span><pre id="q1SignalDetail">신호 대기</pre></div>
+          <div class="q1-status-card"><span>RISK STATE / TYPED EPISODE</span><pre id="q1RiskDetail">NORMAL</pre></div>
+          <div class="q1-status-card"><span>ORDER-EVENT PENDING</span><pre id="q1OrderDetail">pending 없음</pre></div>
+          <div class="q1-status-card"><span>MATCHED READINESS</span><pre id="q1MatchedDetail">공통 세션 대기</pre></div>
+          <div class="q1-status-card"><span>PERFORMANCE METRICS</span><pre id="q1PerformanceDetail">daily result 대기</pre></div>
+          <div class="q1-status-card"><span>LLM REDUCE-ONLY OVERLAY</span><pre id="q1LlmDetail">NO_POLICY</pre></div>
+          <div class="q1-status-card"><span>ALPACA PAPER CANARY · SINGLE ACCOUNT</span><pre id="q1AlpacaPaperDetail">DISABLED_NOT_CONFIGURED · Q1-LLM 기본 · matched attribution 제외</pre></div>
+        </div>
+      </article>
+
+      <div class="hero-grid">
+        <article class="panel chart-panel">
+          <div class="panel-head">
+            <div id="symbolTabs" class="symbol-tabs" aria-label="종목 선택"></div>
+            <div class="toolbar">
+              <span id="marketConnection" class="pill warn">연결 확인 중</span>
+              <span id="marketAsOf" class="pill synthetic">불러오는 중</span>
+            </div>
+          </div>
+          <div class="quote">
+            <div id="quoteTitle" class="quote-title">—</div>
+            <div class="quote-line">
+              <strong id="quotePrice" class="quote-price">—</strong>
+              <span id="quoteChange" class="quote-change neutral">—</span>
+            </div>
+          </div>
+          <div id="chartWrap" class="chart-wrap">
+            <svg id="candleChart" viewBox="0 0 860 350" role="img" aria-label="종목 캔들 차트"></svg>
+            <div id="chartTooltip" class="chart-tooltip"></div>
+          </div>
+          <div class="chart-foot">
+            <span id="chartRange">기간 고가 — · 기간 저가 —</span>
+            <span id="candleNote">데이터 품질을 확인하는 중입니다.</span>
+          </div>
+        </article>
+
+        <aside class="panel account-card">
+          <div class="account-top">
+            <div>
+              <div id="accountLabel" class="account-label">B3-RISK · SYNTHETIC demo_run 평가</div>
+              <div id="accountNav" class="account-nav">—</div>
+              <div id="accountPnl" class="account-pnl neutral">—</div>
+            </div>
+            <span id="runStatus" class="badge MATCHED">—</span>
+          </div>
+          <div class="metric-grid">
+            <div class="metric"><span>보유 종목 평가액</span><strong id="marketValue">—</strong></div>
+            <div class="metric"><span>현금</span><strong id="cashValue">—</strong></div>
+            <div class="metric"><span>보유 종목</span><strong id="positionCount">—</strong></div>
+            <div class="metric"><span>장부 sequence</span><strong id="ledgerSequence">—</strong></div>
+          </div>
+          <div class="divider"></div>
+          <div class="section-label">SHADOW ARM 비교</div>
+          <div id="armComparison" class="arm-list"></div>
+          <div id="reconciliation" class="reconcile"><span class="dot"></span>장부 대조 중</div>
+        </aside>
+      </div>
+
+      <article class="panel section-gap">
+        <div class="panel-head">
+          <div>
+            <h2>현재 보유 종목</h2>
+            <p>포트폴리오 출처: SYNTHETIC demo_run · IEX 차트와 별도 평가</p>
+          </div>
+          <span id="positionsAsOf" class="pill synthetic">—</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>종목</th><th>수량</th><th>평균단가</th><th>현재가</th><th>평가금액</th><th>수익률</th><th>비중</th></tr>
+            </thead>
+            <tbody id="positionsTable"><tr><td colspan="7" class="empty">불러오는 중입니다.</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+
+      <div class="activity-grid section-gap">
+        <article class="panel">
+          <div class="panel-head">
+            <div><h2>최근 주문 의도</h2><p>리스크 엔진 승인 후 생성된 멱등 주문</p></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>상태</th><th>종목</th><th>방향</th><th>요청</th><th>체결</th><th>평균 체결가</th></tr></thead>
+              <tbody id="ordersTable"></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <div><h2>모의 체결</h2><p>수수료·스프레드·지연을 반영한 결과</p></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>종목</th><th>수량</th><th>체결가</th><th>수수료</th><th>시각</th></tr></thead>
+              <tbody id="fillsTable"></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+
+      <article class="panel paper-panel section-gap">
+        <div>
+          <div class="eyebrow">Execution contract</div>
+          <h2>모의투자는 이렇게 체결합니다</h2>
+          <p>실제 자금 주문을 보내지 않고, 당시 알 수 있었던 데이터만으로 주문 의도를 만든 뒤 다음 거래 가능 가격에 보수적인 비용을 적용합니다.</p>
+          <div id="executionSource" class="source-line">체결 가정을 불러오는 중입니다.</div>
+        </div>
+        <div class="flow">
+          <div class="flow-step"><b>01</b><strong>시점 고정</strong><span>decision time 이후 데이터 차단</span></div>
+          <div class="flow-step"><b>02</b><strong>퀀트·LLM 판단</strong><span>정책은 가중치와 위험만 조절</span></div>
+          <div class="flow-step"><b>03</b><strong>가상 체결</strong><span id="fillAssumption">주문 뒤 첫 실행가능 IEX 호가 + 비용</span></div>
+          <div class="flow-step"><b>04</b><strong>장부·성과</strong><span>NAV 대조, arm별 손익 비교</span></div>
+        </div>
+      </article>
+    </section>
+
+    <section id="controlView" class="view" hidden>
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Adaptive control plane</div>
+          <h1>AI 제어</h1>
+          <p class="subtitle">Codex Sol Max와 WebGPT 5.6 Sol Pro 중 선택된 한 모델만 공통 JSON 정책 변경을 제출할 수 있습니다.</p>
+        </div>
+        <span class="pill safe"><span class="dot"></span>Risk Engine 최종 거부권</span>
+      </div>
+
+      <div class="control-grid">
+        <article class="panel panel-pad wide">
+          <div class="panel-head" style="padding:0 0 15px;border:0">
+            <div><h2>제어 모델 선택</h2><p>선택 변경 시 기존 미처리 요청은 무효화됩니다.</p></div>
+          </div>
+          <div id="providers" class="providers"></div>
+          <div class="active-strip">
+            <div>현재 선택: <span id="activeProvider" class="value">선택 안 됨</span> · 버전 <span id="selectionVersion" class="value">0</span></div>
+            <button id="selectButton" class="button" disabled>이 모델을 제어기로 선택</button>
+          </div>
+          <div id="selectStatus" class="status"></div>
+        </article>
+
+        <article class="panel panel-pad">
+          <div class="panel-head" style="padding:0 0 15px;border:0">
+            <div><h2>판단 요청 만들기</h2><p>컨텍스트 최대 512 KiB</p></div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label class="field" for="armScope">적용 arm</label>
+              <select id="armScope">
+                <option value="B3-RISK">B3-RISK · 위험 축소만</option>
+                <option value="B3-FULL">B3-FULL · shadow tilt 허용</option>
+              </select>
+            </div>
+            <div>
+              <label class="field" for="contextInput">WebGPT 분석·시장·성과 컨텍스트 JSON</label>
+              <textarea id="contextInput" spellcheck="false">{
+  "news_analyses": [],
+  "market_state": {},
+  "performance_state": {}
+}</textarea>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="prepareButton" class="button">요청 번들 생성</button>
+            <button id="schemaButton" class="button secondary">출력 스키마 보기</button>
+          </div>
+          <div id="prepareStatus" class="status"></div>
+          <div id="promptPreview" class="prompt" hidden></div>
+        </article>
+
+        <article class="panel panel-pad">
+          <div class="panel-head" style="padding:0 0 15px;border:0">
+            <div><h2>모델 JSON 검증·적용</h2><p>허용되지 않은 추가 필드도 거부</p></div>
+          </div>
+          <label class="field" for="outputInput">Codex 또는 WebGPT의 공통 스키마 출력</label>
+          <textarea id="outputInput" spellcheck="false" placeholder="먼저 요청 번들을 생성하세요."></textarea>
+          <div class="actions"><button id="submitButton" class="button" disabled>검증 후 정책 적용</button></div>
+          <div id="submitStatus" class="status"></div>
+        </article>
+
+        <article class="panel panel-pad wide">
+          <div class="panel-head" style="padding:0 0 15px;border:0">
+            <div><h2>현재 adaptive policy</h2><p>버전화된 컴파일 결과</p></div>
+          </div>
+          <div id="policies" class="policy-grid"></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head">
+            <div><h2>최근 결정 감사 로그</h2><p>모델 출력과 정책 적용 결과</p></div>
+            <button id="refreshButton" class="button secondary compact">새로고침</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>상태</th><th>제어기</th><th>arm / version</th><th>결과</th><th>시각</th></tr></thead>
+              <tbody id="history"></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="researchView" class="view" hidden>
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">Adaptive alpha research plane</div>
+          <h1>Research</h1>
+          <p class="subtitle">시장·종목·팩터 전반의 알파 가설을 versioned Challenger로 만들고 반증·OOS·shadow를 거쳐 수동 승격 후보까지만 진행합니다.</p>
+        </div>
+        <div class="toolbar">
+          <span class="pill safe"><span class="dot"></span>Champion 직접 수정 금지</span>
+          <span class="pill safe"><span class="dot"></span>real_order_routing=false</span>
+          <button id="researchRefresh" class="button secondary compact">새로고침</button>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <article class="panel panel-pad wide">
+          <div class="panel-head" style="padding:0 0 15px;border:0">
+            <div><h2>Research Commander</h2><p>선택 변경은 append-only이며 이전 request를 STALE_SELECTION으로 만듭니다.</p></div>
+          </div>
+          <div id="researchCommanderOptions" class="providers"></div>
+          <div class="active-strip">
+            <div>현재 선택: <span id="researchCommanderActive" class="value">선택 안 됨</span> · 버전 <span id="researchCommanderVersion" class="value">0</span></div>
+            <button id="researchCommanderSelect" class="button" disabled>Research Commander 선택</button>
+          </div>
+          <div id="researchCommanderStatus" class="status"></div>
+        </article>
+
+        <article class="panel panel-pad">
+          <div class="eyebrow">Champion</div>
+          <h2 id="researchChampion">—</h2>
+          <p id="researchChampionPolicy">VERSIONED_CHALLENGER_ONLY</p>
+        </article>
+        <article class="panel panel-pad">
+          <div class="eyebrow">Web Scout</div>
+          <h2 id="researchScoutState">—</h2>
+          <p id="researchScoutContract">GPT-5.6 Sol Pro · xhigh · AGBrowse</p>
+        </article>
+        <article class="panel panel-pad">
+          <div class="eyebrow">Universe</div>
+          <h2>미국 주식·ETF 데이터 카탈로그</h2>
+          <p id="researchUniverse">hardcoded symbol allowlist 없음</p>
+        </article>
+        <article class="panel wide">
+          <div class="panel-head">
+            <div>
+              <div class="eyebrow">Research Scheduler</div>
+              <h2>Append-only cadence and dispatch outbox</h2>
+              <p>실제 market calendar, weekly local clock, 새 evidence threshold로만 work를 생성합니다.</p>
+            </div>
+          </div>
+          <div class="q1-status-grid">
+            <div class="q1-status-card"><span>VERSION</span><strong id="researchSchedulerVersion">—</strong></div>
+            <div class="q1-status-card"><span>TIMEZONE</span><strong id="researchSchedulerTimezone">—</strong></div>
+            <div class="q1-status-card"><span>RECENT WORK</span><strong id="researchSchedulerCount">0</strong></div>
+          </div>
+          <pre id="researchSchedulerWork">planned work 없음</pre>
+        </article>
+        <article class="panel wide">
+          <div class="panel-head">
+            <div>
+              <div class="eyebrow">AI × Guard</div>
+              <h2>2×2 matched paper attribution</h2>
+              <p id="researchFactorial">B0-VOL · B3-GUARD · B3-AI · B3-AI-GUARD</p>
+            </div>
+          </div>
+          <div class="q1-status-grid">
+            <div class="q1-status-card"><span>EXPERIMENT</span><strong id="researchFactorialState">—</strong></div>
+            <div class="q1-status-card"><span>DAILY SCHEDULE</span><strong id="researchFactorialSchedule">—</strong></div>
+            <div class="q1-status-card"><span>MATCHED READINESS</span><strong id="researchFactorialReadiness">—</strong></div>
+            <div class="q1-status-card"><span>GUARD MAIN</span><strong id="researchGuardEffect">—</strong></div>
+            <div class="q1-status-card"><span>AI MAIN</span><strong id="researchAiEffect">—</strong></div>
+            <div class="q1-status-card"><span>AI × GUARD</span><strong id="researchInteractionEffect">—</strong></div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Arm</th><th>NAV</th><th>Cash</th><th>Positions</th><th>Pending</th><th>Fills</th><th>Routing</th></tr></thead>
+            <tbody id="researchFactorialArms"></tbody>
+          </table></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head"><div><h2>최근 Research Cycle</h2><p>Scout → Commander → Builder 상태</p></div></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Cycle</th><th>Commander</th><th>Champion</th><th>Family</th><th>Cutoff</th></tr></thead>
+            <tbody id="researchCycles"></tbody>
+          </table></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head"><div><h2>Evidence Sources</h2><p>출처 tier·PIT·교차검증</p></div></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Tier</th><th>Source</th><th>제목</th><th>가용시각</th><th>검증</th></tr></thead>
+            <tbody id="researchEvidence"></tbody>
+          </table></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head"><div><h2>Algorithm Proposals / Challengers</h2><p>실패 후보도 삭제하지 않습니다.</p></div></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Challenger</th><th>Strategy Version</th><th>상태</th><th>Build Artifact</th><th>Family</th><th>생성시각</th></tr></thead>
+            <tbody id="researchChallengers"></tbody>
+          </table></div>
+        </article>
+
+        <article class="panel panel-pad">
+          <div class="eyebrow">OOS Lockbox</div>
+          <pre id="researchOos">결과 없음</pre>
+        </article>
+        <article class="panel panel-pad">
+          <div class="eyebrow">Promotion Eligibility</div>
+          <pre id="researchPromotion">자동 승격 비활성</pre>
+        </article>
+        <article class="panel panel-pad wide">
+          <div class="eyebrow">Public Commits / PRs</div>
+          <div id="researchPublications" class="source-line">공개 기록 없음</div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      dashboard: null,
+      market: null,
+      paper: null,
+      paperArm: "B3-RISK",
+      marketMode: "live",
+      liveSymbol: "SOXL",
+      marketGeneration: 0,
+      marketRequestInFlight: false,
+      marketAbort: null,
+      marketPollTimer: null,
+      marketFailures: 0,
+      status: null,
+      pendingProvider: null,
+      request: null,
+      research: null,
+      pendingResearchCommander: null
+    };
+    const $ = (id) => document.getElementById(id);
+    const money = new Intl.NumberFormat("ko-KR", {
+      style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2
+    });
+    const number = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 3 });
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        ...options
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+      return payload;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, c => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+      })[c]);
+    }
+
+    function setMessage(id, message, kind = "") {
+      const node = $(id);
+      node.textContent = message;
+      node.className = `status ${kind}`;
+    }
+
+    function formatMoney(value) {
+      return value === null || value === undefined ? "—" : money.format(Number(value));
+    }
+
+    function formatNumber(value, suffix = "") {
+      return value === null || value === undefined ? "—" : `${number.format(Number(value))}${suffix}`;
+    }
+
+    function formatSigned(value, suffix = "") {
+      if (value === null || value === undefined) return "—";
+      const numeric = Number(value);
+      const sign = numeric > 0 ? "+" : "";
+      return `${sign}${number.format(numeric)}${suffix}`;
+    }
+
+    function tone(value) {
+      const numeric = Number(value);
+      return numeric > 0 ? "positive" : numeric < 0 ? "negative" : "neutral";
+    }
+
+    function formatDate(value, includeTime = true) {
+      if (!value) return "—";
+      return new Intl.DateTimeFormat("ko-KR", {
+        timeZone: "Asia/Seoul",
+        year: "2-digit", month: "2-digit", day: "2-digit",
+        ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {})
+      }).format(new Date(value));
+    }
+
+    function formatChartDate(value) {
+      if (!value) return "—";
+      return new Intl.DateTimeFormat("ko-KR", {
+        timeZone: "Asia/Seoul",
+        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+      }).format(new Date(value));
+    }
+
+    function showGlobalError(error) {
+      $("globalError").textContent = error.message || String(error);
+      $("globalError").style.display = "block";
+    }
+
+    function clearGlobalError() {
+      $("globalError").style.display = "none";
+    }
+
+    async function refreshDashboard(overrides = {}) {
+      clearGlobalError();
+      $("tradingView").classList.add("loading");
+      try {
+        state.paper = await api("/api/paper/status");
+        if (state.paper.algorithm_version === "q1_math_core_v1") {
+          if (overrides.arm) state.paperArm = overrides.arm;
+          try {
+            state.dashboard = await api("/api/trading/dashboard");
+            renderDashboard();
+          } catch (_dashboardError) {
+            state.dashboard = null;
+          }
+          renderPaper();
+          if (state.marketMode === "live") await refreshMarket({ silent: true });
+          return;
+        }
+        const current = state.dashboard?.filters || {};
+        const arm = overrides.arm || current.selected_arm;
+        const symbol = overrides.symbol || current.selected_symbol;
+        const query = new URLSearchParams();
+        if (arm) query.set("arm_id", arm);
+        if (symbol) query.set("symbol", symbol);
+        state.dashboard = await api(
+          `/api/trading/dashboard${query.size ? `?${query}` : ""}`
+        );
+        renderDashboard();
+        renderPaper();
+        if (state.marketMode === "live") await refreshMarket({ silent: true });
+      } catch (error) {
+        showGlobalError(error);
+      } finally {
+        $("tradingView").classList.remove("loading");
+      }
+    }
+
+    function renderDashboard() {
+      const data = state.dashboard;
+      const { source, filters, market, portfolio, positions, orders, fills, paper_execution, reconciliation } = data;
+
+      $("dashboardArm").innerHTML = filters.arms.map(arm =>
+        `<option value="${escapeHtml(arm)}" ${arm === filters.selected_arm ? "selected" : ""}>${escapeHtml(arm)}</option>`
+      ).join("");
+      if (state.marketMode === "synthetic") renderSyntheticMarket(source, filters, market);
+
+      $("accountLabel").textContent = `${portfolio.arm_id} · SYNTHETIC demo_run 평가`;
+      $("accountNav").textContent = formatMoney(portfolio.nav_usd);
+      $("accountPnl").className = `account-pnl ${tone(portfolio.total_pnl_usd)}`;
+      $("accountPnl").textContent = `${formatSigned(portfolio.total_pnl_usd)} USD · ${formatSigned(portfolio.total_return_pct, "%")}`;
+      $("marketValue").textContent = formatMoney(portfolio.positions_market_value_usd);
+      $("cashValue").textContent = formatMoney(portfolio.cash_usd);
+      $("positionCount").textContent = `${portfolio.position_count}종목`;
+      $("ledgerSequence").textContent = formatNumber(portfolio.sequence);
+      $("runStatus").textContent = source.run_status;
+      $("runStatus").className = `badge ${source.run_status === "COMPLETED" ? "MATCHED" : "PARTIAL"}`;
+      $("positionsAsOf").textContent = `기준 ${formatDate(portfolio.as_of)}`;
+
+      $("armComparison").innerHTML = data.arm_comparison.map(arm => `
+        <button class="arm-row ${arm.arm_id === filters.selected_arm ? "active" : ""}" data-arm="${escapeHtml(arm.arm_id)}">
+          <span class="arm-name">${escapeHtml(arm.arm_id)}</span>
+          <span class="arm-nav">${formatMoney(arm.nav_usd)}</span>
+          <span class="arm-return ${tone(arm.total_return_pct)}">${arm.total_return_pct === null ? "—" : formatSigned(arm.total_return_pct, "%")}</span>
+        </button>`).join("");
+      document.querySelectorAll("[data-arm]").forEach(button => {
+        button.addEventListener("click", () => refreshDashboard({ arm: button.dataset.arm }));
+      });
+
+      $("reconciliation").className = `reconcile ${reconciliation.status === "MATCHED" ? "" : "bad"}`;
+      $("reconciliation").innerHTML = `<span class="dot"></span>장부 NAV ${reconciliation.status === "MATCHED" ? "일치" : "불일치"} · 차이 ${formatMoney(reconciliation.difference_usd)}`;
+
+      $("positionsTable").innerHTML = positions.length ? positions.map(position => `
+        <tr>
+          <td><div class="asset">
+            <span class="asset-icon">${escapeHtml(position.symbol.slice(0, 3))}</span>
+            <span class="asset-name"><strong>${escapeHtml(position.symbol)}</strong><span>${escapeHtml(position.display_name)}</span></span>
+          </div></td>
+          <td>${formatNumber(position.quantity)}</td>
+          <td>${formatMoney(position.average_cost)}</td>
+          <td>${formatMoney(position.current_price)}</td>
+          <td>${formatMoney(position.market_value_usd)}</td>
+          <td class="${tone(position.unrealized_return_pct)}">${formatSigned(position.unrealized_pnl_usd)} USD<br><small>${formatSigned(position.unrealized_return_pct, "%")}</small></td>
+          <td>${formatNumber(position.weight_pct, "%")}<div class="weight-track"><i style="width:${Math.min(100, Math.max(0, Number(position.weight_pct)))}%"></i></div></td>
+        </tr>`).join("") : `<tr><td colspan="7" class="empty">이 arm은 현재 보유 종목이 없습니다.</td></tr>`;
+
+      $("ordersTable").innerHTML = orders.length ? orders.map(order => `
+        <tr>
+          <td><span class="badge ${escapeHtml(order.status)}">${escapeHtml(order.status)}</span></td>
+          <td>${escapeHtml(order.symbol)}</td>
+          <td>${escapeHtml(order.side)}</td>
+          <td>${formatNumber(order.requested_quantity)}</td>
+          <td>${formatNumber(order.filled_quantity)}</td>
+          <td>${formatMoney(order.average_fill_price)}</td>
+        </tr>`).join("") : `<tr><td colspan="6" class="empty">생성된 주문 의도가 없습니다.</td></tr>`;
+
+      $("fillsTable").innerHTML = fills.length ? fills.map(fill => `
+        <tr>
+          <td>${escapeHtml(fill.symbol)}</td>
+          <td>${formatNumber(fill.quantity)}</td>
+          <td>${formatMoney(fill.price)}</td>
+          <td>${formatMoney(fill.commission_usd)}</td>
+          <td>${formatDate(fill.effective_at, false)}</td>
+        </tr>`).join("") : `<tr><td colspan="5" class="empty">모의 체결이 없습니다.</td></tr>`;
+
+      $("fillAssumption").textContent = `다음 bar open + ${paper_execution.half_spread_bps}bps + ${paper_execution.delay_penalty_bps}bps`;
+      $("executionSource").textContent =
+        `PaperBroker · 매매수수료 ${paper_execution.commission_percent}% · $${paper_execution.commission_waiver_threshold_usd} 이하 면제 · 실계좌 주문 전송 ${paper_execution.real_order_routing ? "ON" : "OFF"}`;
+    }
+
+    function renderPaper() {
+      const paper = state.paper;
+      if (!paper) return;
+      if (paper.algorithm_version === "q1_math_core_v1") {
+        renderQ1Paper(paper);
+        return;
+      }
+      $("q1StatusPanel").hidden = true;
+      $("paperAlgorithmLabel").textContent = "LEGACY FORWARD · paper_forward_v2";
+      const scheduler = paper.scheduler?.runtime;
+      const recentCycle = paper.scheduler?.cycles?.[0];
+      const nextCycle = paper.scheduler?.next_cycle;
+      const runtimeRunning = Boolean(paper.runtime_enabled && paper.process?.task_running);
+      const orderMode = paper.order_generation_enabled
+        ? runtimeRunning
+          ? "기준선 주문 생성 ON"
+          : "주문 생성 중단"
+        : paper.order_generation_armed
+          ? "T0 이후 주문 ARMED"
+          : "전략 검증 WARMUP";
+      $("paperRuntimeState").textContent = `${paper.state} · ${runtimeRunning ? "데이터/AI 자동운용 ON" : paper.runtime_enabled ? "자동운용 오류/중단" : "자동운용 OFF"} · ${orderMode}`;
+      $("paperT0").textContent = paper.performance_start_at ? formatDate(paper.performance_start_at) : "첫 신선한 공통 호가 대기";
+      $("paperInitialNav").textContent = formatMoney(paper.initial_nav_usd);
+      $("paperHeartbeat").textContent = scheduler?.heartbeat_at ? formatDate(scheduler.heartbeat_at) : "프로세스 대기";
+      $("paperCycleState").textContent = recentCycle
+        ? `${recentCycle.kind} · ${recentCycle.status}`
+        : nextCycle
+          ? `${nextCycle.kind} · ${formatDate(nextCycle.scheduled_at)} 예정`
+          : "스케줄 생성 대기";
+
+      $("sourcePill").className = `pill ${paper.state === "RUNNING" && runtimeRunning ? "live" : "warn"}`;
+      $("sourcePill").innerHTML = `<span class="dot"></span>PAPER FORWARD`;
+      const armId = state.paperArm || state.dashboard?.filters?.selected_arm || "B3-RISK";
+      const arm = paper.arms?.[armId];
+      if (!arm) return;
+      const armPositions = arm.positions || paper.positions || [];
+      const armOrders = arm.orders || [];
+      const armFills = arm.fills || [];
+
+      $("accountLabel").textContent = `${armId} · FORWARD PAPER · T0 이후`;
+      $("accountNav").textContent = formatMoney(arm.nav_usd);
+      const returnPct = arm.return_since_t0 === null ? null : Number(arm.return_since_t0) * 100;
+      $("accountPnl").className = `account-pnl ${tone(returnPct)}`;
+      $("accountPnl").textContent = returnPct === null
+        ? "T0 공통 호가를 기다리는 중"
+        : `${formatSigned(returnPct, "%")} · HOLD 대비 ${formatSigned(Number(arm.active_return_vs_hold || 0) * 100, "%")}`;
+      $("marketValue").textContent = formatMoney(arm.positions_market_value_usd);
+      $("cashValue").textContent = formatMoney(arm.cash_usd);
+      $("positionCount").textContent = `${armPositions.length}종목`;
+      $("ledgerSequence").textContent = arm.sequence === null || arm.sequence === undefined ? "T0 대기" : String(arm.sequence);
+      $("runStatus").textContent = paper.state;
+      $("runStatus").className = `badge ${paper.state === "RUNNING" ? "MATCHED" : "PARTIAL"}`;
+      $("positionsAsOf").textContent = paper.performance_start_at
+        ? `T0 ${formatDate(paper.performance_start_at)}`
+        : "공통 가격 미확정";
+
+      $("armComparison").innerHTML = Object.entries(paper.arms).map(([id, item]) => {
+        const pct = item.return_since_t0 === null ? null : Number(item.return_since_t0) * 100;
+        return `<button class="arm-row ${id === armId ? "active" : ""}" data-paper-arm="${escapeHtml(id)}">
+          <span class="arm-name">${escapeHtml(id)}</span>
+          <span class="arm-nav">${formatMoney(item.nav_usd)}</span>
+          <span class="arm-return ${tone(pct)}">${pct === null ? "—" : formatSigned(pct, "%")}</span>
+        </button>`;
+      }).join("");
+      document.querySelectorAll("[data-paper-arm]").forEach(button => {
+        button.addEventListener("click", () => {
+          state.paperArm = button.dataset.paperArm;
+          renderPaper();
+        });
+      });
+      const evaluation = paper.forward_evaluation || {};
+      const matched = evaluation.primary_matched_comparison || ["B3-RISK", "B0-VOL"];
+      const transition = paper.forward_transition || {};
+      const comparisonState = transition.matched_comparison_ready
+        ? "공통 core 전환 완료"
+        : "상속 계좌 전환기라 수익 비교는 아직 준비 중";
+      $("reconciliation").className = "reconcile";
+      $("reconciliation").innerHTML = `<span class="dot"></span>실계좌 주문 차단 · KRW ${paper.frozen_cash[0]?.amount || "0"} 별도 동결 · ${escapeHtml(comparisonState)} · ${escapeHtml(matched.join(" vs "))}는 AI+결정론 위험관리 복합 비교이며 AI 단독 기여가 아님`;
+
+      $("positionsTable").innerHTML = armPositions.length ? armPositions.map(position => {
+        const pct = position.return_since_t0 === null ? null : Number(position.return_since_t0) * 100;
+        const weight = !arm.nav_usd || !position.market_value_usd
+          ? null
+          : Number(position.market_value_usd) / Number(arm.nav_usd) * 100;
+        return `<tr>
+          <td><div class="asset">
+            <span class="asset-icon">${escapeHtml(position.symbol.slice(0, 3))}</span>
+            <span class="asset-name"><strong>${escapeHtml(position.symbol)}</strong><span>${escapeHtml(position.execution_mode)}</span></span>
+          </div></td>
+          <td>${escapeHtml(position.quantity)}</td>
+          <td>${formatMoney(position.opening_price)}</td>
+          <td>${formatMoney(position.current_price)}</td>
+          <td>${formatMoney(position.market_value_usd)}</td>
+          <td class="${tone(pct)}">${pct === null ? "—" : formatSigned(pct, "%")}</td>
+          <td>${weight === null ? "—" : formatNumber(weight, "%")}</td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="7" class="empty">계좌 스냅샷을 초기화하는 중입니다.</td></tr>`;
+
+      const readiness = Object.entries(paper.strategy_readiness || {})
+        .map(([strategy, item]) => `${strategy}:${item.state}`)
+        .join(" · ");
+      $("ordersTable").innerHTML = armOrders.length ? armOrders.map(order => `
+        <tr>
+          <td><span class="badge ${escapeHtml(order.status)}">${escapeHtml(order.status)}</span></td>
+          <td>${escapeHtml(order.symbol)}</td>
+          <td>${escapeHtml(order.side)}</td>
+          <td>${formatNumber(order.requested_quantity)}</td>
+          <td>${formatNumber(order.filled_quantity)}</td>
+          <td>${formatMoney(order.average_fill_price)}</td>
+        </tr>`).join("") : `<tr><td colspan="6" class="empty">${arm.order_enabled ? `15:45 ET 기준선 주문 대기 · 알파 ${escapeHtml(readiness || "승격 대기")}` : `이 arm은 주문 비활성 · ${escapeHtml(readiness || "승격 대기")}`}</td></tr>`;
+      $("fillsTable").innerHTML = armFills.length ? armFills.map(fill => `
+        <tr>
+          <td>${escapeHtml(fill.symbol)}</td>
+          <td>${formatNumber(fill.quantity)}</td>
+          <td>${formatMoney(fill.price)}</td>
+          <td>${formatMoney(fill.commission_usd)}</td>
+          <td>${formatDate(fill.effective_at, false)}</td>
+        </tr>`).join("") : `<tr><td colspan="5" class="empty">Forward paper 체결 없음</td></tr>`;
+      $("fillAssumption").textContent = "주문 뒤 첫 실행가능 IEX bid/ask + 1bp 지연 · 표시수량 10%/20일 IEX ADV 2.5% 제한";
+      $("executionSource").textContent =
+        "Toss 미국주식 수수료 0.1% 규칙 · IEX 호가 기반 가상 체결 · 실계좌 주문 전송 OFF";
+    }
+
+    function renderQ1Paper(paper) {
+      const arms = paper.arms || {};
+      const preferredArm = state.paperArm && arms[state.paperArm]
+        ? state.paperArm
+        : arms["Q1-DET"]
+          ? "Q1-DET"
+          : Object.keys(arms)[0];
+      state.paperArm = preferredArm || "Q1-DET";
+      const armId = state.paperArm;
+      const arm = arms[armId] || null;
+      const anchor = paper.evaluation_anchor;
+      const calendar = paper.session_calendar;
+      const scheduler = paper.scheduler?.runtime;
+      const recentCycle = paper.scheduler?.cycles?.[0];
+      const nextCycle = paper.scheduler?.next_cycle;
+      const taskRunning = Boolean(paper.process?.task_running);
+      const workerState = paper.process?.worker_state || "Q1_WORKER_STATUS_UNKNOWN";
+      const canary = paper.alpaca_paper_canary || null;
+      const canaryEnabled = canary?.enabled === true;
+      const canaryState = canary?.state || canary?.status || "DISABLED_NOT_CONFIGURED";
+      const canarySourceArm = canary?.source_arm || canary?.source_arm_id || "Q1-LLM";
+      const canaryInvariantInvalid = Boolean(canary && (
+        canary.execution_lane !== "ALPACA_PAPER_CANARY"
+        || canary.provider !== "ALPACA"
+        || !["Q1-DET", "Q1-LLM"].includes(canarySourceArm)
+        || canary.rest_base_url !== "https://paper-api.alpaca.markets"
+        || canary.matched_attribution_included !== false
+        || canary.real_order_routing !== false
+      ));
+      const canaryBlocked = canaryInvariantInvalid
+        || /BLOCK|ERROR|FAIL|MISMATCH|UNKNOWN/.test(canaryState);
+      const canaryReady = canaryEnabled
+        && canary?.account_ready === true
+        && ["MATCHED", "READY"].includes(canary?.reconciliation_status);
+      state.liveSymbol = ["QQQ", "SOXX"].includes(state.liveSymbol)
+        ? state.liveSymbol
+        : "QQQ";
+      $("dashboardArm").innerHTML = Object.keys(arms).map(id =>
+        `<option value="${escapeHtml(id)}" ${id === armId ? "selected" : ""}>${escapeHtml(id)}</option>`
+      ).join("");
+
+      $("q1StatusPanel").hidden = false;
+      $("paperAlgorithmLabel").textContent = "Q1 MATH CORE · q1_math_core_v1";
+      $("paperRuntimeState").textContent =
+        `${paper.state} · ${taskRunning ? "Q1 worker 실행 중" : "Q1 status 준비"} · ${workerState}`;
+      $("paperT0").textContent = anchor?.common_t0_at
+        ? formatDate(anchor.common_t0_at)
+        : "첫 10:00 ET 직전 공통 quote 대기";
+      $("paperInitialNav").textContent = formatMoney(anchor?.initial_nav_usd);
+      $("paperHeartbeat").textContent = scheduler?.heartbeat_at
+        ? formatDate(scheduler.heartbeat_at)
+        : "worker heartbeat 대기";
+      $("paperCycleState").textContent = recentCycle
+        ? `${recentCycle.kind} · ${recentCycle.status}`
+        : nextCycle
+          ? `${nextCycle.kind} · ${formatDate(nextCycle.scheduled_at)} 예정`
+          : "versioned calendar cycle 대기";
+      $("sourcePill").className = `pill ${paper.state === "RUNNING" && taskRunning ? "live" : "warn"}`;
+      $("sourcePill").innerHTML = canaryEnabled
+        ? "<span class=\"dot\"></span>Q1 · INTERNAL + PAPER CANARY"
+        : "<span class=\"dot\"></span>Q1 · IEX INTERNAL";
+
+      $("q1Routing").textContent = `real_order_routing=${paper.real_order_routing === false ? "false" : "INVALID"}`;
+      $("q1Routing").className = `pill ${paper.real_order_routing === false ? "safe" : "bad"}`;
+      $("q1AlpacaPaperRouting").textContent =
+        `ALPACA_PAPER_CANARY · ${canaryInvariantInvalid ? "SAFETY_INVALID" : canaryState}`;
+      $("q1AlpacaPaperRouting").className =
+        `pill ${canaryBlocked ? "bad" : canaryReady ? "live" : "warn"}`;
+      $("q1AlpacaPaperDetail").textContent = JSON.stringify({
+        enabled: canaryEnabled,
+        state: canaryState,
+        execution_lane: canary?.execution_lane || "ALPACA_PAPER_CANARY",
+        provider: canary?.provider || "ALPACA",
+        source_arm: canarySourceArm,
+        rest_base_url: canary?.rest_base_url || "https://paper-api.alpaca.markets",
+        account_bound: canary?.account_bound === true,
+        account_ready: canary?.account_ready === true,
+        reconciliation_status: canary?.reconciliation_status || "NOT_CONFIGURED",
+        initial_equity_usd: canary?.initial_equity_usd ?? null,
+        initial_cash_usd: canary?.initial_cash_usd ?? null,
+        current_equity_usd: canary?.current_equity_usd ?? null,
+        current_cash_usd: canary?.current_cash_usd ?? null,
+        cumulative_return: canary?.cumulative_return ?? null,
+        positions: canary?.positions || [],
+        open_order_count: canary?.open_order_count || 0,
+        open_orders: canary?.open_orders || [],
+        latest_source_decision_id: canary?.latest_source_decision_id || null,
+        last_sync_at: canary?.last_sync_at || null,
+        last_error_code: canary?.last_error_code || null,
+        matched_attribution_included: canary
+          ? canary.matched_attribution_included === false
+            ? false
+            : "INVALID"
+          : false,
+        real_order_routing: canary
+          ? canary.real_order_routing === false
+            ? false
+            : "INVALID"
+          : false
+      }, null, 2);
+      $("q1AnchorDetail").textContent = anchor
+        ? `${anchor.evaluation_anchor_id} · ${formatDate(anchor.common_t0_at)} · ${formatMoney(anchor.initial_nav_usd)}`
+        : "immutable evaluation anchor 대기";
+      $("q1SessionDetail").textContent = calendar
+        ? `close ${formatDate(calendar.close_at)} · normal ${formatDate(calendar.normal_order_cutoff)}`
+        : "versioned market calendar 대기";
+
+      if (!arm) {
+        $("q1CashDetail").textContent = "arm bootstrap 대기";
+        $("q1WeightsDetail").textContent = "target/actual weight 대기";
+        $("q1SignalDetail").textContent = "signal diagnostics 대기";
+        $("q1RiskDetail").textContent = "risk episode 대기";
+        $("q1OrderDetail").textContent = "order-event pending 없음";
+        $("q1MatchedDetail").textContent = JSON.stringify(paper.matched_comparisons || {}, null, 2);
+        $("q1PerformanceDetail").textContent = JSON.stringify(paper.performance || {}, null, 2);
+        $("q1LlmDetail").textContent = paper.llm_overlay_state || "NO_POLICY";
+        $("accountLabel").textContent = "Q1-DET · Q1 MATH CORE · bootstrap 대기";
+        $("accountNav").textContent = "—";
+        $("accountPnl").className = "account-pnl neutral";
+        $("accountPnl").textContent = "evaluation anchor를 기다리는 중";
+        $("marketValue").textContent = "—";
+        $("cashValue").textContent = "—";
+        $("positionCount").textContent = "0종목";
+        $("ledgerSequence").textContent = "T0 대기";
+        $("armComparison").innerHTML = "";
+        $("positionsTable").innerHTML = "<tr><td colspan=\"7\" class=\"empty\">Q1 arm bootstrap을 기다리는 중입니다.</td></tr>";
+        $("ordersTable").innerHTML = "<tr><td colspan=\"6\" class=\"empty\">append-only order event 없음</td></tr>";
+        $("fillsTable").innerHTML = "<tr><td colspan=\"5\" class=\"empty\">Q1 paper fill 없음</td></tr>";
+        return;
+      }
+
+      const positions = Object.entries(arm.positions || {});
+      const pending = arm.pending_orders || [];
+      const settled = Number(arm.settled_cash_usd || 0);
+      const unsettled = Number(arm.unsettled_receivables_usd || 0);
+      const totalCash = settled + unsettled;
+      const nav = arm.nav_usd === null || arm.nav_usd === undefined
+        ? null
+        : Number(arm.nav_usd);
+      const marketValue = nav === null ? null : nav - totalCash;
+      const actualWeights = arm.actual_weights || {};
+      const targetWeights = arm.target_weights || {};
+      const activeEpisode = arm.active_risk_episode;
+      const matched = paper.matched_comparisons || {};
+
+      $("q1CashDetail").textContent =
+        `${formatMoney(settled)} settled · ${formatMoney(unsettled)} unsettled`;
+      $("q1WeightsDetail").textContent = JSON.stringify({
+        target: targetWeights,
+        actual: actualWeights
+      }, null, 2);
+      $("q1SignalDetail").textContent = JSON.stringify(
+        arm.latest_signal_diagnostics || { state: "AWAITING_1000_ET_SIGNAL" },
+        null,
+        2
+      );
+      $("q1RiskDetail").textContent = JSON.stringify({
+        state: arm.risk_state || "NORMAL",
+        active_episode: activeEpisode
+      }, null, 2);
+      $("q1OrderDetail").textContent = JSON.stringify(
+        pending.length ? pending : { state: "NO_EVENT_DERIVED_PENDING_ORDERS" },
+        null,
+        2
+      );
+      $("q1MatchedDetail").textContent = JSON.stringify({
+        alpha: matched.alpha,
+        llm: matched.llm,
+        minimum_common_sessions: matched.minimum_common_out_of_sample_sessions,
+        promotion: "MANUAL_ONLY"
+      }, null, 2);
+      $("q1PerformanceDetail").textContent = JSON.stringify(
+        paper.performance?.[armId] || {
+          state: "AWAITING_DAILY_RESULTS"
+        },
+        null,
+        2
+      );
+      $("q1LlmDetail").textContent = JSON.stringify({
+        state: arm.llm_overlay_state,
+        global_state: paper.llm_overlay_state,
+        selected_commander: paper.ai?.selected_commander || null,
+        real_llm_enabled: paper.ai?.real_llm_enabled === true,
+        isolated_comparison: "Q1-LLM - Q1-DET"
+      }, null, 2);
+
+      $("accountLabel").textContent =
+        `${armId} · Q1 MATH CORE · ${arm.comparison_group}`;
+      $("accountNav").textContent = formatMoney(nav);
+      $("accountPnl").className = "account-pnl neutral";
+      $("accountPnl").textContent = arm.comparison_group === "STRATEGY"
+        ? "공통 T0 이후 daily result 누적 · 수익성 자동 주장 없음"
+        : `${arm.comparison_group} · 전략 matched 비교와 분리`;
+      $("marketValue").textContent = formatMoney(marketValue);
+      $("cashValue").textContent = `${formatMoney(totalCash)} · settled ${formatMoney(settled)}`;
+      $("positionCount").textContent = `${positions.length}종목`;
+      $("ledgerSequence").textContent = arm.sequence === null || arm.sequence === undefined
+        ? "T0 대기"
+        : String(arm.sequence);
+      $("runStatus").textContent = paper.state;
+      $("runStatus").className = `badge ${paper.state === "RUNNING" ? "MATCHED" : "PARTIAL"}`;
+      $("positionsAsOf").textContent = anchor
+        ? `공통 T0 ${formatDate(anchor.common_t0_at)}`
+        : "evaluation anchor 미확정";
+
+      $("armComparison").innerHTML = Object.entries(arms).map(([id, item]) => `
+        <button class="arm-row ${id === armId ? "active" : ""}" data-paper-arm="${escapeHtml(id)}">
+          <span class="arm-name">${escapeHtml(id)}</span>
+          <span class="arm-nav">${formatMoney(item.nav_usd)}</span>
+          <span class="arm-return neutral">${escapeHtml(item.risk_state || item.comparison_group || "—")}</span>
+        </button>`).join("");
+      document.querySelectorAll("[data-paper-arm]").forEach(button => {
+        button.addEventListener("click", () => {
+          state.paperArm = button.dataset.paperArm;
+          renderPaper();
+        });
+      });
+
+      const alphaReady = matched.alpha?.state || "AWAITING_COMMON_SESSIONS";
+      const llmReady = matched.llm?.state || "AWAITING_COMMON_SESSIONS";
+      $("reconciliation").className = "reconcile";
+      $("reconciliation").innerHTML =
+        `<span class="dot"></span>실계좌 주문 차단 · ${escapeHtml(alphaReady)} · ${escapeHtml(llmReady)} · LLM attribution은 Q1-LLM − Q1-DET만 사용 · Alpaca Paper canary는 별도 관측 계열`;
+
+      $("positionsTable").innerHTML = positions.length ? positions.map(([symbol, quantity]) => {
+        const actual = actualWeights[symbol];
+        const target = targetWeights[symbol];
+        return `<tr>
+          <td><div class="asset">
+            <span class="asset-icon">${escapeHtml(symbol.slice(0, 3))}</span>
+            <span class="asset-name"><strong>${escapeHtml(symbol)}</strong><span>${escapeHtml(arm.initialization)}</span></span>
+          </div></td>
+          <td>${escapeHtml(quantity)}</td>
+          <td>—</td>
+          <td>—</td>
+          <td>—</td>
+          <td>target ${target === undefined ? "—" : formatNumber(Number(target) * 100, "%")}</td>
+          <td>${actual === undefined ? "—" : formatNumber(Number(actual) * 100, "%")}</td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="7" class="empty">${arm.initialization === "CASH_ONLY_COMMON_T0_NAV" ? "전략 arm은 상속 포지션 없이 cash-only로 시작합니다." : "상속 포지션 상태를 기다리는 중입니다."}</td></tr>`;
+
+      $("ordersTable").innerHTML = pending.length ? pending.map(order => `
+        <tr>
+          <td><span class="badge ${escapeHtml(order.latest_status)}">${escapeHtml(order.latest_status)}</span></td>
+          <td>${escapeHtml(order.symbol)}</td>
+          <td>${escapeHtml(order.side)}</td>
+          <td>${formatNumber(order.remaining_quantity)}</td>
+          <td>—</td>
+          <td>${formatDate(order.valid_until)}</td>
+        </tr>`).join("") : `<tr><td colspan="6" class="empty">order event에서 유도된 pending 주문이 없습니다.</td></tr>`;
+      $("fillsTable").innerHTML =
+        "<tr><td colspan=\"5\" class=\"empty\">Q1 fill은 append-only order/fill 감사 기록에 저장됩니다.</td></tr>";
+      $("fillAssumption").textContent =
+        "10:01–10:20 ET 정상 slice · emergency sell은 actual close 전까지 · 동적 20–75bp guard";
+      $("executionSource").textContent = canaryEnabled
+        ? `내부 matched arm은 IEX 가상 체결 · ALPACA_PAPER_CANARY는 ${canarySourceArm} 단일 계좌 별도 관측 · real_order_routing=false`
+        : "QQQ/SOXX/현금 전용 · 내부 IEX 가상 체결 · ALPACA_PAPER_CANARY disabled · real_order_routing=false";
+    }
+
+    function renderSyntheticMarket(source, filters, market) {
+      $("sourcePill").className = "pill synthetic";
+      $("sourcePill").innerHTML = `<span class="dot"></span>SYNTHETIC`;
+      $("marketConnection").className = "pill synthetic";
+      $("marketConnection").textContent = "고정 fixture";
+      $("marketAsOf").className = "pill synthetic";
+      $("marketAsOf").textContent = `${source.freshness} · ${formatDate(source.as_of)}`;
+      $("symbolTabs").innerHTML = filters.symbols.map(symbol =>
+        `<button class="symbol-button ${symbol === filters.selected_symbol ? "active" : ""}" data-symbol="${escapeHtml(symbol)}">${escapeHtml(symbol)}</button>`
+      ).join("");
+      document.querySelectorAll("[data-symbol]").forEach(button => {
+        button.addEventListener("click", () => refreshDashboard({ symbol: button.dataset.symbol }));
+      });
+      const quote = market.quote;
+      $("quoteTitle").textContent = `${market.display_name} · ${market.selected_symbol}`;
+      $("quotePrice").textContent = formatMoney(quote.price);
+      $("quoteChange").className = `quote-change ${tone(quote.change)}`;
+      $("quoteChange").textContent = `${formatSigned(quote.change)} (${formatSigned(quote.change_pct, "%")})`;
+      $("chartRange").textContent = `기간 고가 ${formatMoney(quote.period_high)} · 기간 저가 ${formatMoney(quote.period_low)}`;
+      $("candleNote").textContent = source.candle_note;
+      renderCandles(market.candles);
+    }
+
+    async function refreshMarket({ symbol = null, silent = false } = {}) {
+      if (state.marketMode !== "live") return;
+      if (state.marketRequestInFlight) {
+        if (!symbol || !state.marketAbort) return;
+        state.marketAbort.abort();
+      }
+      if (symbol) state.liveSymbol = symbol;
+      const generation = ++state.marketGeneration;
+      const controller = new AbortController();
+      state.marketAbort = controller;
+      state.marketRequestInFlight = true;
+      if (!silent && !state.market) $("tradingView").classList.add("loading");
+      try {
+        const query = new URLSearchParams({
+          symbol: state.liveSymbol,
+          timeframe: "1Min",
+          limit: "120"
+        });
+        const result = await api(`/api/market/snapshot?${query}`, { signal: controller.signal });
+        if (generation !== state.marketGeneration) return;
+        state.market = result;
+        state.liveSymbol = result.filters.selected_symbol;
+        state.marketFailures = 0;
+        renderLiveMarket();
+        clearGlobalError();
+      } catch (error) {
+        if (error.name === "AbortError" || generation !== state.marketGeneration) return;
+        state.marketFailures += 1;
+        $("sourcePill").className = "pill warn";
+        $("sourcePill").innerHTML = `<span class="dot"></span>ALPACA · IEX`;
+        $("marketConnection").className = "pill bad";
+        $("marketConnection").textContent = "API 연결 끊김";
+        if (!silent) showGlobalError(error);
+      } finally {
+        if (generation === state.marketGeneration) {
+          state.marketRequestInFlight = false;
+          state.marketAbort = null;
+          $("tradingView").classList.remove("loading");
+          scheduleMarketPoll();
+        }
+      }
+    }
+
+    function renderLiveMarket() {
+      const { source, filters, market, paper_input } = state.market;
+      const connectionLabels = {
+        CONNECTED: "연결됨",
+        CONNECTING: "연결 중",
+        RECONNECTING: "재연결 중",
+        DISCONNECTED: "수집기 응답 없음",
+        AUTH_REQUIRED: "API 키 필요",
+        STOPPED: "수집 중단"
+      };
+      const dataLabels = {
+        LIVE: source.quote_age_seconds === null ? "실시간" : `실시간 ${Math.round(source.quote_age_seconds)}초 전`,
+        STALE: "데이터 지연",
+        NO_DATA: "저장 데이터 없음",
+        AUTH_REQUIRED: "인증 필요",
+        STOPPED: "수집 중단"
+      };
+      const connectionGood = source.connection_state === "CONNECTED";
+      const dataGood = source.data_status === "LIVE";
+      $("sourcePill").className = `pill ${dataGood ? "live" : "warn"}`;
+      $("sourcePill").innerHTML = `<span class="dot"></span>ALPACA · IEX`;
+      $("marketConnection").className = `pill ${connectionGood ? "live" : source.connection_state === "AUTH_REQUIRED" ? "warn" : "bad"}`;
+      $("marketConnection").textContent = connectionLabels[source.connection_state] || source.connection_state;
+      $("marketAsOf").className = `pill ${dataGood ? "live" : "warn"}`;
+      $("marketAsOf").textContent = dataLabels[source.data_status] || source.data_status;
+
+      $("symbolTabs").innerHTML = filters.symbols.map(symbol =>
+        `<button class="symbol-button ${symbol === filters.selected_symbol ? "active" : ""}" data-live-symbol="${escapeHtml(symbol)}">${escapeHtml(symbol)}</button>`
+      ).join("");
+      document.querySelectorAll("[data-live-symbol]").forEach(button => {
+        button.addEventListener("click", () => refreshMarket({ symbol: button.dataset.liveSymbol }));
+      });
+
+      const quote = market.quote;
+      $("quoteTitle").textContent = `${filters.selected_symbol} · IEX 단일 거래소`;
+      $("quotePrice").textContent = formatMoney(quote.price);
+      $("quoteChange").className = `quote-change ${tone(quote.change)}`;
+      $("quoteChange").textContent = quote.change === null
+        ? "변동 계산 대기"
+        : `${formatSigned(quote.change)} (${formatSigned(quote.change_pct, "%")})`;
+      if (market.candles.length) {
+        const highs = market.candles.map(candle => Number(candle.high));
+        const lows = market.candles.map(candle => Number(candle.low));
+        $("chartRange").textContent = `기간 고가 ${formatMoney(Math.max(...highs))} · 기간 저가 ${formatMoney(Math.min(...lows))}`;
+      } else {
+        $("chartRange").textContent = "저장된 1분봉이 없습니다.";
+      }
+      const paperState = paper_input.ready ? "PaperBroker 입력 가능" : `PaperBroker 대기: ${paper_input.reason}`;
+      $("candleNote").textContent = `${source.candle_note} · ${paperState}`;
+      renderCandles(market.candles);
+    }
+
+    function scheduleMarketPoll() {
+      clearTimeout(state.marketPollTimer);
+      if (
+        state.marketMode !== "live" ||
+        document.hidden ||
+        $("tradingView").hidden
+      ) return;
+      const base = state.market?.source?.poll_after_ms || 5000;
+      const delay = Math.min(60000, base * Math.max(1, 2 ** state.marketFailures));
+      state.marketPollTimer = setTimeout(() => refreshMarket({ silent: true }), delay);
+    }
+
+    function renderCandles(candles) {
+      const svg = $("candleChart");
+      const tooltip = $("chartTooltip");
+      tooltip.style.display = "none";
+      if (!candles.length) {
+        svg.innerHTML = `<text x="430" y="175" fill="#697481" font-size="14" text-anchor="middle">표시할 캔들이 없습니다.</text>`;
+        return;
+      }
+      const width = 860;
+      const height = 350;
+      const margin = { top: 18, right: 24, bottom: 34, left: 58 };
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+      const lows = candles.map(candle => Number(candle.low));
+      const highs = candles.map(candle => Number(candle.high));
+      const rawMin = Math.min(...lows);
+      const rawMax = Math.max(...highs);
+      const padding = Math.max((rawMax - rawMin) * .08, rawMax * .001);
+      const min = rawMin - padding;
+      const max = rawMax + padding;
+      const scaleY = value => margin.top + (max - value) / (max - min) * plotHeight;
+      const step = plotWidth / candles.length;
+      const bodyWidth = Math.max(5, Math.min(28, step * .48));
+      const grid = Array.from({ length: 5 }, (_, index) => {
+        const value = max - (max - min) * index / 4;
+        const y = scaleY(value);
+        return `<line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" stroke="#252a31" stroke-width="1"/>
+          <text x="${margin.left - 9}" y="${y + 4}" fill="#697481" font-size="10" text-anchor="end">${value.toFixed(2)}</text>`;
+      }).join("");
+      const candleMarkup = candles.map((candle, index) => {
+        const open = Number(candle.open);
+        const high = Number(candle.high);
+        const low = Number(candle.low);
+        const close = Number(candle.close);
+        const x = margin.left + step * index + step / 2;
+        const up = close >= open;
+        const color = up ? "#f04452" : "#3182f6";
+        const bodyTop = scaleY(Math.max(open, close));
+        const bodyBottom = scaleY(Math.min(open, close));
+        const bodyHeight = Math.max(2, bodyBottom - bodyTop);
+        return `<g class="candle">
+          <line x1="${x}" y1="${scaleY(high)}" x2="${x}" y2="${scaleY(low)}" stroke="${color}" stroke-width="1.5"/>
+          <rect x="${x - bodyWidth / 2}" y="${bodyTop}" width="${bodyWidth}" height="${bodyHeight}" rx="1.5" fill="${color}"/>
+          <rect class="candle-hit" data-index="${index}" x="${x - step / 2}" y="${margin.top}" width="${step}" height="${plotHeight}" fill="transparent"/>
+        </g>`;
+      }).join("");
+      const labelIndexes = [...new Set([0, Math.floor((candles.length - 1) / 2), candles.length - 1])];
+      const xLabels = labelIndexes.map(index => {
+        const x = margin.left + step * index + step / 2;
+        return `<text x="${x}" y="${height - 8}" fill="#697481" font-size="10" text-anchor="middle">${formatChartDate(candles[index].time)}</text>`;
+      }).join("");
+      const latest = Number(candles[candles.length - 1].close);
+      const latestY = scaleY(latest);
+      svg.innerHTML = `${grid}
+        <line x1="${margin.left}" y1="${latestY}" x2="${width - margin.right}" y2="${latestY}" stroke="#58616d" stroke-dasharray="4 5"/>
+        ${candleMarkup}${xLabels}`;
+
+      svg.querySelectorAll(".candle-hit").forEach(hit => {
+        hit.addEventListener("mouseenter", event => {
+          const candle = candles[Number(event.target.dataset.index)];
+          tooltip.innerHTML = `<strong>${formatChartDate(candle.time)}</strong>
+            O ${formatMoney(candle.open)}<br>H ${formatMoney(candle.high)}<br>L ${formatMoney(candle.low)}<br>C ${formatMoney(candle.close)}`;
+          tooltip.style.display = "block";
+        });
+        hit.addEventListener("mousemove", event => {
+          const bounds = $("chartWrap").getBoundingClientRect();
+          const left = Math.min(bounds.width - 174, Math.max(8, event.clientX - bounds.left + 12));
+          tooltip.style.left = `${left}px`;
+          tooltip.style.top = `${Math.max(8, event.clientY - bounds.top - 72)}px`;
+        });
+        hit.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+      });
+    }
+
+    async function refreshControl() {
+      try {
+        state.status = await api("/api/control/status");
+        if (!state.pendingProvider) state.pendingProvider = state.status.selection?.provider || null;
+        renderControl();
+      } catch (error) {
+        showGlobalError(error);
+      }
+    }
+
+    function renderControl() {
+      const selection = state.status.selection;
+      const providers = state.status.providers;
+      $("providers").innerHTML = providers.map(provider => {
+        const selected = selection?.provider === provider.provider;
+        const pending = state.pendingProvider === provider.provider;
+        return `<label class="provider ${selected ? "selected" : ""} ${pending ? "pending" : ""}">
+          <input type="radio" name="provider" value="${provider.provider}">
+          <div class="provider-name">${escapeHtml(provider.display_name)}</div>
+          <div class="provider-meta">${escapeHtml(provider.model)} · ${escapeHtml(provider.reasoning_profile)} · ${escapeHtml(provider.transport)}</div>
+          <div class="provider-desc">${escapeHtml(provider.description)}</div>
+        </label>`;
+      }).join("");
+      document.querySelectorAll('input[name="provider"]').forEach(input => {
+        input.addEventListener("change", event => {
+          state.pendingProvider = event.target.value;
+          $("selectButton").disabled = state.pendingProvider === selection?.provider;
+          renderControl();
+        });
+      });
+      const descriptor = providers.find(provider => provider.provider === selection?.provider);
+      $("activeProvider").textContent = descriptor?.display_name || "선택 안 됨";
+      $("selectionVersion").textContent = selection?.version || 0;
+      $("selectButton").disabled = !state.pendingProvider || state.pendingProvider === selection?.provider;
+      $("prepareButton").disabled = !selection;
+
+      $("policies").innerHTML = Object.entries(state.status.policies).map(([arm, policy]) => `
+        <div class="policy">
+          <div class="policy-title"><span>${escapeHtml(arm)}</span><span class="value">v${policy.version}</span></div>
+          <div class="policy-metrics">
+            <div class="policy-metric"><span>risk multiplier</span><strong>${policy.portfolio_risk_multiplier}</strong></div>
+            <div class="policy-metric"><span>blocked</span><strong>${policy.blocked_targets.length}</strong></div>
+            <div class="policy-metric"><span>active buckets</span><strong>${policy.active_buckets.length}</strong></div>
+          </div>
+        </div>`).join("");
+
+      const history = state.status.history;
+      $("history").innerHTML = history.length ? history.map(item => `
+        <tr>
+          <td><span class="badge ${item.status}">${escapeHtml(item.status)}</span></td>
+          <td>${escapeHtml(item.provider)}</td>
+          <td>${escapeHtml(item.arm_scope)} / ${item.base_policy_version} → ${item.applied_policy_version ?? "—"}</td>
+          <td title="${escapeHtml(item.reason_detail)}">${escapeHtml(item.reason_code)}</td>
+          <td>${formatDate(item.created_at)}</td>
+        </tr>`).join("") : `<tr><td colspan="5" class="empty">아직 처리된 결정이 없습니다.</td></tr>`;
+    }
+
+    async function refreshResearch() {
+      try {
+        state.research = await api("/api/research/status");
+        if (!state.pendingResearchCommander) {
+          state.pendingResearchCommander = state.research.selected_commander?.selected_commander || null;
+        }
+        renderResearch();
+      } catch (error) {
+        showGlobalError(error);
+      }
+    }
+
+    function renderResearch() {
+      const data = state.research;
+      if (!data) return;
+      const selection = data.selected_commander;
+      const options = [
+        {
+          id: "CODEX_SOL_MAX",
+          name: "Codex Sol Max",
+          meta: "gpt-5.6-sol · max · fresh ephemeral invocation",
+          description: "구조화된 연구 판단만 생성하고 Builder invocation과 분리"
+        },
+        {
+          id: "WEBGPT_SOL_PRO",
+          name: "WebGPT Sol Pro",
+          meta: "GPT-5.6 Sol Pro · xhigh · fresh AGBrowse conversation",
+          description: "능동 웹 조사와 분리된 새 대화에서 Algorithm Proposal 생성"
+        }
+      ];
+      $("researchCommanderOptions").innerHTML = options.map(option => {
+        const selected = selection?.selected_commander === option.id;
+        const pending = state.pendingResearchCommander === option.id;
+        return `<label class="provider ${selected ? "selected" : ""} ${pending ? "pending" : ""}">
+          <input type="radio" name="researchCommander" value="${option.id}">
+          <div class="provider-name">${option.name}</div>
+          <div class="provider-meta">${option.meta}</div>
+          <div class="provider-desc">${option.description}</div>
+        </label>`;
+      }).join("");
+      document.querySelectorAll('input[name="researchCommander"]').forEach(input => {
+        input.addEventListener("change", event => {
+          state.pendingResearchCommander = event.target.value;
+          renderResearch();
+        });
+      });
+      $("researchCommanderActive").textContent = selection?.selected_commander || "선택 안 됨";
+      $("researchCommanderVersion").textContent = selection?.version || 0;
+      $("researchCommanderSelect").disabled = !state.pendingResearchCommander ||
+        state.pendingResearchCommander === selection?.selected_commander;
+      const currentChampion = data.current_champion;
+      $("researchChampion").textContent = currentChampion
+        ? `${currentChampion.strategy_id} ${currentChampion.strategy_version}`
+        : "지정 기록 없음";
+      $("researchChampionPolicy").textContent = currentChampion
+        ? `human designation #${currentChampion.sequence} · auto=${currentChampion.automatic_promotion_enabled} · routing=${currentChampion.real_order_routing}`
+        : `${data.operational_algorithm?.algorithm_version || "—"} · VERSIONED_CHALLENGER_ONLY`;
+      $("researchScoutState").textContent = data.web_scout?.status || "—";
+      $("researchScoutContract").textContent = `${data.web_scout?.required_model || "—"} · ${data.web_scout?.required_reasoning || "—"} · ${data.web_scout?.access_path || "—"}`;
+      $("researchUniverse").textContent = `${(data.available_data_catalog?.asset_classes || []).join(" · ")} · hardcoded allowlist=${data.available_data_catalog?.hardcoded_symbol_allowlist}`;
+      const scheduler = data.scheduler || {};
+      $("researchSchedulerVersion").textContent = scheduler.schedule_version || "—";
+      $("researchSchedulerTimezone").textContent = scheduler.timezone || "—";
+      $("researchSchedulerCount").textContent = formatNumber((scheduler.recent_work || []).length);
+      $("researchSchedulerWork").textContent = JSON.stringify({
+        status_counts: scheduler.recent_status_counts || {},
+        database_clock_as_of: scheduler.database_clock_as_of || null,
+        recent_work: scheduler.recent_work || [],
+        real_order_routing: scheduler.real_order_routing
+      }, null, 2);
+      const factorial = data.factorial_experiment || {};
+      const factorialEffects = factorial.effects || {};
+      const preliminaryEffects = factorialEffects.preliminary_values || {};
+      const factorialArmIds = factorial.required_arms || data.factorial_arms || [];
+      $("researchFactorial").textContent = `${factorialArmIds.join(" · ")} · ${factorialEffects.interpretation || "factorial attribution only"}`;
+      $("researchFactorialState").textContent = `${factorial.status || "—"} · ${factorial.experiment_version || "—"}`;
+      $("researchFactorialSchedule").textContent = `${factorial.schedule?.daily_aggregation_time || "—"} ${factorial.schedule?.timezone || "—"} · ${factorial.schedule?.decision_schedule_version || "—"}`;
+      $("researchFactorialReadiness").textContent = `${factorialEffects.status || "—"} · ${factorialEffects.common_sessions || 0}/${factorialEffects.minimum_common_sessions || factorial.minimum_common_sessions || 0} sessions`;
+      $("researchGuardEffect").textContent = preliminaryEffects.guard_main_effect === undefined || preliminaryEffects.guard_main_effect === null
+        ? "—" : formatSigned(Number(preliminaryEffects.guard_main_effect) * 100, "% daily");
+      $("researchAiEffect").textContent = preliminaryEffects.ai_main_effect === undefined || preliminaryEffects.ai_main_effect === null
+        ? "—" : formatSigned(Number(preliminaryEffects.ai_main_effect) * 100, "% daily");
+      $("researchInteractionEffect").textContent = preliminaryEffects.ai_guard_interaction_effect === undefined || preliminaryEffects.ai_guard_interaction_effect === null
+        ? "—" : formatSigned(Number(preliminaryEffects.ai_guard_interaction_effect) * 100, "% daily");
+      const factorialArms = factorial.arms || {};
+      $("researchFactorialArms").innerHTML = factorialArmIds.map(armId => {
+        const arm = factorialArms[armId] || { status: "NOT_INITIALIZED", real_order_routing: false };
+        const positions = Object.entries(arm.positions || {}).map(
+          ([symbol, quantity]) => `${escapeHtml(symbol)} ${escapeHtml(quantity)}`
+        ).join(" · ") || "현금 전용";
+        return `<tr><td>${escapeHtml(armId)}</td><td>${formatMoney(arm.latest_nav_usd)}</td>
+          <td>${formatMoney(arm.cash_usd)}</td><td>${positions}</td>
+          <td>${formatNumber(arm.pending_order_count ?? 0)}</td><td>${formatNumber(arm.fill_count ?? 0)}</td>
+          <td>${arm.real_order_routing === false ? "PAPER ONLY" : "BLOCKED"}</td></tr>`;
+      }).join("") || `<tr><td colspan="7" class="empty">2×2 arm contract가 없습니다.</td></tr>`;
+
+      const cycles = data.recent_cycles || [];
+      $("researchCycles").innerHTML = cycles.length ? cycles.map(item => `
+        <tr><td>${escapeHtml(item.research_cycle_id)}</td><td>${escapeHtml(item.selected_commander)}</td>
+        <td>${escapeHtml(item.champion_version)}</td><td>${escapeHtml(item.experiment_family)}</td>
+        <td>${formatDate(item.data_available_cutoff)}</td></tr>`).join("") :
+        `<tr><td colspan="5" class="empty">Research cycle이 없습니다.</td></tr>`;
+
+      const evidence = data.evidence_sources || [];
+      $("researchEvidence").innerHTML = evidence.length ? evidence.map(item => `
+        <tr><td>${escapeHtml(item.source_tier)}</td><td>${escapeHtml(item.publisher || item.source_name || "—")}</td>
+        <td>${escapeHtml(item.title)}</td><td>${formatDate(item.first_available_at)}</td>
+        <td>${item.corroborated ? "CORROBORATED" : item.contradiction ? "CONTRADICTED" : "UNVERIFIED"}</td></tr>`).join("") :
+        `<tr><td colspan="5" class="empty">수집된 evidence가 없습니다.</td></tr>`;
+
+      const challengers = data.challengers || [];
+      const artifactByChallenger = Object.fromEntries(
+        (data.candidate_artifacts || []).map(item => [item.challenger_id, item])
+      );
+      $("researchChallengers").innerHTML = challengers.length ? challengers.map(item => `
+        <tr><td>${escapeHtml(item.challenger_id)}</td><td>${escapeHtml(item.strategy_id)} ${escapeHtml(item.strategy_version)}</td>
+        <td><span class="badge ${escapeHtml(item.current_status)}">${escapeHtml(item.current_status)}</span></td>
+        <td>${artifactByChallenger[item.challenger_id]
+          ? `${escapeHtml(artifactByChallenger[item.challenger_id].bundle_hash.slice(0, 12))}… · ${escapeHtml(artifactByChallenger[item.challenger_id].declared_entrypoint)}`
+          : "미등록"}</td>
+        <td>${escapeHtml(item.experiment_family)}</td><td>${formatDate(item.created_at)}</td></tr>`).join("") :
+        `<tr><td colspan="6" class="empty">등록된 Challenger가 없습니다.</td></tr>`;
+      $("researchOos").textContent = JSON.stringify(data.oos_results || [], null, 2);
+      $("researchPromotion").textContent = JSON.stringify({
+        automatic_promotion_enabled: data.automatic_promotion_enabled,
+        real_order_routing: data.real_order_routing,
+        gate: data.promotion_gate || {},
+        shadow_summaries: data.shadow_performance_summaries || [],
+        trusted_evaluations: data.trusted_promotion_evaluations || [],
+        decisions: data.promotion_decisions || [],
+        current_champion: currentChampion
+      }, null, 2);
+      const publications = data.publications || [];
+      $("researchPublications").innerHTML = publications.length
+        ? publications.map(item => `<a href="${escapeHtml(item.url)}" rel="noreferrer">${escapeHtml(item.label || item.url)}</a>`).join("<br>")
+        : "공개 기록 없음";
+    }
+
+    document.querySelectorAll("[data-view]").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-view]").forEach(item => item.classList.toggle("active", item === button));
+        document.querySelectorAll(".view").forEach(view => { view.hidden = view.id !== button.dataset.view; });
+        if (button.dataset.view === "tradingView") {
+          if (state.marketMode === "live") refreshMarket({ silent: true });
+        } else if (button.dataset.view === "researchView") {
+          clearTimeout(state.marketPollTimer);
+          refreshResearch();
+        } else {
+          clearTimeout(state.marketPollTimer);
+        }
+      });
+    });
+
+    $("marketSource").addEventListener("change", event => {
+      state.marketMode = event.target.value;
+      clearTimeout(state.marketPollTimer);
+      if (state.marketMode === "live") {
+        refreshMarket();
+      } else if (state.dashboard) {
+        renderDashboard();
+        if (state.paper?.algorithm_version === "q1_math_core_v1") {
+          renderPaper();
+        }
+      }
+    });
+    $("dashboardArm").addEventListener("change", event => refreshDashboard({ arm: event.target.value }));
+    $("dashboardRefresh").addEventListener("click", () => refreshDashboard());
+    $("refreshButton").addEventListener("click", refreshControl);
+    $("researchRefresh").addEventListener("click", refreshResearch);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && state.marketMode === "live" && !$("tradingView").hidden) {
+        refreshMarket({ silent: true });
+      } else {
+        clearTimeout(state.marketPollTimer);
+      }
+    });
+
+    $("selectButton").addEventListener("click", async () => {
+      try {
+        const expectedVersion = state.status.selection?.version || 0;
+        const result = await api("/api/control/provider", {
+          method: "POST",
+          body: JSON.stringify({ provider: state.pendingProvider, expected_version: expectedVersion })
+        });
+        state.request = null;
+        $("submitButton").disabled = true;
+        setMessage("selectStatus", `${result.selection.provider} 선택 완료 · selection v${result.selection.version}`, "ok");
+        await refreshControl();
+      } catch (error) {
+        setMessage("selectStatus", error.message, "bad");
+        await refreshControl();
+      }
+    });
+
+    $("researchCommanderSelect").addEventListener("click", async () => {
+      try {
+        const expectedVersion = state.research?.selected_commander?.version || 0;
+        const result = await api("/api/research/commander", {
+          method: "POST",
+          body: JSON.stringify({
+            commander: state.pendingResearchCommander,
+            expected_version: expectedVersion
+          })
+        });
+        setMessage("researchCommanderStatus", `${result.selection.selected_commander} 선택 완료 · v${result.selection.version}`, "ok");
+        await refreshResearch();
+      } catch (error) {
+        setMessage("researchCommanderStatus", error.message, "bad");
+        await refreshResearch();
+      }
+    });
+
+    $("prepareButton").addEventListener("click", async () => {
+      try {
+        const context = JSON.parse($("contextInput").value);
+        const result = await api("/api/control/requests", {
+          method: "POST",
+          body: JSON.stringify({
+            arm_scope: $("armScope").value,
+            scope_id: state.status.scope_id,
+            context
+          })
+        });
+        state.request = result.request;
+        $("outputInput").placeholder = `request_id ${result.request.request_id}에 대한 JSON을 붙여 넣으세요.`;
+        $("submitButton").disabled = false;
+        $("promptPreview").hidden = false;
+        $("promptPreview").textContent = result.prompt;
+        setMessage("prepareStatus", `번들 생성 완료: ${result.bundle.directory}`, "ok");
+      } catch (error) {
+        setMessage("prepareStatus", error.message, "bad");
+      }
+    });
+
+    $("schemaButton").addEventListener("click", async () => {
+      try {
+        const schema = await api("/api/control/schema");
+        $("promptPreview").hidden = false;
+        $("promptPreview").textContent = JSON.stringify(schema, null, 2);
+      } catch (error) {
+        setMessage("prepareStatus", error.message, "bad");
+      }
+    });
+
+    $("submitButton").addEventListener("click", async () => {
+      try {
+        if (!state.request) throw new Error("먼저 판단 요청을 만드세요.");
+        const output = JSON.parse($("outputInput").value);
+        const result = await api(`/api/control/requests/${state.request.request_id}/decision`, {
+          method: "POST",
+          body: JSON.stringify({ provider: state.request.provider, output })
+        });
+        setMessage("submitStatus", `${result.receipt.status}: ${result.receipt.reason_code}`, "ok");
+        state.request = null;
+        $("submitButton").disabled = true;
+        await refreshControl();
+      } catch (error) {
+        setMessage("submitStatus", error.message, "bad");
+      }
+    });
+
+    refreshDashboard();
+    refreshControl();
+    refreshResearch();
+  </script>
+</body>
+</html>

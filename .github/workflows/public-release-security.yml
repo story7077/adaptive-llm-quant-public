@@ -1,0 +1,61 @@
+name: Public release security
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fail-closed-public-scan:
+    name: Secret, provenance, and clean-root scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out complete history without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.1"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Scan working tree and every reachable Git blob
+        env:
+          EXPECTED_PUBLIC_REPOSITORY: ${{ github.repository }}
+        run: >-
+          python scripts/public_release_scan.py
+          --root .
+          --expected-repository "$EXPECTED_PUBLIC_REPOSITORY"
+
+      - name: Run scanner regression tests
+        run: >-
+          python -m unittest discover
+          -s tests/security
+          -p "test_public_release_scan.py"
+
+      - name: Run complete test suite
+        run: uv run pytest
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Run Pyright
+        run: uv run pyright
+
+      - name: Validate all versioned configuration
+        run: uv run python -m trading.cli config validate --all

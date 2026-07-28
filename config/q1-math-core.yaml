@@ -1,0 +1,164 @@
+version: q1_math_core_v1
+algorithm_version: q1_math_core_v1
+signal_model_version: q1_math_signal_v1
+market_calendar_version: alpaca_market_calendar_v1
+cost_model_version: toss_us_equities_2026_05_14_v1
+real_order_routing: false
+
+operations:
+  calendar_sync_interval_hours: 6
+  calendar_history_lookback_days: 260
+  calendar_forward_days: 30
+
+active_universe:
+  strategy_symbols: [QQQ, SOXX, USD_CASH]
+  risky_symbols: [QQQ, SOXX]
+  cash_symbol: USD_CASH
+  disabled_symbols: [SOXS]
+  inherited_sell_only_symbols: [NVDA, TSM, KLAC, LRCX, MU, SOXL, SGOV]
+  research_only_candidates:
+    - T1
+    - R1
+    - X1
+    - CONSTITUENT_BREADTH
+    - INDIVIDUAL_STOCK_SELECTION
+    - INTRADAY_ALPHA
+
+signal:
+  adjusted_close_field: adjusted_close
+  completed_sessions_only: true
+  minimum_completed_sessions: 121
+  horizons_sessions: [20, 60, 120]
+  relative_strength_horizon_sessions: 60
+  z_score_clip: 3.0
+  annualization_sessions: 252
+  covariance_half_life_sessions: 20
+  covariance_lambda_base: 0.5
+  covariance_full_weight: 0.75
+  covariance_diagonal_weight: 0.25
+  covariance_initialization: ZERO
+  variance_epsilon: 0.000000000001
+  psd_tolerance: 0.000000000000000000000001
+  decimal_precision: 40
+  return_quantum: 0.000000000000000001
+  numeric_rounding: HALF_EVEN
+  relative_strength_coefficient: 0.5
+  market_gate_offset: 0.5
+  market_gate_width: 1.0
+  market_gate_min: 0.0
+  market_gate_max: 1.0
+  confidence_denominator: 1.5
+  confidence_min: 0.0
+  confidence_max: 1.0
+
+allocation:
+  long_only: true
+  allow_short_selling: false
+  allow_leverage: false
+  b0_vol_target_annualized_volatility: 0.12
+  q1_target_annualized_volatility: 0.15
+  max_gross_risky_weight: 1.0
+  qqq_max_weight: 0.80
+  soxx_max_weight: 0.45
+  soxx_max_variance_contribution: 0.55
+  allow_volatility_scale_up: false
+  risk_contribution_bisection_iterations: 96
+  risk_contribution_tolerance: 0.000000000000000001
+  weight_sum_tolerance: 0.000000000000000001
+
+turnover:
+  normal_daily_one_way_cap: 0.20
+  no_trade_one_way_threshold: 0.02
+  minimum_order_notional_usd: 25.0
+  minimum_order_nav_fraction: 0.0025
+  emergency_bypasses_turnover_cap: true
+  emergency_bypasses_minimum_order: true
+
+risk:
+  leveraged_symbols: [SOXL]
+  semiconductor_symbols: [NVDA, TSM, KLAC, LRCX, MU, SOXL, SOXX]
+  critical_reconciliation_conditions:
+    - POSITION_OR_CASH_MISMATCH
+    - NEGATIVE_BALANCE
+    - UNKNOWN_FILL
+  dynamic_soft_daily_sigma_multiple: 2.0
+  dynamic_hard_daily_sigma_multiple: 3.0
+  soft_daily_min: 0.015
+  soft_daily_max: 0.030
+  hard_daily_min: 0.025
+  hard_daily_max: 0.050
+  soft_stop_run_drawdown: 0.08
+  hard_reduce_run_drawdown: 0.12
+  critical_exit_run_drawdown: 0.18
+  hard_reduce_max_risky_gross: 0.50
+  hard_reduce_max_soxx_weight: 0.20
+  live_mirror_max_semiconductor_weight: 0.30
+  release_daily_loss_soft_threshold_fraction: 0.75
+  release_max_run_drawdown: 0.06
+  release_required_consecutive_checks: 2
+
+execution:
+  normal_order_session_scope: ACTUAL_REGULAR_SESSION
+  emergency_order_session_scope: ACTUAL_REGULAR_SESSION
+  price_increment_usd: 0.0001
+  displayed_size_unit_shares: 100
+  maximum_quote_age_seconds: 15
+  maximum_multi_symbol_quote_skew_seconds: 2
+  displayed_side_participation_fraction: 0.10
+  maximum_20d_iex_adv_fraction: 0.025
+  adv_lookback_completed_sessions: 20
+  price_guard_minimum_bps: 20
+  price_guard_maximum_bps: 75
+  price_guard_spread_multiplier: 3.0
+  delay_penalty_bps: 1.0
+  evaluation_sensitivity_bps: [5.0, 10.0]
+  quantity_increment: 0.000001
+  commission_rate: 0.001
+  commission_waiver_notional_usd: 10.0
+  commission_increment_usd: 0.01
+
+schedule:
+  timezone: America/New_York
+  session_open_time_et: "09:30"
+  first_nav_time_et: "09:45"
+  nav_interval_minutes: 15
+  strategic_time_et: "10:00"
+  llm_review_times_et: ["10:00", "12:00"]
+  normal_execution_start_et: "10:01"
+  normal_execution_end_et: "10:20"
+  execution_interval_minutes: 1
+  no_risk_increase_after_et: "13:00"
+  evaluation_anchor_quote_time: IMMEDIATELY_BEFORE_STRATEGIC_DECISION
+  session_close_source: VERSIONED_MARKET_CALENDAR
+
+settlement:
+  policy_version: us_equities_t_plus_1_v1
+  settlement_lag_business_sessions: 1
+  business_calendar_version: alpaca_market_calendar_v1
+
+evaluation:
+  minimum_common_out_of_sample_sessions: 126
+  closing_quote_max_age_seconds: 300
+  decimal_precision: 40
+  result_quantum: 0.00000000000001
+  risk_free_daily_return: 0.0
+  downside_target_daily_return: 0.0
+  newey_west_lag_sessions: 5
+  stationary_bootstrap_expected_block_sessions: 10
+  stationary_bootstrap_samples: 10000
+  bootstrap_confidence: 0.95
+  deterministic_bootstrap_seed: 7077
+  annualization_sessions: 252
+
+llm:
+  allowed_risk_multipliers: [1.00, 0.75, 0.50]
+  target_weight_sum_tolerance: 0.000000000001
+  maximum_evidence_events: 100
+  provider_timeout_seconds: 55
+  transport_timeout_seconds: 50
+  transport_poll_interval_seconds: 1
+  review_times_et: ["10:00", "12:00"]
+  no_new_policy_after_et: "13:00"
+  noon_review_max_risk_increase: 0.0
+  invalid_output_risk_multiplier: 1.0
+  expired_policy_state: EXPIRED_AWAITING_NEXT_REBALANCE
