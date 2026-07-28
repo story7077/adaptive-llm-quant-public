@@ -33,7 +33,7 @@ from trading.research.portfolio_delta_sharpe import (
 
 
 class OosLockboxError(RuntimeError):
-    pass
+    """Raised when the private OOS boundary rejects an evaluation."""
 
 
 @dataclass(frozen=True, slots=True)

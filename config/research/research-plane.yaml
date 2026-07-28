@@ -257,3 +257,15 @@ recursive_improvement:
     enabled: false
     require_outer_audit_reservation: true
     prohibit_best_seed_selection: true
+    plan_version: chronological-meta-oos-v1
+    maximum_outer_audit_uses_per_dataset: 1
+    reservation_ttl_hours: 24
+    minimum_epochs: 8
+    maximum_epochs: 52
+    maximum_candidate_generation_budget_per_epoch: 10
+    maximum_oos_budget_per_epoch: 3
+    minimum_adaptive_delta_sharpe_lcb: 0.0
+    minimum_research_efficiency: 0.0
+    maximum_allowed_drawdown: 0.25
+    tail_quantile: 0.05
+    maximum_absolute_daily_return: 1.0

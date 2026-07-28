@@ -67,6 +67,8 @@ include = [
   "src/trading/research",
   "src/trading/strategies/challengers",
   "src/trading/persistence/models.py",
+  "src/trading/persistence/meta_oos.py",
+  "src/trading/persistence/portfolio_sharpe.py",
   "src/trading/persistence/alpaca_paper.py",
   "src/trading/persistence/paper.py",
   "src/trading/persistence/q1.py",

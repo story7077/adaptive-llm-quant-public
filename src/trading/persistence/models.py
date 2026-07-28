@@ -1762,6 +1762,131 @@ class PortfolioComparisonContractRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ChronologicalMetaOosPlanRow(Base):
+    __tablename__ = "chronological_meta_oos_plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "outer_audit_dataset_id",
+            "outer_audit_budget_ordinal",
+            name="uq_meta_oos_plan_dataset_budget",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_plan_paper_only",
+        ),
+    )
+
+    plan_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_version: Mapped[str] = mapped_column(String(160))
+    initial_champion_manifest_hash: Mapped[str] = mapped_column(String(64))
+    evaluation_contract_hash: Mapped[str] = mapped_column(String(64))
+    outer_audit_dataset_id: Mapped[str] = mapped_column(String(160))
+    outer_audit_budget_ordinal: Mapped[int] = mapped_column(Integer)
+    plan_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MetaOosOuterAuditReservationRow(Base):
+    __tablename__ = "meta_oos_outer_audit_reservations"
+    __table_args__ = (
+        UniqueConstraint(
+            "outer_audit_dataset_id",
+            "outer_audit_budget_ordinal",
+            name="uq_meta_oos_reservation_dataset_budget",
+        ),
+        UniqueConstraint(
+            "outer_audit_dataset_id",
+            "idempotency_key",
+            name="uq_meta_oos_reservation_idempotency",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_reservation_paper_only",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_meta_oos_reservation_expiry",
+        ),
+    )
+
+    reservation_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        ForeignKey("chronological_meta_oos_plans.plan_id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    plan_hash: Mapped[str] = mapped_column(String(64))
+    outer_audit_dataset_id: Mapped[str] = mapped_column(String(160))
+    outer_audit_budget_ordinal: Mapped[int] = mapped_column(Integer)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    reservation_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MetaOosEpochArmAuditRecordRow(Base):
+    __tablename__ = "meta_oos_epoch_arm_audit_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "plan_id",
+            "epoch_id",
+            "arm",
+            name="uq_meta_oos_epoch_arm_record",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_epoch_arm_paper_only",
+        ),
+    )
+
+    record_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        ForeignKey("chronological_meta_oos_plans.plan_id", ondelete="RESTRICT")
+    )
+    epoch_id: Mapped[str] = mapped_column(String(160))
+    arm: Mapped[str] = mapped_column(String(50))
+    decision_hash: Mapped[str] = mapped_column(String(64))
+    memory_snapshot_hash: Mapped[str | None] = mapped_column(String(64))
+    private_outcome_hash: Mapped[str] = mapped_column(String(64))
+    record_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ChronologicalMetaOosResultRow(Base):
+    __tablename__ = "chronological_meta_oos_results"
+    __table_args__ = (
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_result_paper_only",
+        ),
+    )
+
+    result_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        ForeignKey("chronological_meta_oos_plans.plan_id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    reservation_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "meta_oos_outer_audit_reservations.reservation_id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+    evaluation_contract_hash: Mapped[str] = mapped_column(String(64))
+    adaptive_system_pass: Mapped[bool] = mapped_column(Boolean)
+    result_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class OosLockboxResultRow(Base):
     __tablename__ = "oos_lockbox_results"
     __table_args__ = (
@@ -2022,6 +2147,10 @@ APPEND_ONLY_MODEL_TYPES = (
     FalsificationReportRow,
     ResearchReplayArtifactRow,
     PortfolioComparisonContractRow,
+    ChronologicalMetaOosPlanRow,
+    MetaOosOuterAuditReservationRow,
+    MetaOosEpochArmAuditRecordRow,
+    ChronologicalMetaOosResultRow,
     OosLockboxResultRow,
     ResearchShadowArmRegistrationRow,
     ResearchShadowPerformanceSummaryRow,

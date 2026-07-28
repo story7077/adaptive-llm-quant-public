@@ -1,0 +1,399 @@
+{
+  "$defs": {
+    "MetaOosArmAggregateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "action_results": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetaOosGroupAggregateV1"
+          },
+          "title": "Action Results",
+          "type": "object"
+        },
+        "annualized_turnover": {
+          "minimum": 0,
+          "title": "Annualized Turnover",
+          "type": "number"
+        },
+        "annualized_volatility": {
+          "minimum": 0,
+          "title": "Annualized Volatility",
+          "type": "number"
+        },
+        "arm": {
+          "$ref": "#/$defs/MetaOosPolicyArm"
+        },
+        "arm_result_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Arm Result Hash",
+          "type": "string"
+        },
+        "candidate_count": {
+          "minimum": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "experiment_count": {
+          "minimum": 0,
+          "title": "Experiment Count",
+          "type": "integer"
+        },
+        "maximum_drawdown": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Drawdown",
+          "type": "number"
+        },
+        "net_sequence_return": {
+          "title": "Net Sequence Return",
+          "type": "number"
+        },
+        "oos_use_count": {
+          "minimum": 0,
+          "title": "Oos Use Count",
+          "type": "integer"
+        },
+        "portfolio_sharpe": {
+          "title": "Portfolio Sharpe",
+          "type": "number"
+        },
+        "positive_matured_outcome_count": {
+          "minimum": 0,
+          "title": "Positive Matured Outcome Count",
+          "type": "integer"
+        },
+        "prediction_calibration": {
+          "$ref": "#/$defs/MetaOosPredictionCalibrationV1"
+        },
+        "promotion_eligible_count": {
+          "minimum": 0,
+          "title": "Promotion Eligible Count",
+          "type": "integer"
+        },
+        "regime_results": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetaOosGroupAggregateV1"
+          },
+          "title": "Regime Results",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": "meta_oos_arm_aggregate_v1",
+          "default": "meta_oos_arm_aggregate_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tail_loss": {
+          "minimum": 0,
+          "title": "Tail Loss",
+          "type": "number"
+        },
+        "technical_failure_count": {
+          "minimum": 0,
+          "title": "Technical Failure Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "arm",
+        "net_sequence_return",
+        "annualized_volatility",
+        "portfolio_sharpe",
+        "maximum_drawdown",
+        "tail_loss",
+        "annualized_turnover",
+        "experiment_count",
+        "candidate_count",
+        "oos_use_count",
+        "positive_matured_outcome_count",
+        "technical_failure_count",
+        "promotion_eligible_count",
+        "regime_results",
+        "action_results",
+        "prediction_calibration",
+        "arm_result_hash"
+      ],
+      "title": "MetaOosArmAggregateV1",
+      "type": "object"
+    },
+    "MetaOosGroupAggregateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "mean_net_return": {
+          "title": "Mean Net Return",
+          "type": "number"
+        },
+        "observations": {
+          "minimum": 1,
+          "title": "Observations",
+          "type": "integer"
+        },
+        "positive_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Positive Fraction",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observations",
+        "mean_net_return",
+        "positive_fraction"
+      ],
+      "title": "MetaOosGroupAggregateV1",
+      "type": "object"
+    },
+    "MetaOosPairedComparisonV1": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_arm": {
+          "$ref": "#/$defs/MetaOosPolicyArm"
+        },
+        "candidate_arm": {
+          "$ref": "#/$defs/MetaOosPolicyArm"
+        },
+        "common_sessions": {
+          "minimum": 2,
+          "title": "Common Sessions",
+          "type": "integer"
+        },
+        "comparison_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Comparison Hash",
+          "type": "string"
+        },
+        "delta_sharpe_lcb": {
+          "title": "Delta Sharpe Lcb",
+          "type": "number"
+        },
+        "delta_sharpe_point": {
+          "title": "Delta Sharpe Point",
+          "type": "number"
+        },
+        "delta_sharpe_ucb": {
+          "title": "Delta Sharpe Ucb",
+          "type": "number"
+        },
+        "schema_version": {
+          "const": "meta_oos_paired_comparison_v1",
+          "default": "meta_oos_paired_comparison_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_arm",
+        "baseline_arm",
+        "common_sessions",
+        "delta_sharpe_point",
+        "delta_sharpe_lcb",
+        "delta_sharpe_ucb",
+        "comparison_hash"
+      ],
+      "title": "MetaOosPairedComparisonV1",
+      "type": "object"
+    },
+    "MetaOosPolicyArm": {
+      "enum": [
+        "STATIC_CHAMPION",
+        "FIXED_RECALIBRATION",
+        "MEMORYLESS_COMMANDER",
+        "ADAPTIVE_META_CONTROLLER"
+      ],
+      "title": "MetaOosPolicyArm",
+      "type": "string"
+    },
+    "MetaOosPredictionCalibrationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "mean_absolute_error": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mean Absolute Error"
+        },
+        "mean_error": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mean Error"
+        },
+        "prediction_count": {
+          "minimum": 0,
+          "title": "Prediction Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "prediction_count",
+        "mean_error",
+        "mean_absolute_error"
+      ],
+      "title": "MetaOosPredictionCalibrationV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/chronological-meta-oos-result-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adaptive_research_efficiency": {
+      "minimum": 0,
+      "title": "Adaptive Research Efficiency",
+      "type": "number"
+    },
+    "adaptive_system_pass": {
+      "title": "Adaptive System Pass",
+      "type": "boolean"
+    },
+    "arm_results": {
+      "items": {
+        "$ref": "#/$defs/MetaOosArmAggregateV1"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Arm Results",
+      "type": "array"
+    },
+    "audit_record_hashes": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 8,
+      "title": "Audit Record Hashes",
+      "type": "array"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "evaluation_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evaluation Contract Hash",
+      "type": "string"
+    },
+    "experiments_per_positive_delta_sharpe_lcb": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Experiments Per Positive Delta Sharpe Lcb"
+    },
+    "no_pit_or_binding_violation": {
+      "const": true,
+      "default": true,
+      "title": "No Pit Or Binding Violation",
+      "type": "boolean"
+    },
+    "oos_uses_per_positive_delta_sharpe_lcb": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Oos Uses Per Positive Delta Sharpe Lcb"
+    },
+    "outer_audit_budget_ordinal": {
+      "minimum": 1,
+      "title": "Outer Audit Budget Ordinal",
+      "type": "integer"
+    },
+    "outer_audit_dataset_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Outer Audit Dataset Id",
+      "type": "string"
+    },
+    "outer_audit_reservation_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Outer Audit Reservation Hash",
+      "type": "string"
+    },
+    "paired_comparisons": {
+      "items": {
+        "$ref": "#/$defs/MetaOosPairedComparisonV1"
+      },
+      "maxItems": 9,
+      "minItems": 9,
+      "title": "Paired Comparisons",
+      "type": "array"
+    },
+    "plan_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Plan Hash",
+      "type": "string"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "real_order_routing": {
+      "const": false,
+      "default": false,
+      "title": "Real Order Routing",
+      "type": "boolean"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "result_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Result Hash",
+      "type": "string"
+    },
+    "result_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Result Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "chronological_meta_oos_result_v1",
+      "default": "chronological_meta_oos_result_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result_id",
+    "plan_id",
+    "plan_hash",
+    "evaluation_contract_hash",
+    "outer_audit_reservation_hash",
+    "outer_audit_dataset_id",
+    "outer_audit_budget_ordinal",
+    "audit_record_hashes",
+    "arm_results",
+    "paired_comparisons",
+    "adaptive_research_efficiency",
+    "experiments_per_positive_delta_sharpe_lcb",
+    "oos_uses_per_positive_delta_sharpe_lcb",
+    "adaptive_system_pass",
+    "reason_codes",
+    "evaluated_at",
+    "result_hash"
+  ],
+  "title": "ChronologicalMetaOosResultV1",
+  "type": "object"
+}

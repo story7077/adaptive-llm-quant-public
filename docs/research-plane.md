@@ -257,6 +257,26 @@ The durable generic paper implementation, target binding, conservative fill
 rules, and deterministic replay procedure are specified in
 [`docs/research/shadow-paper-runtime.md`](research/shadow-paper-runtime.md).
 
+## Recursive policy evaluation
+
+The recursive research stack adds four disabled-by-default trusted layers:
+
+1. an append-only experiment outcome ledger and point-in-time memory;
+2. a deterministic Meta Controller that creates budgeted action plans;
+3. whole-portfolio paired DeltaSharpe OOS/shadow gates and Promotion V2;
+4. a four-arm chronological meta-OOS outer audit.
+
+The outer audit compares a static Champion, fixed recalibration, a memoryless
+Commander, and the adaptive Meta Controller. Each arm has private state and
+uses the same predeclared market, execution, cost, and epoch conditions.
+Protected returns stay inside the trusted environment; only aggregate metrics,
+paired lower bounds, reason codes, and hashes cross the boundary. Meta-audit
+records never become controller training data.
+
+These components are research evaluators, not an autonomous deployment loop.
+Automatic scheduling, automatic promotion, Champion mutation, and broker
+routing remain unavailable.
+
 ## Promotion
 
 Promotion eligibility checks all predeclared economic, risk, capacity, stability,

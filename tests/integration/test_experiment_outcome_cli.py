@@ -190,8 +190,11 @@ def test_outcome_and_memory_cli_support_dry_run_and_commit(
     assert status.exit_code == 0, status.output
     payload = json.loads(status.stdout)
     recursive = payload["recursive_improvement"]
-    assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR3"
+    assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR4"
     assert recursive["portfolio_delta_sharpe"]["status"] == (
+        "IMPLEMENTED_DISABLED"
+    )
+    assert recursive["chronological_meta_oos"]["status"] == (
         "IMPLEMENTED_DISABLED"
     )
     assert recursive["enabled"] is False

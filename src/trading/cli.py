@@ -65,6 +65,10 @@ from trading.persistence.meta_controller import (
     MetaControllerPersistenceError,
     MetaControllerRepository,
 )
+from trading.persistence.meta_oos import (
+    MetaOosPersistenceError,
+    MetaOosRepository,
+)
 from trading.persistence.models import NavSnapshotRow, RunRow, ShadowArmRow
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
@@ -73,11 +77,19 @@ from trading.replay.engine import replay_full
 from trading.replay.q1 import replay_q1_run
 from trading.replay.verifier import verify_ledger_arm, verify_run
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
+from trading.research.chronological_meta_oos import (
+    ChronologicalMetaOosPlanV1,
+    ChronologicalMetaOosResultV1,
+    MetaOosError,
+    verify_chronological_meta_oos_result,
+)
 from trading.research.config import (
     FACTORIAL_CONFIG_FILE,
     RESEARCH_CONFIG_FILE,
+    ResearchConfigBundle,
     load_research_config,
     meta_controller_parameters,
+    meta_oos_evaluation_contract,
     recursive_improvement_status,
 )
 from trading.research.contracts import (
@@ -179,6 +191,7 @@ research_app = typer.Typer(no_args_is_help=True)
 research_outcome_app = typer.Typer(no_args_is_help=True)
 research_memory_app = typer.Typer(no_args_is_help=True)
 research_meta_policy_app = typer.Typer(no_args_is_help=True)
+research_meta_oos_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
@@ -197,8 +210,9 @@ app.add_typer(research_app, name="research")
 research_app.add_typer(research_outcome_app, name="outcome")
 research_app.add_typer(research_memory_app, name="memory")
 research_app.add_typer(research_meta_policy_app, name="meta-policy")
+research_app.add_typer(research_meta_oos_app, name="meta-oos")
 
-EXPECTED_DATABASE_REVISION = "0016_portfolio_delta_sharpe_v2"
+EXPECTED_DATABASE_REVISION = "0017_chronological_meta_oos_v1"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -806,6 +820,7 @@ def research_status() -> None:
     persisted_status = research_repository.status()
     meta_controller_status = MetaControllerRepository(factory).status()
     portfolio_sharpe_status = research_repository.portfolio_sharpe().status()
+    meta_oos_status = MetaOosRepository(factory).status()
     payload = {
         **persisted_status,
         "recursive_improvement": recursive_improvement_status(
@@ -815,6 +830,7 @@ def research_status() -> None:
             ),
             meta_controller_ledger=meta_controller_status,
             portfolio_sharpe_ledger=portfolio_sharpe_status,
+            meta_oos_ledger=meta_oos_status,
         ),
         "scheduler": ResearchSchedulerService(
             repository=ResearchSchedulerRepository(factory),
@@ -1040,6 +1056,207 @@ def research_meta_policy_build(
     finally:
         engine.dispose()
     _emit(result)
+
+
+@research_meta_oos_app.command("plan")
+def research_meta_oos_plan(
+    plan_file: Annotated[
+        Path,
+        typer.Option("--input", exists=True, dir_okay=False),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Validate or persist one immutable chronological outer-audit plan."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    engine = create_database_engine(settings.database_url)
+    try:
+        plan = load_json_model(plan_file, ChronologicalMetaOosPlanV1)
+        _validate_meta_oos_plan_config(plan, config)
+        persisted = False
+        if not dry_run:
+            persisted = MetaOosRepository(
+                make_session_factory(engine)
+            ).store_plan(
+                plan,
+                meta_oos_evaluation_contract(config),
+            )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "plan": plan.model_dump(mode="json"),
+            "persisted": persisted,
+            "outer_audit_opened": False,
+            "automatic_execution_enabled": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (
+        MetaOosError,
+        MetaOosPersistenceError,
+        ResearchFileRuntimeError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_meta_oos_app.command("run")
+def research_meta_oos_run(
+    plan_id: Annotated[
+        str,
+        typer.Option("--plan-id", min=1, max=160),
+    ],
+    idempotency_key: Annotated[
+        str,
+        typer.Option("--idempotency-key", max=160),
+    ] = "",
+    created_at: Annotated[
+        str | None,
+        typer.Option("--created-at"),
+    ] = None,
+    expires_at: Annotated[
+        str | None,
+        typer.Option("--expires-at"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Inspect readiness or reserve one run for the trusted private service."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    meta_config = config.config.recursive_improvement.meta_oos
+    now = _research_timestamp(created_at, "--created-at")
+    expiry = (
+        now + timedelta(hours=meta_config.reservation_ttl_hours)
+        if expires_at is None
+        else _research_timestamp(expires_at, "--expires-at")
+    )
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = MetaOosRepository(make_session_factory(engine))
+        plan = repository.plan(plan_id)
+        if plan is None:
+            raise MetaOosPersistenceError("unknown meta-OOS plan")
+        _validate_meta_oos_plan_config(plan, config)
+        reservation = repository.reservation(plan_id)
+        created = False
+        if not dry_run:
+            if not idempotency_key.strip():
+                raise MetaOosPersistenceError(
+                    "--idempotency-key is required with --commit"
+                )
+            reservation, created = repository.reserve_outer_audit(
+                plan_id=plan_id,
+                idempotency_key=idempotency_key,
+                maximum_dataset_uses=(
+                    meta_config.maximum_outer_audit_uses_per_dataset
+                ),
+                maximum_ttl_hours=meta_config.reservation_ttl_hours,
+                created_at=now,
+                expires_at=expiry,
+            )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "status": (
+                "DRY_RUN_READY"
+                if dry_run
+                else "RESERVED_AWAITING_TRUSTED_ENVIRONMENT"
+            ),
+            "plan_id": plan.plan_id,
+            "plan_hash": plan.plan_hash,
+            "audit_mode": plan.audit_mode.value,
+            "reservation": (
+                None
+                if reservation is None
+                else reservation.model_dump(mode="json")
+            ),
+            "reservation_created": created,
+            "trusted_service_entrypoint": (
+                "trading.research.chronological_meta_oos."
+                "run_chronological_meta_oos"
+            ),
+            "raw_audit_input_accepted_by_cli": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (MetaOosPersistenceError, ValueError) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_meta_oos_app.command("verify")
+def research_meta_oos_verify(
+    plan_id: Annotated[
+        str,
+        typer.Option("--plan-id", min=1, max=160),
+    ],
+    result_file: Annotated[
+        Path | None,
+        typer.Option("--result", exists=True, dir_okay=False),
+    ] = None,
+) -> None:
+    """Read and hash-verify one bounded aggregate result without writing."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    contract = meta_oos_evaluation_contract(config)
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = MetaOosRepository(make_session_factory(engine))
+        plan = repository.plan(plan_id)
+        if plan is None:
+            raise MetaOosPersistenceError("unknown meta-OOS plan")
+        result = (
+            repository.result(plan_id)
+            if result_file is None
+            else load_json_model(
+                result_file,
+                ChronologicalMetaOosResultV1,
+            )
+        )
+        if result is None:
+            raise MetaOosPersistenceError("meta-OOS result is not available")
+        verify_chronological_meta_oos_result(
+            plan=plan,
+            evaluation_contract=contract,
+            result=result,
+        )
+        payload = {
+            "verified": True,
+            "read_only": True,
+            "plan_id": plan.plan_id,
+            "plan_hash": plan.plan_hash,
+            "result_id": result.result_id,
+            "result_hash": result.result_hash,
+            "adaptive_system_pass": result.adaptive_system_pass,
+            "synthetic_fixture_is_performance_evidence": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (
+        MetaOosError,
+        MetaOosPersistenceError,
+        ResearchFileRuntimeError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(payload)
 
 
 @research_app.command("schedule-plan")
@@ -2386,6 +2603,30 @@ def _parse_research_action_kinds(
             "--actions must contain unique typed non-legacy actions"
         )
     return actions
+
+
+def _validate_meta_oos_plan_config(
+    plan: ChronologicalMetaOosPlanV1,
+    config: ResearchConfigBundle,
+) -> None:
+    configured = config.config.recursive_improvement.meta_oos
+    contract = meta_oos_evaluation_contract(config)
+    if (
+        plan.plan_version != configured.plan_version
+        or plan.evaluation_contract_hash != contract.contract_hash
+        or len(plan.epochs) < configured.minimum_epochs
+        or len(plan.epochs) > configured.maximum_epochs
+        or plan.outer_audit_budget_ordinal
+        > configured.maximum_outer_audit_uses_per_dataset
+        or any(
+            epoch.candidate_generation_budget
+            > configured.maximum_candidate_generation_budget_per_epoch
+            or epoch.oos_budget
+            > configured.maximum_oos_budget_per_epoch
+            for epoch in plan.epochs
+        )
+    ):
+        raise ValueError("meta-OOS plan violates versioned configuration")
 
 
 def _require_research_paper_only(settings: Settings) -> None:

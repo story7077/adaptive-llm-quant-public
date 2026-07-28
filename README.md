@@ -11,10 +11,10 @@ particular ticker, sector, or trading style.
 > - Real broker routing is unavailable and `real_order_routing=false` is enforced.
 > - AI cannot edit, replace, promote, or trade through the current Champion.
 > - Recursive improvement remains disabled for automatic operation:
->   `recursive_improvement.enabled=false`. Phase 0 through PR 3 provide the
+>   `recursive_improvement.enabled=false`. Phase 0 through PR 4 provide the
 >   outcome ledger, immutable memory, deterministic Meta Controller, V2
 >   Commander contracts, whole-portfolio delta-Sharpe/OOS V2, matched shadow
->   V2, and Promotion V2. Chronological meta-OOS remains a separate gate.
+>   V2, Promotion V2, and a protected chronological meta-OOS evaluator.
 > - Every public account, position, balance, order, and result is synthetic.
 > - WebGPT/AGBrowse and Codex execution require separate user-managed local
 >   environments; browser state, credentials, and private datasets are not bundled.
@@ -256,7 +256,7 @@ Any release-scan failure blocks publication.
 - [Experiment outcome ledger](docs/research/experiment-outcome-ledger.md)
 - [Deterministic Meta Controller and research memory](docs/research/meta-controller.md)
 - [Portfolio-level delta-Sharpe V2](docs/research/portfolio-delta-sharpe.md)
-- [Chronological meta-OOS extension contract — unimplemented](docs/research/chronological-meta-oos.md)
+- [Chronological meta-OOS V1](docs/research/chronological-meta-oos.md)
 
 ## License and responsibility
 

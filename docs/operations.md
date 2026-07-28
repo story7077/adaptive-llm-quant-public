@@ -48,11 +48,10 @@ real routing or automatic promotion is invalid.
 
 Recursive improvement is also disabled in the checked-in contract:
 `recursive_improvement.enabled=false`. The current branch implements Phase 0
-through PR 2: the experiment-outcome ledger, immutable memory, deterministic
-Meta Controller, and V2 Commander contracts. It does not automatically invoke
-the controller and does not yet run the portfolio delta-Sharpe judge or
-chronological meta-OOS. Automatic promotion and real order routing remain
-unavailable.
+through PR 4: the experiment-outcome ledger, immutable memory, deterministic
+Meta Controller, V2 Commander contracts, portfolio DeltaSharpe/OOS V2, matched
+shadow and Promotion V2, and chronological meta-OOS. None is automatically
+invoked. Automatic promotion and real order routing remain unavailable.
 
 ## Synthetic smoke test
 
@@ -207,6 +206,46 @@ Promotion V2 independently requires positive configured OOS and shadow
 DeltaSharpe lower bounds plus the worst-cost gate and all legacy risk,
 capacity, replay, and falsification gates. It can only produce eligibility;
 manual approval and explicit Champion designation remain separate.
+
+### Chronological Meta-OOS (PR 4)
+
+Migration `0017_chronological_meta_oos_v1` stores immutable plans, protected
+dataset reservations, bounded epoch-arm audit hashes, and aggregate results in
+an isolated append-only namespace. The four mandatory arms are
+`STATIC_CHAMPION`, `FIXED_RECALIBRATION`, `MEMORYLESS_COMMANDER`, and
+`ADAPTIVE_META_CONTROLLER`.
+
+Validate and persist a predeclared plan:
+
+```powershell
+uv run python -m trading.cli research meta-oos plan `
+  --input .local/research/meta-oos/plan.json
+uv run python -m trading.cli research meta-oos plan `
+  --input .local/research/meta-oos/plan.json `
+  --commit
+```
+
+Inspect readiness, then explicitly reserve the protected dataset:
+
+```powershell
+uv run python -m trading.cli research meta-oos run --plan-id <PLAN_ID>
+uv run python -m trading.cli research meta-oos run `
+  --plan-id <PLAN_ID> `
+  --idempotency-key <UNIQUE_KEY> `
+  --commit
+```
+
+The CLI never accepts raw audit returns. The private trusted service runs the
+predeclared plan and persists only the aggregate boundary. Verification is
+read-only:
+
+```powershell
+uv run python -m trading.cli research meta-oos verify --plan-id <PLAN_ID>
+```
+
+`recursive_improvement.meta_oos` remains
+`IMPLEMENTED_DISABLED`; synthetic fixtures validate implementation, not alpha.
+See [Chronological meta-OOS](research/chronological-meta-oos.md).
 
 Select exactly one Research Commander with optimistic version checking:
 

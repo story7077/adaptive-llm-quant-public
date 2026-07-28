@@ -30,6 +30,9 @@ if TYPE_CHECKING:
         CandidateExecutionSecurityV1,
         CandidateProcessLimitsV1,
     )
+    from trading.research.chronological_meta_oos import (
+        MetaOosEvaluationContractV1,
+    )
     from trading.research.meta_controller import MetaControllerParametersV1
     from trading.research.oos_lockbox import (
         OosProcessEvaluationConfig,
@@ -253,6 +256,18 @@ class RecursiveMetaOosConfig(DomainModel):
     enabled: Literal[False]
     require_outer_audit_reservation: Literal[True]
     prohibit_best_seed_selection: Literal[True]
+    plan_version: Literal["chronological-meta-oos-v1"]
+    maximum_outer_audit_uses_per_dataset: int = Field(ge=1)
+    reservation_ttl_hours: int = Field(ge=1)
+    minimum_epochs: int = Field(ge=2)
+    maximum_epochs: int = Field(ge=2)
+    maximum_candidate_generation_budget_per_epoch: int = Field(ge=1)
+    maximum_oos_budget_per_epoch: int = Field(ge=1)
+    minimum_adaptive_delta_sharpe_lcb: float
+    minimum_research_efficiency: float = Field(ge=0)
+    maximum_allowed_drawdown: float = Field(ge=0, le=1)
+    tail_quantile: float = Field(gt=0, lt=0.5)
+    maximum_absolute_daily_return: float = Field(gt=0)
 
 
 class RecursiveImprovementConfig(DomainModel):
@@ -364,14 +379,15 @@ def recursive_improvement_status(
     experiment_outcome_ledger: dict[str, object],
     meta_controller_ledger: dict[str, object] | None = None,
     portfolio_sharpe_ledger: dict[str, object] | None = None,
+    meta_oos_ledger: dict[str, object] | None = None,
 ) -> dict[str, object]:
     recursive = bundle.config.recursive_improvement
     return {
         "schema_version": "recursive_improvement_status_v1",
-        "status": "DISABLED_RESEARCH_ONLY_PR3",
+        "status": "DISABLED_RESEARCH_ONLY_PR4",
         "enabled": recursive.enabled,
         "audit_only": True,
-        "implementation_scope": "PHASE_0_PR_1_PR_2_PR_3",
+        "implementation_scope": "PHASE_0_PR_1_PR_2_PR_3_PR_4",
         "contract_version": recursive.contract_version,
         "config_manifest_hash": bundle.manifest_hash,
         "candidate_patch_policy": {
@@ -402,8 +418,23 @@ def recursive_improvement_status(
             ),
         },
         "chronological_meta_oos": {
-            "status": "UNIMPLEMENTED",
+            "status": "IMPLEMENTED_DISABLED",
             "enabled": recursive.meta_oos.enabled,
+            "plan_version": recursive.meta_oos.plan_version,
+            "minimum_epochs": recursive.meta_oos.minimum_epochs,
+            "maximum_outer_audit_uses_per_dataset": (
+                recursive.meta_oos.maximum_outer_audit_uses_per_dataset
+            ),
+            "minimum_adaptive_delta_sharpe_lcb": (
+                recursive.meta_oos.minimum_adaptive_delta_sharpe_lcb
+            ),
+            "minimum_research_efficiency": (
+                recursive.meta_oos.minimum_research_efficiency
+            ),
+            "maximum_allowed_drawdown": (
+                recursive.meta_oos.maximum_allowed_drawdown
+            ),
+            "ledger": dict(meta_oos_ledger or {}),
         },
         "automatic_promotion_enabled": (
             bundle.config.promotion.automatic_promotion_enabled
@@ -474,6 +505,46 @@ def promotion_evaluation_contract_v2(
         minimum_shadow_delta_sharpe_lcb=sharpe.minimum_delta_sharpe_lcb,
         minimum_worst_cost_delta_sharpe_lcb=(
             sharpe.minimum_worst_cost_delta_sharpe_lcb
+        ),
+    )
+
+
+def meta_oos_evaluation_contract(
+    bundle: ResearchConfigBundle,
+) -> MetaOosEvaluationContractV1:
+    from trading.research.chronological_meta_oos import (
+        build_meta_oos_evaluation_contract,
+    )
+
+    configured = bundle.config.recursive_improvement.meta_oos
+    return build_meta_oos_evaluation_contract(
+        contract_version="chronological-meta-oos-thresholds-v1",
+        annualization_sessions=(
+            bundle.config.recursive_improvement.portfolio_sharpe
+            .annualization_sessions
+        ),
+        minimum_epochs=configured.minimum_epochs,
+        maximum_epochs=configured.maximum_epochs,
+        maximum_candidate_generation_budget_per_epoch=(
+            configured.maximum_candidate_generation_budget_per_epoch
+        ),
+        maximum_oos_budget_per_epoch=(
+            configured.maximum_oos_budget_per_epoch
+        ),
+        maximum_outer_audit_uses_per_dataset=(
+            configured.maximum_outer_audit_uses_per_dataset
+        ),
+        reservation_ttl_hours=configured.reservation_ttl_hours,
+        minimum_adaptive_delta_sharpe_lcb=(
+            configured.minimum_adaptive_delta_sharpe_lcb
+        ),
+        minimum_research_efficiency=(
+            configured.minimum_research_efficiency
+        ),
+        maximum_allowed_drawdown=configured.maximum_allowed_drawdown,
+        tail_quantile=configured.tail_quantile,
+        maximum_absolute_daily_return=(
+            configured.maximum_absolute_daily_return
         ),
     )
 
@@ -663,6 +734,18 @@ def _validate_invariants(config: ResearchPlaneConfig) -> None:
         != "trusted_candidate_evaluation_v2"
     ):
         raise ValueError("portfolio OOS trusted producer version changed")
+    meta_oos = recursive.meta_oos
+    if meta_oos.minimum_epochs > meta_oos.maximum_epochs:
+        raise ValueError("meta-OOS minimum epochs exceed maximum")
+    if meta_oos.maximum_outer_audit_uses_per_dataset != 1:
+        raise ValueError(
+            "initial meta-OOS dataset reuse budget must remain one"
+        )
+    if (
+        meta_oos.maximum_absolute_daily_return
+        != portfolio_sharpe.maximum_absolute_daily_return
+    ):
+        raise ValueError("meta-OOS and portfolio return bounds differ")
     candidate_execution = config.candidate_execution
     if (
         candidate_execution.isolation_kind
