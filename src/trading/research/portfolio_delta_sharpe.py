@@ -438,6 +438,81 @@ def _evaluate_cost_stress(
         for item in rows
     )
     risk_free = tuple(item.risk_free_daily_return for item in rows)
+    return _evaluate_paired_series(
+        candidate,
+        champion,
+        risk_free,
+        cost_multiplier=multiplier,
+        annualization_sessions=annualization_sessions,
+        bootstrap=bootstrap,
+        seed=seed,
+    )
+
+
+def evaluate_paired_sharpe_returns(
+    *,
+    candidate_returns: Sequence[float],
+    baseline_returns: Sequence[float],
+    risk_free_returns: Sequence[float],
+    annualization_sessions: int,
+    bootstrap: StationaryBootstrapContractV1,
+    deterministic_seed: int,
+) -> PortfolioCostStressResultV1:
+    """Evaluate two already-netted full portfolios with paired resampling."""
+
+    candidate = tuple(candidate_returns)
+    baseline = tuple(baseline_returns)
+    risk_free = tuple(risk_free_returns)
+    if (
+        len(candidate) != len(baseline)
+        or len(candidate) != len(risk_free)
+        or len(candidate) < 2
+    ):
+        raise PortfolioDeltaSharpeError("INSUFFICIENT_COMMON_SESSIONS")
+    return _evaluate_paired_series(
+        candidate,
+        baseline,
+        risk_free,
+        cost_multiplier=1.0,
+        annualization_sessions=annualization_sessions,
+        bootstrap=bootstrap,
+        seed=deterministic_seed,
+    )
+
+
+def calculate_sample_sharpe(
+    *,
+    returns: Sequence[float],
+    risk_free_returns: Sequence[float],
+    annualization_sessions: int,
+    variance_epsilon: float,
+) -> float:
+    """Calculate the versioned sample-standard-deviation Sharpe statistic."""
+
+    return _sample_sharpe(
+        returns,
+        risk_free_returns,
+        annualization_sessions=annualization_sessions,
+        variance_epsilon=variance_epsilon,
+    )
+
+
+def _evaluate_paired_series(
+    candidate: tuple[float, ...],
+    champion: tuple[float, ...],
+    risk_free: tuple[float, ...],
+    *,
+    cost_multiplier: float,
+    annualization_sessions: int,
+    bootstrap: StationaryBootstrapContractV1,
+    seed: int,
+) -> PortfolioCostStressResultV1:
+    if (
+        len(candidate) != len(champion)
+        or len(candidate) != len(risk_free)
+        or len(candidate) < 2
+    ):
+        raise PortfolioDeltaSharpeError("INSUFFICIENT_COMMON_SESSIONS")
     candidate_sharpe = _sample_sharpe(
         candidate,
         risk_free,
@@ -455,7 +530,7 @@ def _evaluate_cost_stress(
     rng = random.Random(seed)
     for _ in range(bootstrap.samples):
         indices = _stationary_indices(
-            count=len(rows),
+            count=len(candidate),
             expected_block_sessions=bootstrap.expected_block_sessions,
             rng=rng,
         )
@@ -483,7 +558,7 @@ def _evaluate_cost_stress(
     lower = _percentile(deltas, bootstrap.lower_quantile)
     upper = _percentile(deltas, 1.0 - bootstrap.lower_quantile)
     return PortfolioCostStressResultV1(
-        cost_multiplier=multiplier,
+        cost_multiplier=cost_multiplier,
         candidate_portfolio_sharpe=candidate_sharpe,
         champion_portfolio_sharpe=champion_sharpe,
         delta_sharpe_point=point,
@@ -560,5 +635,7 @@ __all__ = [
     "RiskFreeSeriesMode",
     "StationaryBootstrapContractV1",
     "build_portfolio_comparison_contract",
+    "calculate_sample_sharpe",
+    "evaluate_paired_sharpe_returns",
     "evaluate_portfolio_delta_sharpe",
 ]

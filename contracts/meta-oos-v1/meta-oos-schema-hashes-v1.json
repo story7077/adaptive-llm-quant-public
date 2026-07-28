@@ -1,0 +1,20 @@
+{
+  "canonical_source": "adaptive-llm-quant-public",
+  "schema_version": "meta_oos_schema_hashes_v1",
+  "schemas": {
+    "chronological-meta-oos-plan-v1.schema.json": "a4a1ef960bbfe399d4bad7e9d60074b8bd635f11b4eac3558807b09ce90d4503",
+    "chronological-meta-oos-result-v1.schema.json": "5e65fe074d320879bf990f268fe667f3a4e5b62c1e270262f185f8d1afc3f8e5",
+    "meta-oos-arm-aggregate-v1.schema.json": "1137e3733deae510f09b508b33b9cf4a11154be269dd309387991d4305f85c19",
+    "meta-oos-candidate-availability-v1.schema.json": "22016800fa9bea9a705a37af70f1610414f08550787cc105709d5bf052e6fe50",
+    "meta-oos-commander-binding-v1.schema.json": "132115302f12db5578d7ef83c4c3a6746a09ebef934fdfc9a765dd6fbbb826d8",
+    "meta-oos-commander-invocation-v1.schema.json": "a9d039f9db9bfe2b9b28b405d2f061037d356ade34e150ba0e7c2daeb8daa9ff",
+    "meta-oos-epoch-arm-audit-record-v1.schema.json": "7a3229a2dad75499d06b79a5d6034c544bc302779b10c43e4bc9adafd7f6d795",
+    "meta-oos-epoch-context-v1.schema.json": "17d215f171852e244a43d48b4d7b84b01b9720167f9b25b759108e8f0d4b277d",
+    "meta-oos-epoch-v1.schema.json": "4a3766a55a0fe2cc87c5468f0b092776e98843290aa35cb26cbf98ac9f75a114",
+    "meta-oos-evaluation-contract-v1.schema.json": "768e32934048c43dcf006ab4841c5d78715a5fa5de7a48fded01005f3dc50497",
+    "meta-oos-memory-snapshot-v1.schema.json": "71610580f9920e56ee827240ef2d54effb179469dd4687f243db362e74f2f3a3",
+    "meta-oos-outer-audit-reservation-v1.schema.json": "68dec57c5fe7ee3ab89c80e3ee8e0c23890345d6714e4b4056478c37ffdfda7d",
+    "meta-oos-paired-comparison-v1.schema.json": "7a3d3b79cb239886cc48b5cf627b81071f6e3689d633a85c18c4dcb7520a43a8",
+    "meta-oos-policy-decision-v1.schema.json": "555294e457d64cd2b04b38225e3fc3a0c69e6c456c432f839574ae48703e1f0f"
+  }
+}

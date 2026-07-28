@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "ExperimentInformationRole": {
+      "enum": [
+        "DISCOVERY",
+        "LEARNING_FORWARD",
+        "PROMOTION_OOS",
+        "META_AUDIT"
+      ],
+      "title": "ExperimentInformationRole",
+      "type": "string"
+    },
+    "MetaOosLearningOutcomeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "action_kind": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Action Kind",
+          "type": "string"
+        },
+        "arm": {
+          "$ref": "#/$defs/MetaOosPolicyArm"
+        },
+        "available_at": {
+          "format": "date-time",
+          "title": "Available At",
+          "type": "string"
+        },
+        "context_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Context Key",
+          "type": "string"
+        },
+        "epoch_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Epoch Id",
+          "type": "string"
+        },
+        "information_role": {
+          "$ref": "#/$defs/ExperimentInformationRole"
+        },
+        "matured": {
+          "title": "Matured",
+          "type": "boolean"
+        },
+        "outcome_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Outcome Hash",
+          "type": "string"
+        },
+        "outcome_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Outcome Id",
+          "type": "string"
+        },
+        "reward": {
+          "title": "Reward",
+          "type": "number"
+        },
+        "schema_version": {
+          "const": "meta_oos_learning_outcome_v1",
+          "default": "meta_oos_learning_outcome_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "technical_failure": {
+          "title": "Technical Failure",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "outcome_id",
+        "arm",
+        "epoch_id",
+        "context_key",
+        "action_kind",
+        "information_role",
+        "available_at",
+        "matured",
+        "reward",
+        "technical_failure",
+        "outcome_hash"
+      ],
+      "title": "MetaOosLearningOutcomeV1",
+      "type": "object"
+    },
+    "MetaOosPolicyArm": {
+      "enum": [
+        "STATIC_CHAMPION",
+        "FIXED_RECALIBRATION",
+        "MEMORYLESS_COMMANDER",
+        "ADAPTIVE_META_CONTROLLER"
+      ],
+      "title": "MetaOosPolicyArm",
+      "type": "string"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-memory-snapshot-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "arm": {
+      "const": "ADAPTIVE_META_CONTROLLER",
+      "title": "Arm",
+      "type": "string"
+    },
+    "as_of": {
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
+    },
+    "outcome_hashes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Outcome Hashes",
+      "type": "array"
+    },
+    "outcomes": {
+      "items": {
+        "$ref": "#/$defs/MetaOosLearningOutcomeV1"
+      },
+      "title": "Outcomes",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "meta_oos_memory_snapshot_v1",
+      "default": "meta_oos_memory_snapshot_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Snapshot Hash",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Snapshot Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "snapshot_id",
+    "arm",
+    "as_of",
+    "outcomes",
+    "outcome_hashes",
+    "snapshot_hash"
+  ],
+  "title": "MetaOosMemorySnapshotV1",
+  "type": "object"
+}

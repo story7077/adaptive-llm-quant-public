@@ -1,0 +1,101 @@
+{
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-epoch-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidate_generation_budget": {
+      "minimum": 0,
+      "title": "Candidate Generation Budget",
+      "type": "integer"
+    },
+    "context_key": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Context Key",
+      "type": "string"
+    },
+    "decision_at": {
+      "format": "date-time",
+      "title": "Decision At",
+      "type": "string"
+    },
+    "discovery_window_end": {
+      "format": "date-time",
+      "title": "Discovery Window End",
+      "type": "string"
+    },
+    "discovery_window_start": {
+      "format": "date-time",
+      "title": "Discovery Window Start",
+      "type": "string"
+    },
+    "embargo_sessions": {
+      "minimum": 1,
+      "title": "Embargo Sessions",
+      "type": "integer"
+    },
+    "epoch_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Epoch Id",
+      "type": "string"
+    },
+    "forward_window_end": {
+      "format": "date-time",
+      "title": "Forward Window End",
+      "type": "string"
+    },
+    "forward_window_start": {
+      "format": "date-time",
+      "title": "Forward Window Start",
+      "type": "string"
+    },
+    "market_data_manifest_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Market Data Manifest Hash",
+      "type": "string"
+    },
+    "maximum_candidate_horizon_sessions": {
+      "minimum": 1,
+      "title": "Maximum Candidate Horizon Sessions",
+      "type": "integer"
+    },
+    "oos_budget": {
+      "minimum": 0,
+      "title": "Oos Budget",
+      "type": "integer"
+    },
+    "outcome_available_at": {
+      "format": "date-time",
+      "title": "Outcome Available At",
+      "type": "string"
+    },
+    "purge_sessions": {
+      "minimum": 1,
+      "title": "Purge Sessions",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "meta_oos_epoch_v1",
+      "default": "meta_oos_epoch_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "epoch_id",
+    "decision_at",
+    "discovery_window_start",
+    "discovery_window_end",
+    "maximum_candidate_horizon_sessions",
+    "purge_sessions",
+    "embargo_sessions",
+    "forward_window_start",
+    "forward_window_end",
+    "outcome_available_at",
+    "market_data_manifest_hash",
+    "context_key",
+    "candidate_generation_budget",
+    "oos_budget"
+  ],
+  "title": "MetaOosEpochV1",
+  "type": "object"
+}

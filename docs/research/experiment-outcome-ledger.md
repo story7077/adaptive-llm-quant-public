@@ -309,8 +309,9 @@ schema upgrade from silently turning historical outcomes into training data.
   receipt. Committed CLI input is operator-supplied audit data, not promotion
   evidence.
 - No scheduler consumer executes the two new dispatch targets.
-- No explicit prompt-size bound or `ResearchRequestV2` memory binding exists.
+- The legacy outcome CLI still accepts operator-supplied trusted-host audit
+  data; it is not itself a DeltaSharpe or promotion evaluator.
 - No typed regime descriptor is implemented.
-- No meta-controller consumes the snapshot.
-- No portfolio delta-Sharpe judge or chronological meta-OOS exists.
+- Automatic Meta Controller, portfolio DeltaSharpe, and meta-OOS scheduling
+  remain disabled even though their trusted components are implemented.
 - Nothing here can promote a Champion or route an order.

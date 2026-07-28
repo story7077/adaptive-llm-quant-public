@@ -1,14 +1,14 @@
 # Recursive Improvement
 
-> **Implementation status: Phase 0, PR 1, and PR 2**
+> **Implementation status: Phase 0 through PR 4**
 >
 > `recursive_improvement.enabled=false` is enforced by the versioned research
 > configuration. The repository currently provides contracts, an immutable
 > experiment-outcome ledger, deterministic memory materialization, a
-> deterministic Meta Controller, and V2 Commander contracts. Automatic
-> invocation remains disabled. It does not optimize a research portfolio, perform chronological
-> meta-OOS evaluation, promote a Challenger automatically, or route a real
-> order.
+> deterministic Meta Controller, V2 Commander contracts, whole-portfolio
+> DeltaSharpe/OOS V2, matched shadow and Promotion V2, and chronological
+> meta-OOS. Automatic invocation remains disabled. It does not promote a
+> Challenger automatically or route a real order.
 
 ## Objective
 
@@ -32,8 +32,8 @@ ledger are observations under declared contracts, not performance claims.
 | PR 1 manual CLI and typed scheduler work contracts | Implemented but disabled for automatic recursive maintenance |
 | PR 2 deterministic Meta Controller | Implemented; manual/dry-run by default |
 | PR 2 ResearchRequest/Decision V2 | Implemented alongside unchanged V1 |
-| PR 3 portfolio delta-Sharpe judge | **UNIMPLEMENTED** |
-| PR 4 chronological meta-OOS | **UNIMPLEMENTED** |
+| PR 3 portfolio delta-Sharpe judge | Implemented; trusted host only |
+| PR 4 chronological meta-OOS | Implemented; trusted host only and disabled |
 
 ## Phase 0 contracts
 
@@ -214,8 +214,9 @@ See [Deterministic Meta Controller](meta-controller.md).
 - [Portfolio delta Sharpe](portfolio-delta-sharpe.md): implemented trusted
   whole-portfolio paired evaluation, OOS V2, shadow V2, and Promotion V2;
   automatic operation remains disabled.
-- [Chronological meta-OOS](chronological-meta-oos.md): **UNIMPLEMENTED**,
-  planned outer chronological audit of the adaptive policy.
+- [Chronological meta-OOS](chronological-meta-oos.md): implemented
+  four-arm, append-only, aggregate-only outer audit; automatic scheduling is
+  disabled.
 
-PR 4 remains a design contract until its stacked change lands. None of the
-current recursive components claims real-world alpha.
+None of the recursive components or synthetic fixtures claims real-world
+alpha.

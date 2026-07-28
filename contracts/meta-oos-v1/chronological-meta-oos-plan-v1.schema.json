@@ -1,0 +1,360 @@
+{
+  "$defs": {
+    "MetaOosAuditMode": {
+      "enum": [
+        "RECORDED_PIT_REPLAY",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "MetaOosAuditMode",
+      "type": "string"
+    },
+    "MetaOosCommanderBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Binding Hash",
+          "type": "string"
+        },
+        "model_family": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Model Family",
+          "type": "string"
+        },
+        "model_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Model Version",
+          "type": "string"
+        },
+        "output_schema_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Output Schema Hash",
+          "type": "string"
+        },
+        "prompt_template_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Prompt Template Hash",
+          "type": "string"
+        },
+        "reasoning_profile": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Reasoning Profile",
+          "type": "string"
+        },
+        "request_schema_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Request Schema Hash",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "meta_oos_commander_binding_v1",
+          "default": "meta_oos_commander_binding_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_family",
+        "model_version",
+        "reasoning_profile",
+        "prompt_template_hash",
+        "request_schema_hash",
+        "output_schema_hash",
+        "binding_hash"
+      ],
+      "title": "MetaOosCommanderBindingV1",
+      "type": "object"
+    },
+    "MetaOosEpochV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_generation_budget": {
+          "minimum": 0,
+          "title": "Candidate Generation Budget",
+          "type": "integer"
+        },
+        "context_key": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Context Key",
+          "type": "string"
+        },
+        "decision_at": {
+          "format": "date-time",
+          "title": "Decision At",
+          "type": "string"
+        },
+        "discovery_window_end": {
+          "format": "date-time",
+          "title": "Discovery Window End",
+          "type": "string"
+        },
+        "discovery_window_start": {
+          "format": "date-time",
+          "title": "Discovery Window Start",
+          "type": "string"
+        },
+        "embargo_sessions": {
+          "minimum": 1,
+          "title": "Embargo Sessions",
+          "type": "integer"
+        },
+        "epoch_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Epoch Id",
+          "type": "string"
+        },
+        "forward_window_end": {
+          "format": "date-time",
+          "title": "Forward Window End",
+          "type": "string"
+        },
+        "forward_window_start": {
+          "format": "date-time",
+          "title": "Forward Window Start",
+          "type": "string"
+        },
+        "market_data_manifest_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Market Data Manifest Hash",
+          "type": "string"
+        },
+        "maximum_candidate_horizon_sessions": {
+          "minimum": 1,
+          "title": "Maximum Candidate Horizon Sessions",
+          "type": "integer"
+        },
+        "oos_budget": {
+          "minimum": 0,
+          "title": "Oos Budget",
+          "type": "integer"
+        },
+        "outcome_available_at": {
+          "format": "date-time",
+          "title": "Outcome Available At",
+          "type": "string"
+        },
+        "purge_sessions": {
+          "minimum": 1,
+          "title": "Purge Sessions",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "meta_oos_epoch_v1",
+          "default": "meta_oos_epoch_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "epoch_id",
+        "decision_at",
+        "discovery_window_start",
+        "discovery_window_end",
+        "maximum_candidate_horizon_sessions",
+        "purge_sessions",
+        "embargo_sessions",
+        "forward_window_start",
+        "forward_window_end",
+        "outcome_available_at",
+        "market_data_manifest_hash",
+        "context_key",
+        "candidate_generation_budget",
+        "oos_budget"
+      ],
+      "title": "MetaOosEpochV1",
+      "type": "object"
+    },
+    "MetaOosPolicyArm": {
+      "enum": [
+        "STATIC_CHAMPION",
+        "FIXED_RECALIBRATION",
+        "MEMORYLESS_COMMANDER",
+        "ADAPTIVE_META_CONTROLLER"
+      ],
+      "title": "MetaOosPolicyArm",
+      "type": "string"
+    },
+    "StationaryBootstrapContractV1": {
+      "additionalProperties": false,
+      "properties": {
+        "configured_seed": {
+          "minimum": 0,
+          "title": "Configured Seed",
+          "type": "integer"
+        },
+        "expected_block_sessions": {
+          "maximum": 252,
+          "minimum": 1,
+          "title": "Expected Block Sessions",
+          "type": "integer"
+        },
+        "lower_quantile": {
+          "exclusiveMaximum": 0.5,
+          "exclusiveMinimum": 0,
+          "title": "Lower Quantile",
+          "type": "number"
+        },
+        "samples": {
+          "maximum": 100000,
+          "minimum": 100,
+          "title": "Samples",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "stationary_bootstrap_contract_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "variance_epsilon": {
+          "exclusiveMinimum": 0,
+          "title": "Variance Epsilon",
+          "type": "number"
+        }
+      },
+      "required": [
+        "configured_seed",
+        "samples",
+        "expected_block_sessions",
+        "lower_quantile",
+        "variance_epsilon"
+      ],
+      "title": "StationaryBootstrapContractV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/chronological-meta-oos-plan-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "audit_mode": {
+      "$ref": "#/$defs/MetaOosAuditMode"
+    },
+    "bootstrap_contract": {
+      "$ref": "#/$defs/StationaryBootstrapContractV1"
+    },
+    "commander_binding": {
+      "$ref": "#/$defs/MetaOosCommanderBindingV1"
+    },
+    "cost_model_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Cost Model Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "epochs": {
+      "items": {
+        "$ref": "#/$defs/MetaOosEpochV1"
+      },
+      "minItems": 2,
+      "title": "Epochs",
+      "type": "array"
+    },
+    "evaluation_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evaluation Contract Hash",
+      "type": "string"
+    },
+    "execution_model_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Execution Model Hash",
+      "type": "string"
+    },
+    "initial_champion_manifest_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Initial Champion Manifest Hash",
+      "type": "string"
+    },
+    "meta_controller_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Meta Controller Version",
+      "type": "string"
+    },
+    "outer_audit_budget_ordinal": {
+      "minimum": 1,
+      "title": "Outer Audit Budget Ordinal",
+      "type": "integer"
+    },
+    "outer_audit_dataset_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Outer Audit Dataset Id",
+      "type": "string"
+    },
+    "plan_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Plan Hash",
+      "type": "string"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Plan Version",
+      "type": "string"
+    },
+    "policy_adapter_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/MetaOosPolicyArm"
+      },
+      "title": "Policy Adapter Versions",
+      "type": "object"
+    },
+    "policy_arms": {
+      "items": {
+        "$ref": "#/$defs/MetaOosPolicyArm"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Policy Arms",
+      "type": "array"
+    },
+    "prohibit_best_seed_selection": {
+      "const": true,
+      "default": true,
+      "title": "Prohibit Best Seed Selection",
+      "type": "boolean"
+    },
+    "real_order_routing": {
+      "const": false,
+      "default": false,
+      "title": "Real Order Routing",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "chronological_meta_oos_plan_v1",
+      "default": "chronological_meta_oos_plan_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_version",
+    "initial_champion_manifest_hash",
+    "epochs",
+    "policy_arms",
+    "policy_adapter_versions",
+    "audit_mode",
+    "commander_binding",
+    "meta_controller_version",
+    "cost_model_hash",
+    "execution_model_hash",
+    "bootstrap_contract",
+    "evaluation_contract_hash",
+    "outer_audit_dataset_id",
+    "outer_audit_budget_ordinal",
+    "created_at",
+    "plan_hash"
+  ],
+  "title": "ChronologicalMetaOosPlanV1",
+  "type": "object"
+}

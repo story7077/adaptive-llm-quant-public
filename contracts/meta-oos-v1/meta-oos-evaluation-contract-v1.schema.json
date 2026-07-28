@@ -1,0 +1,109 @@
+{
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-evaluation-contract-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "annualization_sessions": {
+      "maximum": 366,
+      "minimum": 1,
+      "title": "Annualization Sessions",
+      "type": "integer"
+    },
+    "contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Contract Hash",
+      "type": "string"
+    },
+    "contract_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "maximum_absolute_daily_return": {
+      "exclusiveMinimum": 0,
+      "title": "Maximum Absolute Daily Return",
+      "type": "number"
+    },
+    "maximum_allowed_drawdown": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Maximum Allowed Drawdown",
+      "type": "number"
+    },
+    "maximum_candidate_generation_budget_per_epoch": {
+      "minimum": 1,
+      "title": "Maximum Candidate Generation Budget Per Epoch",
+      "type": "integer"
+    },
+    "maximum_epochs": {
+      "minimum": 2,
+      "title": "Maximum Epochs",
+      "type": "integer"
+    },
+    "maximum_oos_budget_per_epoch": {
+      "minimum": 1,
+      "title": "Maximum Oos Budget Per Epoch",
+      "type": "integer"
+    },
+    "maximum_outer_audit_uses_per_dataset": {
+      "minimum": 1,
+      "title": "Maximum Outer Audit Uses Per Dataset",
+      "type": "integer"
+    },
+    "minimum_adaptive_delta_sharpe_lcb": {
+      "title": "Minimum Adaptive Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "minimum_epochs": {
+      "minimum": 2,
+      "title": "Minimum Epochs",
+      "type": "integer"
+    },
+    "minimum_research_efficiency": {
+      "minimum": 0,
+      "title": "Minimum Research Efficiency",
+      "type": "number"
+    },
+    "prohibit_best_seed_selection": {
+      "const": true,
+      "default": true,
+      "title": "Prohibit Best Seed Selection",
+      "type": "boolean"
+    },
+    "reservation_ttl_hours": {
+      "minimum": 1,
+      "title": "Reservation Ttl Hours",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "meta_oos_evaluation_contract_v1",
+      "default": "meta_oos_evaluation_contract_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tail_quantile": {
+      "exclusiveMaximum": 0.5,
+      "exclusiveMinimum": 0,
+      "title": "Tail Quantile",
+      "type": "number"
+    }
+  },
+  "required": [
+    "contract_version",
+    "annualization_sessions",
+    "minimum_epochs",
+    "maximum_epochs",
+    "maximum_candidate_generation_budget_per_epoch",
+    "maximum_oos_budget_per_epoch",
+    "maximum_outer_audit_uses_per_dataset",
+    "reservation_ttl_hours",
+    "minimum_adaptive_delta_sharpe_lcb",
+    "minimum_research_efficiency",
+    "maximum_allowed_drawdown",
+    "tail_quantile",
+    "maximum_absolute_daily_return",
+    "contract_hash"
+  ],
+  "title": "MetaOosEvaluationContractV1",
+  "type": "object"
+}

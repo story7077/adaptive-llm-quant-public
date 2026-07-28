@@ -1611,7 +1611,7 @@
       const outcomeLedger = recursive.experiment_outcome_ledger ||
         data.experiment_outcome_ledger || {};
       const patchPolicy = recursive.candidate_patch_policy || {};
-      $("researchRecursiveState").textContent = `${recursive.status || "DISABLED_RESEARCH_ONLY_PR3"} · enabled=${recursive.enabled === true}`;
+      $("researchRecursiveState").textContent = `${recursive.status || "DISABLED_RESEARCH_ONLY_PR4"} · enabled=${recursive.enabled === true}`;
       $("researchRecursiveContract").textContent = `${recursive.contract_version || "—"} · ${recursive.implementation_scope || "—"}`;
       $("researchRecursivePolicy").textContent = patchPolicy.version || "—";
       $("researchRecursiveActions").textContent = formatNumber(outcomeLedger.action_count ?? 0);
@@ -1625,7 +1625,7 @@
         automatic_outcome_maintenance_enabled: recursive.automatic_outcome_maintenance_enabled,
         meta_controller: recursive.meta_controller || { status: "IMPLEMENTED_DISABLED" },
         portfolio_delta_sharpe: recursive.portfolio_delta_sharpe || { status: "IMPLEMENTED_DISABLED" },
-        chronological_meta_oos: recursive.chronological_meta_oos || { status: "UNIMPLEMENTED" },
+        chronological_meta_oos: recursive.chronological_meta_oos || { status: "IMPLEMENTED_DISABLED" },
         automatic_promotion_enabled: recursive.automatic_promotion_enabled,
         real_order_routing: recursive.real_order_routing
       }, null, 2);

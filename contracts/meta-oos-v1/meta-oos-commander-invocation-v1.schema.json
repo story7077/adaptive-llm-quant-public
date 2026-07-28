@@ -1,0 +1,83 @@
+{
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-commander-invocation-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "commander_binding_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Commander Binding Hash",
+      "type": "string"
+    },
+    "invocation_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Invocation Hash",
+      "type": "string"
+    },
+    "invoked_at": {
+      "format": "date-time",
+      "title": "Invoked At",
+      "type": "string"
+    },
+    "model_family": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Model Family",
+      "type": "string"
+    },
+    "model_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Model Version",
+      "type": "string"
+    },
+    "output_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Output Hash",
+      "type": "string"
+    },
+    "output_schema_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Output Schema Hash",
+      "type": "string"
+    },
+    "prompt_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Prompt Hash",
+      "type": "string"
+    },
+    "reasoning_profile": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Reasoning Profile",
+      "type": "string"
+    },
+    "request_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Request Hash",
+      "type": "string"
+    },
+    "request_schema_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Request Schema Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "meta_oos_commander_invocation_v1",
+      "default": "meta_oos_commander_invocation_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "commander_binding_hash",
+    "model_family",
+    "model_version",
+    "reasoning_profile",
+    "prompt_hash",
+    "request_hash",
+    "request_schema_hash",
+    "output_schema_hash",
+    "output_hash",
+    "invoked_at",
+    "invocation_hash"
+  ],
+  "title": "MetaOosCommanderInvocationV1",
+  "type": "object"
+}

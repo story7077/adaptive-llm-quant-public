@@ -52,6 +52,7 @@ from trading.execution.alpaca_paper import AlpacaPaperTradingClient
 from trading.persistence.db import create_database_engine, make_session_factory
 from trading.persistence.factorial import FactorialPaperExperimentRepository
 from trading.persistence.meta_controller import MetaControllerRepository
+from trading.persistence.meta_oos import MetaOosRepository
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.research import (
     ResearchPersistenceError,
@@ -658,6 +659,7 @@ def create_app(
         portfolio_sharpe_status = (
             research_repository.portfolio_sharpe().status()
         )
+        meta_oos_status = MetaOosRepository(session_factory).status()
         return {
             **persisted_status,
             "recursive_improvement": recursive_improvement_status(
@@ -667,6 +669,7 @@ def create_app(
                 ),
                 meta_controller_ledger=meta_controller_status,
                 portfolio_sharpe_ledger=portfolio_sharpe_status,
+                meta_oos_ledger=meta_oos_status,
             ),
             "research_plane_version": (
                 research_config.config.algorithm_version

@@ -142,7 +142,7 @@ def test_recursive_improvement_is_disabled_and_bound_to_patch_policy_v2() -> Non
             "snapshot_count": 0,
         },
     )
-    assert status["status"] == "DISABLED_RESEARCH_ONLY_PR3"
+    assert status["status"] == "DISABLED_RESEARCH_ONLY_PR4"
     assert status["enabled"] is False
     assert status["audit_only"] is True
     assert status["candidate_patch_policy"] == {
@@ -151,6 +151,9 @@ def test_recursive_improvement_is_disabled_and_bound_to_patch_policy_v2() -> Non
     }
     assert status["automatic_outcome_maintenance_enabled"] is False
     assert status["portfolio_delta_sharpe"]["status"] == (
+        "IMPLEMENTED_DISABLED"
+    )
+    assert status["chronological_meta_oos"]["status"] == (
         "IMPLEMENTED_DISABLED"
     )
     assert status["automatic_promotion_enabled"] is False
