@@ -200,6 +200,15 @@ def available_data_catalog_hash(
     )
 
 
+def evidence_source_id_suffix(request_id: str) -> str:
+    return "_" + canonical_hash(
+        {
+            "schema_version": WEB_SCOUT_REQUEST_SCHEMA_VERSION,
+            "request_id": request_id,
+        }
+    )[:12]
+
+
 class WebGptScoutError(RuntimeError):
     def __init__(self, code: str, detail: str) -> None:
         self.code = code
@@ -808,6 +817,7 @@ class WebGptActiveResearchScout:
 
 
 def render_web_scout_prompt(request: WebScoutRequestV1) -> str:
+    source_id_suffix = evidence_source_id_suffix(request.request_id)
     schema_json = json.dumps(
         ResearchEvidenceBundleV1.model_json_schema(),
         ensure_ascii=False,
@@ -839,6 +849,11 @@ def render_web_scout_prompt(request: WebScoutRequestV1) -> str:
         "Use only short lawful excerpts. Never return cookies, credentials, account data, "
         "browser paths, raw page bodies, or personal identifiers. Raw page objects remain in "
         "the external, gitignored AGBrowse store and are not part of this result.\n"
+        "For every source enforce the exact point-in-time ordering "
+        "published_at <= first_available_at <= data_available_cutoff and "
+        "first_available_at <= captured_at. If the true first-availability time "
+        "cannot be established, use a conservative later time rather than a time "
+        "that precedes publication.\n"
         f"For every source, return content_hash as {SOURCE_HASH_SENTINEL!r}; the trusted "
         "host computes SHA-256 over the canonical captured fields url, title, publisher, "
         "published_at, first_available_at, and excerpt. Preserve "
@@ -847,8 +862,15 @@ def render_web_scout_prompt(request: WebScoutRequestV1) -> str:
         "value must be an exact symbol from available_data_catalog; put asset classes, "
         "markets, and named factors in factor_tags instead.\n"
         f"Perform no more than {request.query_budget} active browse queries. Every completed "
-        "query must cite source IDs. All evidence must have first_available_at at or before "
+        "query must cite source IDs, and every source record must appear in at least one "
+        "query source_ids list. Before returning, verify that the union of all query "
+        "source_ids contains every sources[].source_id; omit any source that cannot be "
+        "attributed to a recorded query. All evidence must have first_available_at at or before "
         f"{request.data_available_cutoff.isoformat()}.\n"
+        "Evidence source IDs are globally immutable capture identifiers. Every "
+        f"sources[].source_id must end exactly with {source_id_suffix!r}, and every "
+        "query or claim reference must use that same suffixed ID. Never reuse an "
+        "unsuffixed or prior-cycle source ID.\n"
         f"Return request_id {request.request_id!r}, research_cycle_id "
         f"{request.research_cycle_id!r}, role 'WEB_SCOUT', context_manifest_hash "
         f"{request.context_manifest_hash!r}, and available_data_catalog_hash "
@@ -883,6 +905,7 @@ def parse_web_scout_result(
             "ChatGPT stopped before producing the evidence bundle",
         )
     payload = decode_single_json_object(answer_text)
+    _require_scoped_source_ids(payload, request.request_id)
     known_symbols = {entry.symbol for entry in request.available_data_catalog}
     _normalize_catalog_instrument_tags(payload, known_symbols)
     _downgrade_unsupported_provenance(payload)
@@ -953,6 +976,27 @@ def parse_web_scout_result(
             )
     _bounded_json(bundle.model_dump(mode="json"), MAX_RESULT_BYTES, "result")
     return bundle
+
+
+def _require_scoped_source_ids(
+    payload: dict[str, Any],
+    request_id: str,
+) -> None:
+    suffix = evidence_source_id_suffix(request_id)
+    values = payload.get("sources")
+    if not isinstance(values, list):
+        return
+    for index, value in enumerate(cast(list[object], values)):
+        source_id = (
+            cast(dict[str, Any], value).get("source_id")
+            if isinstance(value, dict)
+            else None
+        )
+        if not isinstance(source_id, str) or not source_id.endswith(suffix):
+            raise WebGptScoutError(
+                "source_id_scope_invalid",
+                f"result source {index} does not use the request-scoped ID suffix",
+            )
 
 
 def _bind_capture_times(payload: dict[str, Any], captured_at: datetime) -> None:

@@ -18,12 +18,18 @@ from trading.persistence.research import ResearchRepository
 from trading.research.contracts import (
     AvailableDataCatalogV1,
     AvailableInstrumentV1,
+    ChallengerManifestV1,
+    ChallengerStatus,
     ResearchCommanderKind,
     ResearchDecisionKind,
 )
 from trading.research.experiment_outcomes import (
     AlgorithmProposalV2,
     ResearchActionKind,
+)
+from trading.research.file_runtime import (
+    ResearchPlaneFileRuntime,
+    atomic_write_json,
 )
 from trading.research.host import build_research_request_v2
 from trading.research.meta_controller import (
@@ -210,6 +216,7 @@ def test_plan_persistence_is_idempotent_and_append_only(
 
 def test_v2_request_uses_only_persisted_memory_and_plan(
     sqlite_database,
+    tmp_path,
 ) -> None:
     _, _, factory = sqlite_database
     snapshot, plan = _snapshot_and_plan(factory)
@@ -318,3 +325,71 @@ def test_v2_request_uses_only_persisted_memory_and_plan(
             received_at=NOW + timedelta(minutes=2),
             current_selection=selection,
         )
+
+    proposal = _proposal(ResearchActionKind.ADD_FEATURE)
+    proposal_payload = {
+        **payload,
+        "decision": ResearchDecisionKind.PROPOSE_FEATURE_REVISION,
+        "rationale": "The bounded feature is ready for isolated falsification.",
+        "proposal": proposal,
+        "created_at": NOW + timedelta(minutes=3),
+    }
+    proposal_decision = ResearchDecisionV2.model_validate(
+        {
+            **proposal_payload,
+            "output_hash": canonical_hash(proposal_payload),
+        }
+    )
+    assert research.accept_decision_v2(
+        proposal_decision,
+        received_at=NOW + timedelta(minutes=3),
+    ) == proposal.proposal_id
+    manifest_payload = {
+        "schema_version": "challenger_manifest_v1",
+        "challenger_id": "challenger-v2-file-runtime",
+        "strategy_id": proposal.proposed_strategy_id,
+        "strategy_version": proposal.proposed_strategy_version,
+        "parent_version": proposal.parent_strategy_version,
+        "hypothesis_id": proposal.hypothesis_id,
+        "experiment_family": request.experiment_family,
+        "source_commit": request.source_snapshot_commit,
+        "patch_hash": "b" * 64,
+        "proposal_hash": proposal.proposal_hash,
+        "code_hash": "c" * 64,
+        "config_hash": "d" * 64,
+        "test_manifest_hash": "e" * 64,
+        "created_by_commander": request.selected_commander,
+        "implemented_by_builder": "CODEX_SOL_MAX",
+        "evidence_source_ids": proposal.evidence_source_ids,
+        "required_data": proposal.required_data,
+        "decision_horizon": proposal.target_horizon,
+        "execution_universe": proposal.target_universe,
+        "estimated_turnover": proposal.estimated_turnover,
+        "estimated_capacity": proposal.estimated_capacity,
+        "status": ChallengerStatus.PROPOSED,
+        "created_at": NOW + timedelta(minutes=4),
+    }
+    manifest = ChallengerManifestV1.model_validate(
+        {
+            **manifest_payload,
+            "manifest_hash": canonical_hash(manifest_payload),
+        }
+    )
+    decision_file = tmp_path / "decision-v2.json"
+    manifest_file = tmp_path / "challenger-v2.json"
+    assert atomic_write_json(decision_file, proposal_decision)
+    assert atomic_write_json(manifest_file, manifest)
+
+    registered_manifest, registered_proposal, created = (
+        ResearchPlaneFileRuntime(
+            repository=research,
+            bundle_root=tmp_path / "runs",
+        ).register_challenger(
+            decision_file=decision_file,
+            manifest_file=manifest_file,
+        )
+    )
+
+    assert created is True
+    assert registered_manifest == manifest
+    assert registered_proposal == proposal

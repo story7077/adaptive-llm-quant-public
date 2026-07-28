@@ -109,4 +109,6 @@ def _scope_prefix(value: str) -> str:
     normalized = value.replace("\\", "/").strip().lstrip("./")
     if not normalized or ".." in normalized.split("/"):
         raise ProposalValidationError("request contains an unsafe file scope")
+    if normalized.endswith("/**"):
+        normalized = normalized[:-3].rstrip("/")
     return normalized if normalized.endswith("/") else normalized + "/"

@@ -31,7 +31,12 @@ class MarketHistoryService:
         self._symbols = symbols
         self._clock = clock or SystemClock()
 
-    async def backfill_daily(self, *, lookback_days: int = 500) -> HistoryBackfillResult:
+    async def backfill_daily(
+        self,
+        *,
+        lookback_days: int = 500,
+        force_full_lookback: bool = False,
+    ) -> HistoryBackfillResult:
         if lookback_days < 100:
             raise ValueError("Daily history needs at least 100 calendar days")
         end = self._clock.now()
@@ -62,7 +67,7 @@ class MarketHistoryService:
         desired_start = end - timedelta(days=lookback_days)
         start = (
             desired_start
-            if latest is None
+            if latest is None or force_full_lookback
             else max(latest - timedelta(days=90), desired_start)
         )
         bars = await self._client.fetch_bars(

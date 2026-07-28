@@ -16,8 +16,10 @@ from trading.research.webgpt_scout import (
     WebGptActiveResearchScout,
     WebGptScoutConfig,
     WebGptScoutError,
+    WebResearchQuestion,
     WebScoutRequestV1,
     available_data_catalog_hash,
+    evidence_source_id_suffix,
     render_web_scout_prompt,
 )
 
@@ -77,20 +79,20 @@ def make_request(*, prior_conversations: list[str] | None = None) -> WebScoutReq
         available_data_catalog_hash=available_data_catalog_hash("us-listed-v1", catalog),
         available_data_catalog=catalog,
         research_questions=[
-            {
-                "question_id": "question-alpha-1",
-                "purpose": "DISCOVER_ALPHA",
-                "question": "Which quality effects survive known factor neutralization?",
-                "instrument_scope": ["AAPL", "SPY"],
-                "factor_scope": ["quality", "market beta"],
-            },
-            {
-                "question_id": "question-failure-1",
-                "purpose": "EXPLAIN_STRATEGY_FAILURE",
-                "question": "Which regimes falsify the current strategy mechanism?",
-                "instrument_scope": ["SPY"],
-                "factor_scope": ["regime"],
-            },
+            WebResearchQuestion(
+                question_id="question-alpha-1",
+                purpose="DISCOVER_ALPHA",
+                question="Which quality effects survive known factor neutralization?",
+                instrument_scope=["AAPL", "SPY"],
+                factor_scope=["quality", "market beta"],
+            ),
+            WebResearchQuestion(
+                question_id="question-failure-1",
+                purpose="EXPLAIN_STRATEGY_FAILURE",
+                question="Which regimes falsify the current strategy mechanism?",
+                instrument_scope=["SPY"],
+                factor_scope=["regime"],
+            ),
         ],
         query_budget=8,
         prior_conversation_ids=prior_conversations or [],
@@ -98,6 +100,7 @@ def make_request(*, prior_conversations: list[str] | None = None) -> WebScoutReq
 
 
 def evidence_result(request: WebScoutRequestV1) -> dict[str, object]:
+    source_id = "source-sec-001" + evidence_source_id_suffix(request.request_id)
     published_at = AS_OF - timedelta(hours=2)
     first_available_at = AS_OF - timedelta(hours=1, minutes=59)
     captured_at = AS_OF + timedelta(minutes=4)
@@ -128,14 +131,14 @@ def evidence_result(request: WebScoutRequestV1) -> dict[str, object]:
                 "started_at": AS_OF.isoformat(),
                 "completed_at": (AS_OF + timedelta(minutes=2)).isoformat(),
                 "status": "COMPLETED",
-                "source_ids": ["source-sec-001"],
+                "source_ids": [source_id],
                 "instrument_scope": ["AAPL", "SPY"],
                 "factor_scope": ["quality"],
             }
         ],
         "sources": [
             {
-                "source_id": "source-sec-001",
+                "source_id": source_id,
                 "url": url,
                 "title": title,
                 "publisher": publisher,
@@ -158,7 +161,7 @@ def evidence_result(request: WebScoutRequestV1) -> dict[str, object]:
                 "claim_kind": "FALSIFICATION_LEAD",
                 "statement": "The operating metric supports a falsifiable quality hypothesis.",
                 "verification_status": "CORROBORATED",
-                "source_ids": ["source-sec-001"],
+                "source_ids": [source_id],
                 "instrument_tags": ["AAPL", "SPY"],
                 "factor_tags": ["quality"],
                 "falsification_test": "Remove market and quality factor exposure before OOS.",
@@ -319,6 +322,10 @@ def test_prompt_requires_active_browse_and_catalog_wide_alpha_research() -> None
     assert "Do not default to semiconductors, SOXL, or SOXS" in prompt
     assert "social-only claims must be UNVERIFIED" in prompt
     assert "does not create orders" in prompt
+    assert "published_at <= first_available_at <= data_available_cutoff" in prompt
+    assert "first_available_at <= captured_at" in prompt
+    assert "union of all query source_ids contains every sources[].source_id" in prompt
+    assert evidence_source_id_suffix(make_request().request_id) in prompt
     assert "escape every double quote embedded inside a string" in prompt
     assert "avoid quoted search phrases in query strings" in prompt
 
@@ -333,7 +340,9 @@ def test_happy_path_binds_fresh_browser_conversation_and_request(tmp_path: Path)
     assert bundle.browser_session_id == "browser-001"
     assert bundle.conversation_id == "conversation-new"
     assert bundle.agbrowse_request_id == "agbrowse-session-001"
-    assert bundle.queries[0].source_ids == ["source-sec-001"]
+    assert bundle.queries[0].source_ids == [
+        "source-sec-001" + evidence_source_id_suffix(request.request_id)
+    ]
     assert bundle.claims[0].falsification_test is not None
     assert len(runner.calls) == 11
     prepare_call = runner.calls[2][0]
@@ -360,6 +369,26 @@ def test_happy_path_binds_fresh_browser_conversation_and_request(tmp_path: Path)
     )
     assert result_path.is_file()
     assert "The filing reports" in result_path.read_text(encoding="utf-8")
+
+
+def test_source_ids_must_be_scoped_to_the_web_scout_request(
+    tmp_path: Path,
+) -> None:
+    request = make_request()
+    responses = happy_responses(request)
+    polled = json.loads(responses[9].stdout)
+    result = json.loads(polled["answerText"])
+    result["sources"][0]["source_id"] = "source-reused-from-prior-cycle"
+    result["queries"][0]["source_ids"] = ["source-reused-from-prior-cycle"]
+    result["claims"][0]["source_ids"] = ["source-reused-from-prior-cycle"]
+    polled["answerText"] = json.dumps(result)
+    responses[9] = process_json(polled)
+
+    with pytest.raises(WebGptScoutError, match="source_id_scope_invalid"):
+        WebGptActiveResearchScout(
+            make_config(tmp_path),
+            runner=FakeRunner(responses),
+        ).scout(request)
 
 
 def test_model_mismatch_fails_before_send(tmp_path: Path) -> None:

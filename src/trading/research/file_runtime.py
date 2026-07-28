@@ -25,6 +25,7 @@ from trading.research.contracts import (
     ResearchRequestV1,
 )
 from trading.research.evidence import ResearchEvidenceBundleV1
+from trading.research.experiment_outcomes import AlgorithmProposalV2
 from trading.research.host import SAFE_COMPONENT, ResearchPlaneHost
 from trading.research.v2_contracts import (
     ResearchDecisionV2,
@@ -301,15 +302,19 @@ class ResearchPlaneFileRuntime:
         *,
         decision_file: Path,
         manifest_file: Path,
-    ) -> tuple[ChallengerManifestV1, AlgorithmProposalV1, bool]:
-        decision = load_json_model(decision_file, ResearchDecisionV1)
+    ) -> tuple[
+        ChallengerManifestV1,
+        AlgorithmProposalV1 | AlgorithmProposalV2,
+        bool,
+    ]:
+        decision = load_research_decision(decision_file)
         manifest = load_json_model(manifest_file, ChallengerManifestV1)
         proposal = decision.proposal
         if proposal is None:
             raise ResearchFileRuntimeError(
                 "Challenger registration requires an accepted proposal decision"
             )
-        accepted_proposal = self._accepted_proposal(proposal.proposal_id)
+        accepted_proposal = self._accepted_proposal(proposal)
         if canonical_hash(accepted_proposal) != canonical_hash(proposal):
             raise ResearchFileRuntimeError(
                 "decision proposal differs from the accepted append-only proposal"
@@ -325,17 +330,24 @@ class ResearchPlaneFileRuntime:
         )
         return manifest, proposal, created
 
-    def _accepted_proposal(self, proposal_id: str) -> AlgorithmProposalV1:
+    def _accepted_proposal(
+        self,
+        proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
+    ) -> AlgorithmProposalV1 | AlgorithmProposalV2:
         try:
-            proposal = self._repository.get_proposal(proposal_id)
+            accepted = (
+                self._repository.get_proposal_v2(proposal.proposal_id)
+                if isinstance(proposal, AlgorithmProposalV2)
+                else self._repository.get_proposal(proposal.proposal_id)
+            )
         except ResearchPersistenceError as exc:
             raise ResearchFileRuntimeError(str(exc)) from exc
-        if proposal is None:
+        if accepted is None:
             raise ResearchFileRuntimeError(
                 "Challenger proposal is not present in the append-only "
                 "Research registry"
             )
-        return proposal
+        return accepted
 
 
 def _require_catalog_binding(
@@ -372,8 +384,8 @@ def _require_evidence_binding(
 def _require_challenger_binding(
     *,
     manifest: ChallengerManifestV1,
-    proposal: AlgorithmProposalV1,
-    decision: ResearchDecisionV1,
+    proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
+    decision: ResearchDecisionV1 | ResearchDecisionV2,
 ) -> None:
     bindings: tuple[tuple[str, object, object], ...] = (
         ("proposal_hash", manifest.proposal_hash, proposal.proposal_hash),

@@ -2375,6 +2375,14 @@ def market_backfill(
 @market_app.command("history")
 def market_history(
     lookback_days: int = typer.Option(500, "--lookback-days", min=100, max=3650),
+    force_full_lookback: bool = typer.Option(
+        False,
+        "--force-full-lookback",
+        help=(
+            "Fetch the complete requested window even when recent adjusted "
+            "daily history is already present."
+        ),
+    ),
 ) -> None:
     settings, config, engine = runtime()
     credentials = _alpaca_credentials(settings)
@@ -2392,13 +2400,17 @@ def market_history(
 
     async def run() -> dict[str, Any]:
         try:
-            result = await service.backfill_daily(lookback_days=lookback_days)
+            result = await service.backfill_daily(
+                lookback_days=lookback_days,
+                force_full_lookback=force_full_lookback,
+            )
             return {
                 "timeframe": result.timeframe,
                 "start": result.start.isoformat(),
                 "end": result.end.isoformat(),
                 "fetched": result.fetched,
                 "inserted": result.inserted,
+                "force_full_lookback": force_full_lookback,
             }
         finally:
             await rest_client.aclose()
