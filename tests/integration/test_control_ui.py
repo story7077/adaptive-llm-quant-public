@@ -44,6 +44,7 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert "DISABLED · AUDIT ONLY" in page.text
         assert "EFFECTIVE EVENTS" in page.text
         assert "LEARNING ELIGIBLE" in page.text
+        assert "Prospective Candidate Evidence" in page.text
 
         selected = client.post(
             "/api/control/provider",
@@ -135,6 +136,21 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert factorial["status"] == "NOT_INITIALIZED"
         assert factorial["required_arms"] == list(FACTORIAL_ARM_IDS)
         assert factorial["real_order_routing"] is False
+        prospective = research_status.json()["prospective_candidate"]
+        assert prospective["status"] == "WAITING_FOR_PARENT_DECISION"
+        assert prospective["strategy_id"] == "Q1-DET"
+        assert prospective["strategy_version"] == "2.0.0"
+        assert prospective["reference_universe"] == [
+            "GLD",
+            "QQQ",
+            "SGOV",
+            "SOXX",
+            "TLT",
+        ]
+        assert prospective["request_count"] == 0
+        assert prospective["shadow_started"] is False
+        assert prospective["automatic_promotion_enabled"] is False
+        assert prospective["real_order_routing"] is False
 
         research_selection = client.post(
             "/api/research/commander",

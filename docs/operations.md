@@ -82,6 +82,59 @@ Candidate remains `PROPOSED` until the trusted data producer has supplied
 point-in-time scenarios with matured outcomes and every lifecycle gate has
 accepted its append-only artifacts.
 
+### Prospective Candidate target-state collection
+
+Migration `0018_candidate_prospective_v1` adds an append-only bridge from one
+completed `Q1-DET` strategic decision to one sealed Candidate request. This
+bridge is deliberately narrower than a shadow runtime:
+
+- it uses the parent decision's actual `decision_created_at` as the Candidate
+  decision time and signal cutoff;
+- it records request and execution insertion times separately from the
+  database clock, so the later persistence time cannot be confused with the
+  logical decision time;
+- it uses only completed daily sessions strictly before the current session;
+- it stores the exact market bar IDs, event times, `available_at` values,
+  payload hashes, parent decision hash, evaluation anchor, host config, sealed
+  Candidate artifact, runtime, and strategy-config binding;
+- the first observation is cash-only at the common evaluation anchor;
+- later observations use only the prior verified Candidate target state;
+- independent `PRIMARY` and `REPLAY` lanes must return the same output hash.
+
+It does not create an arm, position, order, fill, ledger posting, NAV, return,
+lifecycle transition, OOS result, or promotion decision. A successful record is
+reported as `IMMATURE_FORWARD_ONLY`.
+
+Wait for the first completed parent strategic cycle and collect exactly one
+observation:
+
+```powershell
+uv run python -m trading.cli research prospective-watch `
+  --parent-run-id <Q1_PAPER_RUN_ID> `
+  --challenger-id <REGISTERED_CHALLENGER_ID> `
+  --commander-root <LOCAL_COMMANDER_REPOSITORY> `
+  --commander-run <LOCAL_FINALIZED_RESEARCH_RUN>
+```
+
+For a known immutable parent decision, replace `prospective-watch` with
+`prospective-collect` and add `--parent-decision-id <PORTFOLIO_DECISION_ID>`.
+The local repository/run arguments are operator inputs and must never be
+committed. The collector fails closed if the Commander artifact, aggregate
+config hash, approved strategy file hash, runtime, entrypoint, security
+contract, PIT input, or replay output differs.
+
+Inspect `prospective_candidate` in:
+
+```powershell
+uv run python -m trading.cli research status
+Invoke-RestMethod http://127.0.0.1:8765/api/research/status
+```
+
+`WAITING_FOR_PARENT_DECISION` means nothing was fabricated or backfilled.
+`PROSPECTIVE_TARGET_RECORDED` means one immutable target-state observation was
+recorded; it still does not authorize falsification, OOS, shadow, promotion, or
+trading.
+
 ## Synthetic smoke test
 
 The public fixtures contain no real account state:
@@ -375,6 +428,8 @@ The Research tab reports:
 - daily factorial schedule, replay/matched-condition state, common-session
   progress, and Guard/AI/interaction readiness;
 - publication records;
+- prospective Candidate request/execution counts, exact parent cutoff, source
+  coverage, deterministic target, and explicit immature/non-shadow state;
 - `real_order_routing=false`.
 
 A blank section means no accepted record exists; it is not evidence that a stage
@@ -443,6 +498,8 @@ Legacy and Q1 run procedures are in
 | AGBrowse/CDP unavailable | Block Scout/Commander lane; do not fall back to API |
 | Stale Commander selection | Create a new request bound to the current selection |
 | Context/output hash mismatch | Quarantine artifact and investigate; never patch hashes |
+| Prospective Candidate config mismatch | Do not execute; verify the sealed artifact and approved LF-normalized strategy-config content hash |
+| Parent decision or evaluation anchor unavailable | Wait for the actual Q1 strategic cycle; never synthesize or backfill it |
 | Codex process failure | Preserve sanitized failure; start a fresh process and directory |
 | Forbidden candidate path | Reject candidate; use human-reviewed development for infrastructure |
 | Mandatory test failure | Preserve failure; do not run OOS or shadow |

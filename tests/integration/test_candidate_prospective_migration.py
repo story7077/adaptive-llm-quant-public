@@ -15,26 +15,31 @@ from trading.persistence.db import (
     upgrade_database,
 )
 
-REVISION = "0017_chronological_meta_oos_v1"
-DOWN_REVISION = "0016_portfolio_delta_sharpe_v2"
+REVISION = "0018_candidate_prospective_v1"
+DOWN_REVISION = "0017_chronological_meta_oos_v1"
 TABLES = (
-    "chronological_meta_oos_plans",
-    "meta_oos_outer_audit_reservations",
-    "meta_oos_epoch_arm_audit_records",
-    "chronological_meta_oos_results",
+    "research_candidate_prospective_requests",
+    "research_candidate_prospective_executions",
 )
 
 
-def test_meta_oos_migration_downgrade_and_reupgrade(
+def test_candidate_prospective_migration_downgrade_and_reupgrade(
     tmp_path: Path,
 ) -> None:
     database_url = (
-        f"sqlite+pysqlite:///{(tmp_path / 'meta-oos.db').as_posix()}"
+        f"sqlite+pysqlite:///{(tmp_path / 'candidate-prospective.db').as_posix()}"
     )
-    upgrade_database(database_url, REVISION)
+    upgrade_database(database_url)
     engine = create_database_engine(database_url)
     assert current_revision(engine) == REVISION
     assert set(TABLES).issubset(inspect(engine).get_table_names())
+    for table in TABLES:
+        columns = {
+            column["name"]: column
+            for column in inspect(engine).get_columns(table)
+        }
+        assert columns["recorded_at"]["nullable"] is False
+        assert columns["recorded_at"]["default"] is not None
     engine.dispose()
 
     downgrade_database(database_url, DOWN_REVISION)
@@ -43,14 +48,14 @@ def test_meta_oos_migration_downgrade_and_reupgrade(
     assert not set(TABLES).intersection(inspect(downgraded).get_table_names())
     downgraded.dispose()
 
-    upgrade_database(database_url, REVISION)
+    upgrade_database(database_url)
     upgraded = create_database_engine(database_url)
     assert current_revision(upgraded) == REVISION
     assert set(TABLES).issubset(inspect(upgraded).get_table_names())
     upgraded.dispose()
 
 
-def test_meta_oos_postgresql_offline_ddl_is_append_only() -> None:
+def test_candidate_prospective_postgresql_offline_ddl_is_append_only() -> None:
     config = alembic_config(
         "postgresql+psycopg://placeholder:placeholder@localhost/placeholder"
     )
@@ -65,6 +70,7 @@ def test_meta_oos_postgresql_offline_ddl_is_append_only() -> None:
     for table in TABLES:
         assert f"CREATE TABLE {table}" in sql
         assert f"trg_{table}_append_only" in sql
-    assert "uq_meta_oos_plan_dataset_budget" in sql
-    assert "uq_meta_oos_reservation_dataset_budget" in sql
-    assert "uq_meta_oos_epoch_arm_record" in sql
+        assert "recorded_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL" in sql
+    assert "uq_candidate_prospective_parent_decision" in sql
+    assert "ck_candidate_prospective_request_paper_only" in sql
+    assert "ck_candidate_prospective_execution_paper_only" in sql

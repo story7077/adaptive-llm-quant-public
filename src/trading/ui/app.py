@@ -54,6 +54,7 @@ from trading.persistence.factorial import FactorialPaperExperimentRepository
 from trading.persistence.meta_controller import MetaControllerRepository
 from trading.persistence.meta_oos import MetaOosRepository
 from trading.persistence.paper import load_paper_account_spec
+from trading.persistence.prospective import ProspectiveCandidateRepository
 from trading.persistence.research import (
     ResearchPersistenceError,
     ResearchRepository,
@@ -69,6 +70,7 @@ from trading.research.lifecycle import (
     ResearchLifecycleError,
     ResearchLifecycleService,
 )
+from trading.research.prospective import load_prospective_candidate_config
 from trading.runtime.commander import OperationalRiskCommander
 from trading.runtime.forward_paper import ForwardPaperTradingService
 from trading.runtime.news import (
@@ -77,6 +79,7 @@ from trading.runtime.news import (
 )
 from trading.runtime.paper import PaperRuntimeError, PaperRuntimeService
 from trading.runtime.paper_worker import PaperRuntimeWorker
+from trading.runtime.prospective_candidate import prospective_candidate_status
 from trading.runtime.q1_alpaca_paper import Q1AlpacaPaperCanaryService
 from trading.runtime.q1_config import llm_transport_config
 from trading.runtime.q1_cycle import Q1PaperCycleProcessor
@@ -167,11 +170,15 @@ def create_app(
         repository=research_repository
     )
     research_config = load_research_config(active_settings.config_dir)
+    prospective_config = load_prospective_candidate_config(
+        active_settings.config_dir
+    )
     research_scheduler = ResearchSchedulerService(
         repository=ResearchSchedulerRepository(session_factory),
         config=research_config,
     )
     factorial_repository = FactorialPaperExperimentRepository(session_factory)
+    prospective_repository = ProspectiveCandidateRepository(session_factory)
     dashboard_service = MarketDashboardService(session_factory)
     live_market_service = LiveMarketSnapshotService(
         session_factory,
@@ -695,6 +702,10 @@ def create_app(
             "factorial_arms": factorial_status["required_arms"],
             "factorial_experiment": factorial_status,
             "scheduler": research_scheduler.status(),
+            "prospective_candidate": prospective_candidate_status(
+                prospective_repository,
+                config=prospective_config,
+            ),
             "real_order_routing": False,
         }
 

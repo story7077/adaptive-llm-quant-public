@@ -26,7 +26,9 @@ class CompletedDailySeries:
     adjusted_closes: tuple[Decimal, ...]
     volumes: tuple[Decimal, ...]
     bar_ids: tuple[str, ...]
+    event_times: tuple[datetime, ...]
     available_ats: tuple[datetime, ...]
+    payload_hashes: tuple[str, ...]
 
     def __post_init__(self) -> None:
         lengths = {
@@ -34,7 +36,9 @@ class CompletedDailySeries:
             len(self.adjusted_closes),
             len(self.volumes),
             len(self.bar_ids),
+            len(self.event_times),
             len(self.available_ats),
+            len(self.payload_hashes),
         }
         if len(lengths) != 1:
             raise ValueError("Completed daily series fields must be aligned")
@@ -222,7 +226,9 @@ class Q1PointInTimeMarketData:
             adjusted_closes=tuple(row.close for row in ordered),
             volumes=tuple(row.volume for row in ordered),
             bar_ids=tuple(row.bar_id for row in ordered),
+            event_times=tuple(_aware(row.event_time) for row in ordered),
             available_ats=tuple(_aware(row.available_at) for row in ordered),
+            payload_hashes=tuple(row.payload_hash for row in ordered),
         )
 
 
@@ -244,7 +250,9 @@ def _select_dates(
         ),
         volumes=tuple(series.volumes[index] for index in indexes),
         bar_ids=tuple(series.bar_ids[index] for index in indexes),
+        event_times=tuple(series.event_times[index] for index in indexes),
         available_ats=tuple(series.available_ats[index] for index in indexes),
+        payload_hashes=tuple(series.payload_hashes[index] for index in indexes),
     )
 
 

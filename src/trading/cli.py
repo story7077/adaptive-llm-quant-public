@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 import tempfile
+import time
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -71,6 +72,10 @@ from trading.persistence.meta_oos import (
 )
 from trading.persistence.models import NavSnapshotRow, RunRow, ShadowArmRow
 from trading.persistence.paper import load_paper_account_spec
+from trading.persistence.prospective import (
+    ProspectiveCandidateRepository,
+    ProspectivePersistenceError,
+)
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
 from trading.persistence.research_scheduler import ResearchSchedulerRepository
 from trading.replay.engine import replay_full
@@ -135,6 +140,12 @@ from trading.research.promotion_evidence import (
     TrustedPromotionEvaluationV1,
     TrustedShadowPerformanceSummaryV1,
 )
+from trading.research.prospective import (
+    PROSPECTIVE_CONFIG_FILE,
+    ProspectiveCandidateConfigBundle,
+    ProspectiveCandidateError,
+    load_prospective_candidate_config,
+)
 from trading.research.v2_contracts import (
     ResearchDecisionV2,
     ResearchRequestV2,
@@ -156,6 +167,11 @@ from trading.runtime.news import (
 from trading.runtime.paper import PaperRuntimeService
 from trading.runtime.paper_worker import PaperRuntimeWorker
 from trading.runtime.pipeline import seed_demo
+from trading.runtime.prospective_candidate import (
+    ProspectiveCandidateCollector,
+    ProspectiveCollectionResult,
+    prospective_candidate_status,
+)
 from trading.runtime.q1_alpaca_paper import Q1AlpacaPaperCanaryService
 from trading.runtime.q1_config import (
     llm_transport_config,
@@ -217,7 +233,7 @@ research_app.add_typer(research_memory_app, name="memory")
 research_app.add_typer(research_meta_policy_app, name="meta-policy")
 research_app.add_typer(research_meta_oos_app, name="meta-oos")
 
-EXPECTED_DATABASE_REVISION = "0017_chronological_meta_oos_v1"
+EXPECTED_DATABASE_REVISION = "0018_candidate_prospective_v1"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -385,6 +401,7 @@ def validate_config(
         q1 = load_q1_config_bundle(settings.config_dir)
         alpaca_paper = load_alpaca_paper_config_bundle(settings.config_dir)
         research = load_research_config(settings.config_dir)
+        prospective = load_prospective_candidate_config(settings.config_dir)
         operational_config(q1)
         _emit(
             {
@@ -396,6 +413,9 @@ def validate_config(
                         Q1_ALGORITHM_VERSION: q1.manifest_hash,
                         "ALPACA_PAPER_CANARY": (alpaca_paper.manifest_hash),
                         "ADAPTIVE_RESEARCH_PLANE_V1": (research.manifest_hash),
+                        "CANDIDATE_PROSPECTIVE_V1": (
+                            prospective.manifest_hash
+                        ),
                     }
                 ),
                 "files": sorted(
@@ -406,6 +426,8 @@ def validate_config(
                         ALPACA_PAPER_CONFIG_FILE,
                         RESEARCH_CONFIG_FILE,
                         FACTORIAL_CONFIG_FILE,
+                        PROSPECTIVE_CONFIG_FILE,
+                        prospective.config.strategy_config_path,
                     }
                 ),
                 "configs": {
@@ -426,6 +448,13 @@ def validate_config(
                         "files": [
                             RESEARCH_CONFIG_FILE,
                             FACTORIAL_CONFIG_FILE,
+                        ],
+                    },
+                    "CANDIDATE_PROSPECTIVE_V1": {
+                        "manifest_hash": prospective.manifest_hash,
+                        "files": [
+                            PROSPECTIVE_CONFIG_FILE,
+                            prospective.config.strategy_config_path,
                         ],
                     },
                 },
@@ -821,6 +850,9 @@ def research_status() -> None:
     _require_research_paper_only(settings)
     factory = make_session_factory(engine)
     research_config = load_research_config(settings.config_dir)
+    prospective_config = load_prospective_candidate_config(
+        settings.config_dir
+    )
     research_repository = ResearchRepository(factory)
     persisted_status = research_repository.status()
     meta_controller_status = MetaControllerRepository(factory).status()
@@ -841,6 +873,10 @@ def research_status() -> None:
             repository=ResearchSchedulerRepository(factory),
             config=research_config,
         ).status(),
+        "prospective_candidate": prospective_candidate_status(
+            ProspectiveCandidateRepository(factory),
+            config=prospective_config,
+        ),
         "real_order_routing": False,
     }
     engine.dispose()
@@ -1476,6 +1512,121 @@ def research_candidate_execute(
             "shadow_started": False,
         }
     )
+
+
+@research_app.command("prospective-collect")
+def research_prospective_collect(
+    parent_run_id: Annotated[str, typer.Option("--parent-run-id")],
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+    commander_root: Annotated[
+        Path,
+        typer.Option("--commander-root", exists=True, file_okay=False),
+    ],
+    commander_run: Annotated[
+        Path,
+        typer.Option("--commander-run", exists=True, file_okay=False),
+    ],
+    parent_decision_id: Annotated[
+        str | None,
+        typer.Option("--parent-decision-id"),
+    ] = None,
+) -> None:
+    """Persist and independently replay one forward-only Candidate target."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        result = _collect_prospective_candidate(
+            settings=settings,
+            engine=engine,
+            parent_run_id=parent_run_id,
+            challenger_id=challenger_id,
+            commander_root=commander_root,
+            commander_run=commander_run,
+            parent_decision_id=parent_decision_id,
+        )
+    except (
+        CommanderCandidateError,
+        ProspectiveCandidateError,
+        ProspectivePersistenceError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(_prospective_result_payload(result))
+
+
+@research_app.command("prospective-watch")
+def research_prospective_watch(
+    parent_run_id: Annotated[str, typer.Option("--parent-run-id")],
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+    commander_root: Annotated[
+        Path,
+        typer.Option("--commander-root", exists=True, file_okay=False),
+    ],
+    commander_run: Annotated[
+        Path,
+        typer.Option("--commander-run", exists=True, file_okay=False),
+    ],
+) -> None:
+    """Wait for the next completed Q1 strategic decision and collect it once."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    prospective = load_prospective_candidate_config(settings.config_dir)
+    deadline = (
+        time.monotonic() + prospective.config.operations.maximum_wait_seconds
+    )
+    engine = create_database_engine(settings.database_url)
+    try:
+        while True:
+            try:
+                result = _collect_prospective_candidate(
+                    settings=settings,
+                    engine=engine,
+                    parent_run_id=parent_run_id,
+                    challenger_id=challenger_id,
+                    commander_root=commander_root,
+                    commander_run=commander_run,
+                    parent_decision_id=None,
+                    prospective_config=prospective,
+                )
+                _emit(_prospective_result_payload(result))
+                return
+            except ProspectiveCandidateError as exc:
+                if str(exc) not in {
+                    "PARENT_DECISION_NOT_AVAILABLE",
+                    "EVALUATION_ANCHOR_NOT_AVAILABLE",
+                }:
+                    raise typer.BadParameter(
+                        _safe_research_error(exc)
+                    ) from None
+            if time.monotonic() >= deadline:
+                _emit(
+                    {
+                        "status": "TIMED_OUT_WAITING_FOR_PARENT_DECISION",
+                        "parent_run_id": parent_run_id,
+                        "challenger_id": challenger_id,
+                        "evidence_recorded": False,
+                        "challenger_status_advanced": False,
+                        "shadow_started": False,
+                        "real_order_routing": False,
+                    }
+                )
+                raise typer.Exit(3)
+            time.sleep(prospective.config.operations.watch_poll_seconds)
+    except (
+        CommanderCandidateError,
+        ProspectivePersistenceError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
 
 
 @research_app.command("promotion-evaluate")
@@ -2630,10 +2781,7 @@ def market_stream() -> None:
 
 
 def _is_local_database(database_url: str) -> bool:
-    normalized = database_url.lower()
-    return normalized.startswith("sqlite") or any(
-        host in normalized for host in ("127.0.0.1", "localhost")
-    )
+    return database_url.lower().startswith("sqlite")
 
 
 def _stream_plan(
@@ -2722,6 +2870,92 @@ def _validate_meta_oos_plan_config(
         )
     ):
         raise ValueError("meta-OOS plan violates versioned configuration")
+
+
+def _collect_prospective_candidate(
+    *,
+    settings: Settings,
+    engine: Any,
+    parent_run_id: str,
+    challenger_id: str,
+    commander_root: Path,
+    commander_run: Path,
+    parent_decision_id: str | None,
+    prospective_config: ProspectiveCandidateConfigBundle | None = None,
+) -> ProspectiveCollectionResult:
+    config = prospective_config or load_prospective_candidate_config(
+        settings.config_dir
+    )
+    return ProspectiveCandidateCollector(
+        make_session_factory(engine),
+        config=config,
+    ).collect(
+        parent_run_id=parent_run_id,
+        challenger_id=challenger_id,
+        commander_root=commander_root,
+        commander_run=commander_run,
+        research_config=load_research_config(settings.config_dir),
+        parent_portfolio_decision_id=parent_decision_id,
+    )
+
+
+def _prospective_result_payload(
+    result: ProspectiveCollectionResult,
+) -> dict[str, Any]:
+    request = result.request_evidence
+    execution = result.execution_evidence
+    response = execution.primary_response
+    if (
+        execution.status != "SUCCEEDED"
+        or response is None
+        or not execution.deterministic_match
+    ):
+        raise ProspectiveCandidateError("PROSPECTIVE_SUCCESS_EVIDENCE_INVALID")
+    targets = {
+        item.symbol: item.target_weight for item in response.targets
+    }
+    targets["USD_CASH"] = max(0.0, 1.0 - sum(targets.values()))
+    return {
+        "status": "PROSPECTIVE_TARGET_RECORDED",
+        "prospective_request_id": request.prospective_request_id,
+        "request_created": result.request_created,
+        "execution_created": result.execution_created,
+        "challenger_id": request.challenger_id,
+        "candidate_artifact_hash": request.candidate_artifact_hash,
+        "parent_run_id": request.parent_run_id,
+        "parent_portfolio_decision_id": (
+            request.parent_portfolio_decision_id
+        ),
+        "parent_scheduled_at": request.parent_scheduled_at.isoformat(),
+        "signal_data_cutoff": request.request.signal_data_cutoff.isoformat(),
+        "completed_data_through": (
+            request.source_manifest.completed_session_dates[-1].isoformat()
+        ),
+        "completed_sessions": len(
+            request.source_manifest.completed_session_dates
+        ),
+        "source_bar_count": len(request.source_manifest.source_bars),
+        "request_hash": request.request.request_hash,
+        "source_manifest_hash": request.source_manifest.manifest_hash,
+        "execution_hash": execution.execution_hash,
+        "primary_response_hash": response.output_hash,
+        "replay_response_hash": (
+            None
+            if execution.replay_response is None
+            else execution.replay_response.output_hash
+        ),
+        "deterministic_match": execution.deterministic_match,
+        "targets": dict(sorted(targets.items())),
+        "outcome_status": "IMMATURE_FORWARD_ONLY",
+        "falsification_started": False,
+        "oos_started": False,
+        "evidence_recorded": True,
+        "challenger_status_advanced": False,
+        "shadow_started": False,
+        "automatic_promotion_enabled": False,
+        "broker_access_permitted": False,
+        "real_order_routing": False,
+    }
 
 
 def _require_research_paper_only(settings: Settings) -> None:
