@@ -21,6 +21,10 @@ particular ticker, sector, or trading style.
 > - The first live-built `Q1-DET 2.0.0` Challenger remains `PROPOSED`.
 >   Its prospective target-state observations are forward research evidence,
 >   not an independent shadow portfolio, OOS pass, or promotion evidence.
+> - A sealed V2 Candidate can enter the typed outcome ledger as a `DISCOVERY`
+>   action plus technical test result. This is chronological audit lineage
+>   only: it is never meta-training evidence and cannot advance falsification,
+>   OOS, shadow, promotion, or order routing.
 
 The system searches for robust improvements by trying to falsify each hypothesis
 before accepting it. “Stable alpha” therefore means a candidate edge that remains

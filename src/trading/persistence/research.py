@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -96,6 +96,20 @@ from trading.research.shadow import (
 
 class ResearchPersistenceError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateExperimentContext:
+    """Validated immutable inputs for one Candidate experiment registration."""
+
+    request: ResearchRequestV2
+    proposal: AlgorithmProposalV2
+    manifest: ChallengerManifestV1
+    artifact: CandidateArtifactBundleV1
+    cycle_created_at: datetime
+    proposal_created_at: datetime
+    manifest_created_at: datetime
+    artifact_created_at: datetime
 
 
 ALLOWED_TRANSITIONS: dict[ChallengerStatus, frozenset[ChallengerStatus]] = {
@@ -804,6 +818,116 @@ class ResearchRepository:
                 ) from exc
             self._validate_stored_candidate_artifact(bundle, row)
             return bundle
+
+    def candidate_experiment_context(
+        self,
+        challenger_id: str,
+    ) -> CandidateExperimentContext:
+        """Load the exact V2 request, proposal, manifest, and sealed artifact."""
+
+        with self._session_factory() as session:
+            artifact_row = session.scalar(
+                select(ResearchCandidateArtifactRow).where(
+                    ResearchCandidateArtifactRow.challenger_id
+                    == challenger_id
+                )
+            )
+            if artifact_row is None:
+                raise ResearchPersistenceError(
+                    "registered candidate artifact is required"
+                )
+            manifest_row = session.get(
+                ChallengerManifestRow,
+                challenger_id,
+            )
+            if manifest_row is None:
+                raise ResearchPersistenceError(
+                    "candidate Challenger manifest is missing"
+                )
+            proposal_row = session.get(
+                AlgorithmProposalV2Row,
+                artifact_row.proposal_id,
+            )
+            compatibility_row = session.get(
+                AlgorithmProposalRow,
+                artifact_row.proposal_id,
+            )
+            if proposal_row is None or compatibility_row is None:
+                raise ResearchPersistenceError(
+                    "candidate AlgorithmProposalV2 is missing"
+                )
+            cycle_row = session.get(
+                ResearchCycleRow,
+                artifact_row.research_cycle_id,
+            )
+            if cycle_row is None:
+                raise ResearchPersistenceError(
+                    "candidate ResearchRequestV2 is missing"
+                )
+            try:
+                artifact = CandidateArtifactBundleV1.model_validate(
+                    artifact_row.payload_json
+                )
+                manifest = ChallengerManifestV1.model_validate(
+                    manifest_row.payload_json
+                )
+                proposal = AlgorithmProposalV2.model_validate(
+                    proposal_row.payload_json
+                )
+                request = ResearchRequestV2.model_validate(
+                    cycle_row.payload_json
+                )
+                artifact.assert_bound_to(
+                    request=request,
+                    proposal=proposal,
+                    manifest=manifest,
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "candidate experiment trusted-input binding mismatch"
+                ) from exc
+            self._validate_stored_candidate_artifact(
+                artifact,
+                artifact_row,
+            )
+            self._validate_stored_proposal(
+                proposal,
+                compatibility_row,
+            )
+            self._validate_challenger_registration(
+                manifest=manifest,
+                proposal=proposal,
+                proposal_row=compatibility_row,
+                cycle=cycle_row,
+            )
+            if (
+                proposal.proposal_id != proposal_row.proposal_id
+                or proposal_row.research_cycle_id
+                != request.research_cycle_id
+                or proposal.proposal_hash != proposal_row.proposal_hash
+                or proposal.primary_action_kind.value
+                != proposal_row.primary_action_kind
+                or proposal_row.action_plan_hash
+                != request.research_action_plan.plan_hash
+                or artifact_row.research_cycle_id
+                != request.research_cycle_id
+                or artifact_row.challenger_id != manifest.challenger_id
+                or manifest_row.proposal_id != proposal.proposal_id
+                or manifest_row.manifest_hash != manifest.manifest_hash
+            ):
+                raise ResearchPersistenceError(
+                    "candidate experiment stored-row binding mismatch"
+                )
+            return CandidateExperimentContext(
+                request=request,
+                proposal=proposal,
+                manifest=manifest,
+                artifact=artifact,
+                cycle_created_at=_stored_time(cycle_row.created_at),
+                proposal_created_at=_stored_time(proposal_row.created_at),
+                manifest_created_at=_stored_time(manifest_row.created_at),
+                artifact_created_at=_stored_time(artifact_row.created_at),
+            )
 
     def transition_challenger(
         self,
@@ -3925,6 +4049,12 @@ def _payload_timestamp(payload: dict[str, Any], field_name: str) -> datetime:
     except ValueError as exc:
         raise ResearchPersistenceError(f"stored payload has invalid {field_name}") from exc
     return require_aware_utc(parsed)
+
+
+def _stored_time(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def utc_now() -> datetime:

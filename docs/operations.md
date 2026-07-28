@@ -186,12 +186,57 @@ Failures and retries are append-only events; raw exception detail and credential
 are never persisted. Inspect `scheduler` in `research status` or the Research UI
 before operating the downstream aggregation/deep-research consumer.
 
-### Recursive outcome ledger (Phase 0 and PR 1)
+### Recursive outcome ledger and V2 Candidate discovery producer
 
 Migration `0014_experiment_outcome_ledger` adds immutable experiment actions,
 per-experiment outcome-event hash chains, and point-in-time research-memory
 snapshots. The feature remains disabled; normal scheduler planning therefore
 does not create recursive-maintenance work.
+
+After a V2 Challenger and Candidate artifact are registered, append its
+technical audit lineage:
+
+```powershell
+uv run python -m trading.cli research outcome register-candidate `
+  --challenger-id <CHALLENGER_ID> `
+  --test-manifest <LOCAL_CANDIDATE_TEST_MANIFEST_JSON>
+```
+
+The test manifest must be the exact trusted-host manifest whose hash is already
+sealed in the Candidate artifact. The command revalidates the test result and
+all isolation flags, then writes one `DISCOVERY` action, one registration
+event, and one technical-success event using the database clock. Repeating the
+command returns the same hashes and creates no duplicate rows.
+
+The 63-session maturity date uses full future sessions from
+`alpaca_market_calendar_v1` that were available no later than the Candidate
+experiment's database-clock registration time. If there are not enough
+sessions, synchronize reference data first:
+
+```powershell
+uv run python -m trading.cli market calendar-sync-q1 `
+  --start <FIRST_FUTURE_DATE> `
+  --end <DATE_BEYOND_63_TRADING_SESSIONS>
+```
+
+This is a read-only Alpaca reference-data call followed by append-only local
+calendar persistence. It schedules no run and creates no order. Confirm the
+result under `experiment_outcome_ledger.latest_discovery_registration` in:
+
+```powershell
+uv run python -m trading.cli research status
+```
+
+Expected safety fields remain:
+
+```text
+information_role=DISCOVERY
+meta_training_permitted=false
+eligible_for_meta_training=false
+challenger_status_advanced=false
+shadow_started=false
+real_order_routing=false
+```
 
 The scheduler contract reserves this order for a later enabled implementation:
 

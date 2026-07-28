@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,6 +17,7 @@ from trading.persistence.models import (
     ResearchMemorySnapshotRow,
 )
 from trading.research.experiment_outcomes import (
+    ExperimentInformationRole,
     ExperimentMaturityStatus,
     ExperimentOutcomeEventKind,
     ExperimentOutcomeEventV1,
@@ -66,48 +68,48 @@ class ExperimentOutcomeRepository:
     def register_action(self, action: ResearchExperimentActionV1) -> bool:
         with self._session_factory.begin() as session:
             self._experiment_lock(session, action.experiment_id)
+            _, created = self._register_action_in_session(
+                session,
+                action,
+            )
+            return created
+
+    def register_action_at_database_clock(
+        self,
+        *,
+        experiment_id: str,
+        build: Callable[[datetime], ResearchExperimentActionV1],
+    ) -> tuple[ResearchExperimentActionV1, bool]:
+        """Build and append an action using the fenced database clock."""
+
+        with self._session_factory.begin() as session:
+            self._experiment_lock(session, experiment_id)
             existing = session.scalar(
                 select(ResearchExperimentActionRow).where(
-                    or_(
-                        ResearchExperimentActionRow.action_id == action.action_id,
-                        ResearchExperimentActionRow.experiment_id
-                        == action.experiment_id,
-                        ResearchExperimentActionRow.idempotency_key
-                        == action.idempotency_key,
-                    )
+                    ResearchExperimentActionRow.experiment_id
+                    == experiment_id
                 )
             )
             if existing is not None:
                 stored = self._action_from_row(existing)
-                if stored.action_hash != action.action_hash:
+                expected = build(stored.created_at)
+                if stored.action_hash != expected.action_hash:
                     raise ExperimentOutcomePersistenceError(
                         "experiment action idempotency conflict"
                     )
-                return False
-            session.add(
-                ResearchExperimentActionRow(
-                    action_id=action.action_id,
-                    experiment_id=action.experiment_id,
-                    research_cycle_id=action.research_cycle_id,
-                    proposal_id=action.proposal_id,
-                    challenger_id=action.challenger_id,
-                    information_role=action.information_role.value,
-                    primary_action_kind=action.primary_action_kind.value,
-                    maturity_due_at=action.maturity_due_at,
-                    meta_training_permitted=action.meta_training_permitted,
-                    idempotency_key=action.idempotency_key,
-                    action_hash=action.action_hash,
-                    payload_json=model_payload(action),
-                    created_at=action.created_at,
-                )
-            )
-            try:
-                session.flush()
-            except IntegrityError as exc:
+                return stored, False
+            action = build(_database_now(session))
+            if action.experiment_id != experiment_id:
                 raise ExperimentOutcomePersistenceError(
-                    "experiment action uniqueness conflict"
-                ) from exc
-            return True
+                    "database-clock action factory changed experiment identity"
+                )
+            return self._register_action_in_session(session, action)
+
+    def database_now(self) -> datetime:
+        """Read the same database clock used by append operations."""
+
+        with self._session_factory() as session:
+            return _database_now(session)
 
     def get_action(
         self,
@@ -192,56 +194,52 @@ class ExperimentOutcomeRepository:
     ) -> tuple[ExperimentOutcomeEventV1, bool]:
         with self._session_factory.begin() as session:
             self._experiment_lock(session, maturation.experiment_id)
-            action = self._require_action(session, maturation.experiment_id)
-            chain = self._verified_chain(session, maturation.experiment_id)
-            existing = self._matching_idempotency_event(
-                chain,
-                maturation=maturation,
+            return self._append_outcome_in_session(session, maturation)
+
+    def append_outcome_at_database_clock(
+        self,
+        *,
+        experiment_id: str,
+        idempotency_key: str,
+        build: Callable[[datetime], ExperimentOutcomeMaturationInputV1],
+    ) -> tuple[ExperimentOutcomeEventV1, bool]:
+        """Build and append one outcome using a retry-stable database time."""
+
+        with self._session_factory.begin() as session:
+            self._experiment_lock(session, experiment_id)
+            chain = self._verified_chain(session, experiment_id)
+            existing = next(
+                (
+                    event
+                    for event in chain
+                    if event.idempotency_key == idempotency_key
+                ),
+                None,
             )
             if existing is not None:
+                maturation = build(existing.created_at)
+                if (
+                    maturation.experiment_id != experiment_id
+                    or maturation.idempotency_key != idempotency_key
+                    or existing.maturation_input_hash
+                    != canonical_hash(maturation)
+                ):
+                    raise ExperimentOutcomePersistenceError(
+                        "experiment outcome idempotency conflict"
+                    )
                 return existing, False
-            self._validate_supersession(chain, maturation)
-            self._validate_outcome_transition(chain, maturation)
-            event = build_outcome_event(
-                action=action,
-                maturation=maturation,
-                previous_event=None if not chain else chain[-1],
-            )
-            session.add(
-                ResearchExperimentOutcomeEventRow(
-                    event_id=event.event_id,
-                    action_id=action.action_id,
-                    experiment_id=event.experiment_id,
-                    research_cycle_id=event.research_cycle_id,
-                    proposal_id=event.proposal_id,
-                    challenger_id=event.challenger_id,
-                    information_role=event.information_role.value,
-                    primary_action_kind=event.primary_action_kind.value,
-                    event_kind=event.event_kind.value,
-                    experiment_stage=event.experiment_stage.value,
-                    event_sequence=event.event_sequence,
-                    available_at=event.available_at,
-                    maturity_due_at=event.maturity_due_at,
-                    maturity_status=event.maturity_status.value,
-                    eligible_for_meta_training=(
-                        event.eligible_for_meta_training
-                    ),
-                    previous_event_hash=event.previous_event_hash,
-                    supersedes_event_id=event.supersedes_event_id,
-                    idempotency_key=event.idempotency_key,
-                    maturation_input_hash=event.maturation_input_hash,
-                    event_hash=event.event_hash,
-                    payload_json=model_payload(event),
-                    created_at=event.created_at,
-                )
-            )
-            try:
-                session.flush()
-            except IntegrityError as exc:
+            maturation = build(_database_now(session))
+            if (
+                maturation.experiment_id != experiment_id
+                or maturation.idempotency_key != idempotency_key
+            ):
                 raise ExperimentOutcomePersistenceError(
-                    "experiment outcome uniqueness conflict"
-                ) from exc
-            return event, True
+                    "database-clock outcome factory changed event identity"
+                )
+            return self._append_outcome_in_session(
+                session,
+                maturation,
+            )
 
     def event_chain(
         self,
@@ -428,8 +426,16 @@ class ExperimentOutcomeRepository:
 
     def status(self) -> dict[str, Any]:
         with self._session_factory() as session:
-            action_count = session.scalar(
-                select(func.count()).select_from(ResearchExperimentActionRow)
+            action_rows = tuple(
+                session.scalars(
+                    select(ResearchExperimentActionRow).order_by(
+                        ResearchExperimentActionRow.created_at,
+                        ResearchExperimentActionRow.experiment_id,
+                    )
+                )
+            )
+            actions = tuple(
+                self._action_from_row(row) for row in action_rows
             )
             event_count = session.scalar(
                 select(func.count()).select_from(
@@ -437,10 +443,10 @@ class ExperimentOutcomeRepository:
                 )
             )
             experiment_ids = tuple(
-                session.scalars(
-                    select(
-                        ResearchExperimentActionRow.experiment_id
-                    ).order_by(ResearchExperimentActionRow.experiment_id)
+                action.experiment_id
+                for action in sorted(
+                    actions,
+                    key=lambda item: item.experiment_id,
                 )
             )
             verified_events = tuple(
@@ -473,8 +479,52 @@ class ExperimentOutcomeRepository:
                 )
                 .limit(1)
             )
+            discovery_actions = tuple(
+                action
+                for action in actions
+                if action.information_role
+                is ExperimentInformationRole.DISCOVERY
+            )
+            latest_discovery = (
+                None
+                if not discovery_actions
+                else max(
+                    discovery_actions,
+                    key=lambda item: (
+                        item.created_at,
+                        item.experiment_id,
+                    ),
+                )
+            )
+            discovery_events = (
+                ()
+                if latest_discovery is None
+                else tuple(
+                    event
+                    for event in effective_events
+                    if event.experiment_id
+                    == latest_discovery.experiment_id
+                )
+            )
+            latest_discovery_event = (
+                None
+                if not discovery_events
+                else max(
+                    discovery_events,
+                    key=lambda item: (
+                        item.event_sequence,
+                        item.created_at,
+                    ),
+                )
+            )
+            technical_attested = any(
+                event.event_kind
+                is ExperimentOutcomeEventKind.TECHNICAL_OUTCOME_RECORDED
+                and event.technical_success is True
+                for event in discovery_events
+            )
         return {
-            "action_count": int(action_count or 0),
+            "action_count": len(actions),
             "event_count": int(event_count or 0),
             "effective_unsuperseded_event_count": len(effective_events),
             "superseded_event_count": len(superseded_event_ids),
@@ -485,6 +535,35 @@ class ExperimentOutcomeRepository:
                 None
                 if latest is None
                 else self._snapshot_from_row(latest).model_dump(mode="json")
+            ),
+            "latest_discovery_registration": (
+                {
+                    "status": (
+                        "DISCOVERY_TECHNICAL_ATTESTED"
+                        if technical_attested
+                        else "DISCOVERY_REGISTERED"
+                    ),
+                    "experiment_id": latest_discovery.experiment_id,
+                    "challenger_id": latest_discovery.challenger_id,
+                    "action_hash": latest_discovery.action_hash,
+                    "maturity_due_at": (
+                        latest_discovery.maturity_due_at.isoformat()
+                    ),
+                    "meta_training_permitted": (
+                        latest_discovery.meta_training_permitted
+                    ),
+                    "latest_event": (
+                        None
+                        if latest_discovery_event is None
+                        else latest_discovery_event.model_dump(mode="json")
+                    ),
+                }
+                if latest_discovery is not None
+                else {
+                    "status": "NOT_REGISTERED",
+                    "meta_training_permitted": False,
+                    "latest_event": None,
+                }
             ),
             "real_order_routing": False,
         }
@@ -504,6 +583,113 @@ class ExperimentOutcomeRepository:
                 f"unknown research experiment: {experiment_id}"
             )
         return ExperimentOutcomeRepository._action_from_row(row)
+
+    @classmethod
+    def _register_action_in_session(
+        cls,
+        session: Session,
+        action: ResearchExperimentActionV1,
+    ) -> tuple[ResearchExperimentActionV1, bool]:
+        existing = session.scalar(
+            select(ResearchExperimentActionRow).where(
+                or_(
+                    ResearchExperimentActionRow.action_id
+                    == action.action_id,
+                    ResearchExperimentActionRow.experiment_id
+                    == action.experiment_id,
+                    ResearchExperimentActionRow.idempotency_key
+                    == action.idempotency_key,
+                )
+            )
+        )
+        if existing is not None:
+            stored = cls._action_from_row(existing)
+            if stored.action_hash != action.action_hash:
+                raise ExperimentOutcomePersistenceError(
+                    "experiment action idempotency conflict"
+                )
+            return stored, False
+        session.add(
+            ResearchExperimentActionRow(
+                action_id=action.action_id,
+                experiment_id=action.experiment_id,
+                research_cycle_id=action.research_cycle_id,
+                proposal_id=action.proposal_id,
+                challenger_id=action.challenger_id,
+                information_role=action.information_role.value,
+                primary_action_kind=action.primary_action_kind.value,
+                maturity_due_at=action.maturity_due_at,
+                meta_training_permitted=action.meta_training_permitted,
+                idempotency_key=action.idempotency_key,
+                action_hash=action.action_hash,
+                payload_json=model_payload(action),
+                created_at=action.created_at,
+            )
+        )
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            raise ExperimentOutcomePersistenceError(
+                "experiment action uniqueness conflict"
+            ) from exc
+        return action, True
+
+    @classmethod
+    def _append_outcome_in_session(
+        cls,
+        session: Session,
+        maturation: ExperimentOutcomeMaturationInputV1,
+    ) -> tuple[ExperimentOutcomeEventV1, bool]:
+        action = cls._require_action(session, maturation.experiment_id)
+        chain = cls._verified_chain(session, maturation.experiment_id)
+        existing = cls._matching_idempotency_event(
+            chain,
+            maturation=maturation,
+        )
+        if existing is not None:
+            return existing, False
+        cls._validate_supersession(chain, maturation)
+        cls._validate_outcome_transition(chain, maturation)
+        event = build_outcome_event(
+            action=action,
+            maturation=maturation,
+            previous_event=None if not chain else chain[-1],
+        )
+        session.add(
+            ResearchExperimentOutcomeEventRow(
+                event_id=event.event_id,
+                action_id=action.action_id,
+                experiment_id=event.experiment_id,
+                research_cycle_id=event.research_cycle_id,
+                proposal_id=event.proposal_id,
+                challenger_id=event.challenger_id,
+                information_role=event.information_role.value,
+                primary_action_kind=event.primary_action_kind.value,
+                event_kind=event.event_kind.value,
+                experiment_stage=event.experiment_stage.value,
+                event_sequence=event.event_sequence,
+                available_at=event.available_at,
+                maturity_due_at=event.maturity_due_at,
+                maturity_status=event.maturity_status.value,
+                eligible_for_meta_training=(
+                    event.eligible_for_meta_training
+                ),
+                previous_event_hash=event.previous_event_hash,
+                supersedes_event_id=event.supersedes_event_id,
+                idempotency_key=event.idempotency_key,
+                maturation_input_hash=event.maturation_input_hash,
+                event_hash=event.event_hash,
+                payload_json=model_payload(event),
+                created_at=event.created_at,
+            )
+        )
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            raise ExperimentOutcomePersistenceError(
+                "experiment outcome uniqueness conflict"
+            ) from exc
+        return event, True
 
     @staticmethod
     def _verified_chain(
@@ -880,6 +1066,18 @@ def _row_time(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _database_now(session: Session) -> datetime:
+    if session.bind is not None and session.bind.dialect.name == "postgresql":
+        value = session.scalar(select(func.clock_timestamp()))
+    else:
+        value = session.scalar(select(func.current_timestamp()))
+    if not isinstance(value, datetime):
+        raise ExperimentOutcomePersistenceError(
+            "database clock is unavailable"
+        )
+    return _row_time(value)
 
 
 def _has_economic_values(
