@@ -1,0 +1,31 @@
+{
+  "schema_version": "webgpt_news_analysis_request_v1",
+  "request_id": "webgpt-canary-20260727-001",
+  "created_at": "2026-07-26T16:30:00Z",
+  "analysis_as_of": "2026-07-26T16:30:00Z",
+  "symbols": [
+    "QQQ",
+    "SOXX",
+    "SOXL"
+  ],
+  "news_items": [
+    {
+      "source_id": "synthetic-canary-001",
+      "source": "Synthetic canary",
+      "url": "https://example.com/synthetic-canary-001",
+      "headline": "No material market news is supplied in this transport canary",
+      "published_at": "2026-07-26T16:29:00Z",
+      "available_at": "2026-07-26T16:29:00Z",
+      "body_excerpt": "This synthetic item tests JSON transport and must not be treated as real news.",
+      "symbols": [
+        "QQQ",
+        "SOXX",
+        "SOXL"
+      ]
+    }
+  ],
+  "market_context": {
+    "environment": "transport_canary",
+    "real_order_routing": false
+  }
+}
