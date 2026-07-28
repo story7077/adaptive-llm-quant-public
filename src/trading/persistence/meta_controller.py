@@ -24,7 +24,7 @@ from trading.research.meta_controller import (
 
 
 class MetaControllerPersistenceError(RuntimeError):
-    pass
+    """Raised when immutable Meta Controller persistence fails closed."""
 
 
 class MetaControllerRepository:

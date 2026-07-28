@@ -30,7 +30,7 @@ from trading.research.chronological_meta_oos import (
 
 
 class MetaOosPersistenceError(RuntimeError):
-    pass
+    """Raised when isolated meta-OOS persistence fails closed."""
 
 
 class MetaOosRepository:

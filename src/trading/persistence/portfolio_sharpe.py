@@ -20,7 +20,7 @@ from trading.research.portfolio_delta_sharpe import (
 
 
 class PortfolioSharpePersistenceError(RuntimeError):
-    pass
+    """Raised when immutable portfolio-comparison persistence fails closed."""
 
 
 class PortfolioSharpeRepository:

@@ -28,7 +28,7 @@ from trading.research.experiment_outcomes import (
 
 
 class ExperimentOutcomePersistenceError(RuntimeError):
-    pass
+    """Raised when immutable experiment-outcome persistence fails closed."""
 
 
 def _effective_events(
