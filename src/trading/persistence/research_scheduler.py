@@ -18,7 +18,13 @@ from sqlalchemy import (
     or_,
     select,
 )
-from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.orm import (
+    Mapped,
+    Session,
+    aliased,
+    mapped_column,
+    sessionmaker,
+)
 
 from trading.domain.hashing import canonical_hash, stable_id
 from trading.domain.time import require_aware_utc
@@ -431,6 +437,7 @@ class ResearchSchedulerRepository:
                                 latest.c.lease_expires_at <= database_now,
                             ),
                         ),
+                        _schedule_prerequisite_predicate(latest),
                     )
                     .order_by(
                         ResearchScheduleWorkItemRow.scheduled_for,
@@ -986,6 +993,66 @@ def _locked_work(
     if session.bind is not None and session.bind.dialect.name == "postgresql":
         statement = statement.with_for_update()
     return session.scalar(statement)
+
+
+def _schedule_prerequisite_predicate(latest: Any) -> Any:
+    def predecessor_succeeded(
+        predecessor_kind: ResearchScheduleWorkKind,
+        *,
+        alias_name: str,
+    ) -> Any:
+        predecessor = aliased(
+            ResearchScheduleWorkItemRow,
+            name=f"{alias_name}_work",
+        )
+        predecessor_latest = latest.alias(f"{alias_name}_latest")
+        return (
+            select(predecessor.work_item_id)
+            .join(
+                predecessor_latest,
+                predecessor_latest.c.work_item_id
+                == predecessor.work_item_id,
+            )
+            .where(
+                predecessor.work_kind == predecessor_kind.value,
+                predecessor.schedule_version
+                == ResearchScheduleWorkItemRow.schedule_version,
+                predecessor.calendar_session_id
+                == ResearchScheduleWorkItemRow.calendar_session_id,
+                predecessor.config_manifest_hash
+                == ResearchScheduleWorkItemRow.config_manifest_hash,
+                predecessor_latest.c.event_type
+                == ResearchScheduleEventType.SUCCEEDED.value,
+            )
+            .exists()
+        )
+
+    dependent_kinds = (
+        ResearchScheduleWorkKind.OUTCOME_MATURATION.value,
+        ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION.value,
+    )
+    return or_(
+        ResearchScheduleWorkItemRow.work_kind.not_in(dependent_kinds),
+        and_(
+            ResearchScheduleWorkItemRow.work_kind
+            == ResearchScheduleWorkKind.OUTCOME_MATURATION.value,
+            predecessor_succeeded(
+                ResearchScheduleWorkKind.DAILY_AGGREGATION,
+                alias_name="daily_predecessor",
+            ),
+        ),
+        and_(
+            ResearchScheduleWorkItemRow.work_kind
+            == (
+                ResearchScheduleWorkKind
+                .RESEARCH_MEMORY_MATERIALIZATION.value
+            ),
+            predecessor_succeeded(
+                ResearchScheduleWorkKind.OUTCOME_MATURATION,
+                alias_name="outcome_predecessor",
+            ),
+        ),
+    )
 
 
 def _database_now(session: Session) -> datetime:

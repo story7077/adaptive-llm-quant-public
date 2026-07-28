@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "PromotionDecisionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_by": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved By"
+        },
+        "automatic_promotion_enabled": {
+          "default": false,
+          "title": "Automatic Promotion Enabled",
+          "type": "boolean"
+        },
+        "candidate_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$",
+          "title": "Candidate Version",
+          "type": "string"
+        },
+        "challenger_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Challenger Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "criteria": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "title": "Criteria",
+          "type": "object"
+        },
+        "current_champion_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$",
+          "title": "Current Champion Version",
+          "type": "string"
+        },
+        "decision_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Decision Hash",
+          "type": "string"
+        },
+        "failed_reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failed Reason Codes",
+          "type": "array"
+        },
+        "promotion_decision_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Promotion Decision Id",
+          "type": "string"
+        },
+        "replay_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Replay Hash",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": "promotion_decision_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/PromotionVerdict"
+        }
+      },
+      "required": [
+        "promotion_decision_id",
+        "challenger_id",
+        "current_champion_version",
+        "candidate_version",
+        "verdict",
+        "criteria",
+        "failed_reason_codes",
+        "replay_hash",
+        "created_at",
+        "decision_hash"
+      ],
+      "title": "PromotionDecisionV1",
+      "type": "object"
+    },
+    "PromotionVerdict": {
+      "enum": [
+        "INELIGIBLE",
+        "ELIGIBLE_REQUIRES_MANUAL_APPROVAL",
+        "MANUALLY_APPROVED",
+        "REJECTED"
+      ],
+      "title": "PromotionVerdict",
+      "type": "string"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/trusted-promotion-evaluation-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "automatic_promotion_enabled": {
+      "const": false,
+      "default": false,
+      "title": "Automatic Promotion Enabled",
+      "type": "boolean"
+    },
+    "contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Contract Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decision": {
+      "$ref": "#/$defs/PromotionDecisionV1"
+    },
+    "evaluation_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evaluation Hash",
+      "type": "string"
+    },
+    "evaluation_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Evaluation Id",
+      "type": "string"
+    },
+    "evidence_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evidence Hash",
+      "type": "string"
+    },
+    "portfolio_comparison_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Portfolio Comparison Contract Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "trusted_promotion_evaluation_v2",
+      "default": "trusted_promotion_evaluation_v2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "evaluation_id",
+    "evidence_hash",
+    "contract_hash",
+    "portfolio_comparison_contract_hash",
+    "decision",
+    "created_at",
+    "evaluation_hash"
+  ],
+  "title": "TrustedPromotionEvaluationV2",
+  "type": "object"
+}

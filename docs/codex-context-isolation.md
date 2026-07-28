@@ -64,9 +64,9 @@ raw licensed content.
 
 ## Allowed context
 
-The process may read only:
+The Commander process may read only:
 
-- the current `ResearchRequestV1`;
+- the current `ResearchRequestV1` or `ResearchRequestV2`;
 - the current evidence manifest and bounded evidence bundle;
 - the clean public source snapshot;
 - the current output schema and constraints;
@@ -74,8 +74,17 @@ The process may read only:
 - current Champion and active Challenger manifests included in the request;
 - bounded current performance, failure-cluster, regime, cost, and capacity
   summaries;
-- the current available-data catalog;
-- the current proposal, for a Builder invocation.
+- the current available-data catalog.
+
+The Builder process receives a smaller sanitized projection:
+
+- an immutable request-binding receipt containing identity, selection, source,
+  and context hashes but no research memory;
+- the approved `AlgorithmProposalV1` or `AlgorithmProposalV2`;
+- the immutable Builder and patch-policy binding;
+- clean-source manifest and clean source snapshot;
+- constraints, Candidate decision schemas, Builder output schema, and public
+  `AGENTS.md`.
 
 It may not read:
 
@@ -89,6 +98,11 @@ It may not read:
 - raw locked OOS observations;
 - another model's hidden reasoning;
 - an unselected Commander's result.
+
+The Builder is additionally denied the full `research_request.json`, research
+memory, action plan, evidence bundle, Commander output, requested-evidence
+discussion, and every Scout or Commander transcript. It implements a validated
+proposal; it does not reinterpret the research history that produced it.
 
 ## Request binding
 
@@ -120,11 +134,11 @@ sequenceDiagram
     participant B as Fresh Builder process
     participant G as Patch gate
 
-    H->>C: ResearchRequestV1 + evidence + decision schema
-    C-->>H: ResearchDecisionV1 + AlgorithmProposalV1
+    H->>C: ResearchRequest V1/V2 + evidence + decision schema
+    C-->>H: ResearchDecision V1/V2 + approved proposal
     H->>H: Validate hashes, selection, expiry, catalog, evidence
-    H->>B: Approved proposal + clean source snapshot + constraints
-    Note over B: No Commander transcript or session state
+    H->>B: Binding receipt + approved proposal + clean snapshot
+    Note over B: No memory, full request, evidence, or transcript
     B-->>H: Patch + tests + CandidateManifest inputs
     H->>G: Changed paths + patch bytes + Champion-owned paths
     G-->>H: Accept hash or reject fail-closed

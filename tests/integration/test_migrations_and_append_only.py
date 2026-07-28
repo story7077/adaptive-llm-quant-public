@@ -28,7 +28,7 @@ def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
     url = f"sqlite+pysqlite:///{(tmp_path / 'migration.db').as_posix()}"
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0013_candidate_artifact_registry"
+    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
     engine.dispose()
 
     downgrade_database(url, "base")
@@ -43,7 +43,7 @@ def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0013_candidate_artifact_registry"
+    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
     engine.dispose()
 
 
@@ -114,7 +114,7 @@ def test_q1_migration_preserves_legacy_append_only_rows(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0013_candidate_artifact_registry"
+    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
     with engine.connect() as connection:
         decision = connection.execute(
             text(
@@ -177,7 +177,7 @@ def test_q1_migration_preserves_legacy_append_only_rows(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0013_candidate_artifact_registry"
+    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
     with engine.connect() as connection:
         assert (
             connection.execute(

@@ -1,0 +1,57 @@
+{
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-candidate-availability-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "availability_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Availability Hash",
+      "type": "string"
+    },
+    "candidate_artifact_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Candidate Artifact Hash",
+      "type": "string"
+    },
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "first_available_at": {
+      "format": "date-time",
+      "title": "First Available At",
+      "type": "string"
+    },
+    "proposal_created_at": {
+      "format": "date-time",
+      "title": "Proposal Created At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "meta_oos_candidate_availability_v1",
+      "default": "meta_oos_candidate_availability_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_available_at": {
+      "items": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Source Available At",
+      "type": "array"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "candidate_artifact_hash",
+    "first_available_at",
+    "proposal_created_at",
+    "source_available_at",
+    "availability_hash"
+  ],
+  "title": "MetaOosCandidateAvailabilityV1",
+  "type": "object"
+}

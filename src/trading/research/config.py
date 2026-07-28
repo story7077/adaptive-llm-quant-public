@@ -18,6 +18,8 @@ from trading.research.evaluation_contracts import (
 from trading.research.falsification import MANDATORY_FALSIFICATION_TESTS
 from trading.research.promotion_evidence import PromotionEvaluationContractV1
 from trading.research.sandbox_contract import (
+    CANDIDATE_PATCH_POLICY_V2,
+    CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH,
     DEFAULT_ALLOWED_PREFIXES,
     DEFAULT_FORBIDDEN_EXACT,
     DEFAULT_FORBIDDEN_PREFIXES,
@@ -28,7 +30,19 @@ if TYPE_CHECKING:
         CandidateExecutionSecurityV1,
         CandidateProcessLimitsV1,
     )
-    from trading.research.oos_lockbox import OosProcessEvaluationConfig
+    from trading.research.chronological_meta_oos import (
+        MetaOosEvaluationContractV1,
+    )
+    from trading.research.meta_controller import MetaControllerParametersV1
+    from trading.research.oos_lockbox import (
+        OosProcessEvaluationConfig,
+        OosProcessEvaluationConfigV2,
+    )
+    from trading.research.portfolio_delta_sharpe import (
+        PortfolioComparisonContractV1,
+        StationaryBootstrapContractV1,
+    )
+    from trading.research.promotion_v2 import PromotionEvaluationContractV2
     from trading.research.shadow_runtime import ShadowPaperParametersV1
 
 RESEARCH_CONFIG_FILE = "research/research-plane.yaml"
@@ -197,6 +211,76 @@ class ResearchFalsificationConfig(DomainModel):
     evaluation_contract: FalsificationEvaluationContractV1
 
 
+class RecursiveOutcomeLedgerConfig(DomainModel):
+    learning_forward_horizon_sessions: int = Field(gt=0)
+    reject_unmatured_outcomes: Literal[True]
+    exclude_promotion_oos_from_training: Literal[True]
+    exclude_meta_audit_from_training: Literal[True]
+
+
+class RecursiveMetaControllerConfig(DomainModel):
+    policy_version: str = Field(min_length=1)
+    maximum_actions_per_cycle: int = Field(gt=0)
+    prior_strength: float = Field(gt=0)
+    exploration_coefficient: float = Field(ge=0)
+    exploration_floor: float = Field(ge=0)
+    technical_failure_weight: float = Field(ge=0)
+    reward_clip: float = Field(gt=0)
+    turnover_penalty_weight: float = Field(ge=0)
+    turnover_scale: float = Field(gt=0)
+    drawdown_penalty_weight: float = Field(ge=0)
+    drawdown_scale: float = Field(gt=0)
+    cost_penalty_weight: float = Field(ge=0)
+    cost_scale_bps: float = Field(gt=0)
+    complexity_penalty_weight: float = Field(ge=0)
+    complexity_scale: float = Field(gt=0)
+
+
+class RecursivePortfolioSharpeConfig(DomainModel):
+    annualization_sessions: int = Field(gt=0)
+    minimum_common_sessions: int = Field(gt=0)
+    minimum_independent_trades: int = Field(gt=0)
+    configured_bootstrap_seed: int = Field(ge=0)
+    bootstrap_samples: int = Field(gt=0)
+    bootstrap_block_length: int = Field(gt=0)
+    lower_quantile: float = Field(gt=0, lt=0.5)
+    variance_epsilon: float = Field(gt=0)
+    maximum_absolute_daily_return: float = Field(gt=0)
+    minimum_delta_sharpe_lcb: float
+    minimum_worst_cost_delta_sharpe_lcb: float
+    cost_stress_multipliers: tuple[float, ...] = Field(min_length=1)
+    trusted_producer_version: Literal["trusted_candidate_evaluation_v2"]
+
+
+class RecursiveMetaOosConfig(DomainModel):
+    enabled: Literal[False]
+    require_outer_audit_reservation: Literal[True]
+    prohibit_best_seed_selection: Literal[True]
+    plan_version: Literal["chronological-meta-oos-v1"]
+    maximum_outer_audit_uses_per_dataset: int = Field(ge=1)
+    reservation_ttl_hours: int = Field(ge=1)
+    minimum_epochs: int = Field(ge=2)
+    maximum_epochs: int = Field(ge=2)
+    maximum_candidate_generation_budget_per_epoch: int = Field(ge=1)
+    maximum_oos_budget_per_epoch: int = Field(ge=1)
+    minimum_adaptive_delta_sharpe_lcb: float
+    minimum_research_efficiency: float = Field(ge=0)
+    maximum_allowed_drawdown: float = Field(ge=0, le=1)
+    tail_quantile: float = Field(gt=0, lt=0.5)
+    maximum_absolute_daily_return: float = Field(gt=0)
+
+
+class RecursiveImprovementConfig(DomainModel):
+    enabled: Literal[False]
+    contract_version: Literal["recursive-improvement-v1"]
+    candidate_patch_policy_version: Literal["candidate_patch_policy_v2"]
+    candidate_patch_policy_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    outcome_ledger: RecursiveOutcomeLedgerConfig
+    meta_controller: RecursiveMetaControllerConfig
+    portfolio_sharpe: RecursivePortfolioSharpeConfig
+    meta_oos: RecursiveMetaOosConfig
+
+
 class FactorialArmConfig(DomainModel):
     deterministic_loss_guard: bool
     operational_risk_commander: bool
@@ -244,6 +328,7 @@ class ResearchPlaneConfig(DomainModel):
     candidate_patch: CandidatePatchConfig
     candidate_execution: CandidateExecutionConfig
     falsification: ResearchFalsificationConfig
+    recursive_improvement: RecursiveImprovementConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +373,182 @@ def load_research_config(config_dir: Path) -> ResearchConfigBundle:
     )
 
 
+def recursive_improvement_status(
+    bundle: ResearchConfigBundle,
+    *,
+    experiment_outcome_ledger: dict[str, object],
+    meta_controller_ledger: dict[str, object] | None = None,
+    portfolio_sharpe_ledger: dict[str, object] | None = None,
+    meta_oos_ledger: dict[str, object] | None = None,
+) -> dict[str, object]:
+    recursive = bundle.config.recursive_improvement
+    return {
+        "schema_version": "recursive_improvement_status_v1",
+        "status": "DISABLED_RESEARCH_ONLY_PR4",
+        "enabled": recursive.enabled,
+        "audit_only": True,
+        "implementation_scope": "PHASE_0_PR_1_PR_2_PR_3_PR_4",
+        "contract_version": recursive.contract_version,
+        "config_manifest_hash": bundle.manifest_hash,
+        "candidate_patch_policy": {
+            "version": recursive.candidate_patch_policy_version,
+            "contract_hash": recursive.candidate_patch_policy_hash,
+        },
+        "automatic_outcome_maintenance_enabled": recursive.enabled,
+        "experiment_outcome_ledger": dict(experiment_outcome_ledger),
+        "meta_controller": {
+            "status": "IMPLEMENTED_DISABLED",
+            "policy_version": recursive.meta_controller.policy_version,
+            **dict(meta_controller_ledger or {}),
+        },
+        "portfolio_delta_sharpe": {
+            "status": "IMPLEMENTED_DISABLED",
+            "ledger": dict(portfolio_sharpe_ledger or {}),
+            "minimum_common_sessions": (
+                recursive.portfolio_sharpe.minimum_common_sessions
+            ),
+            "minimum_delta_sharpe_lcb": (
+                recursive.portfolio_sharpe.minimum_delta_sharpe_lcb
+            ),
+            "minimum_worst_cost_delta_sharpe_lcb": (
+                recursive.portfolio_sharpe.minimum_worst_cost_delta_sharpe_lcb
+            ),
+            "trusted_producer_version": (
+                recursive.portfolio_sharpe.trusted_producer_version
+            ),
+        },
+        "chronological_meta_oos": {
+            "status": "IMPLEMENTED_DISABLED",
+            "enabled": recursive.meta_oos.enabled,
+            "plan_version": recursive.meta_oos.plan_version,
+            "minimum_epochs": recursive.meta_oos.minimum_epochs,
+            "maximum_outer_audit_uses_per_dataset": (
+                recursive.meta_oos.maximum_outer_audit_uses_per_dataset
+            ),
+            "minimum_adaptive_delta_sharpe_lcb": (
+                recursive.meta_oos.minimum_adaptive_delta_sharpe_lcb
+            ),
+            "minimum_research_efficiency": (
+                recursive.meta_oos.minimum_research_efficiency
+            ),
+            "maximum_allowed_drawdown": (
+                recursive.meta_oos.maximum_allowed_drawdown
+            ),
+            "ledger": dict(meta_oos_ledger or {}),
+        },
+        "automatic_promotion_enabled": (
+            bundle.config.promotion.automatic_promotion_enabled
+        ),
+        "real_order_routing": bundle.config.safety.real_order_routing,
+    }
+
+
+def meta_controller_parameters(
+    bundle: ResearchConfigBundle,
+) -> MetaControllerParametersV1:
+    """Build the immutable domain parameters without importing config in math."""
+
+    from trading.research.meta_controller import (
+        MetaControllerParametersV1,
+    )
+
+    configured = bundle.config.recursive_improvement.meta_controller
+    return MetaControllerParametersV1(
+        schema_version="meta_controller_parameters_v1",
+        **configured.model_dump(mode="python"),
+    )
+
+
+def portfolio_bootstrap_contract(
+    bundle: ResearchConfigBundle,
+) -> StationaryBootstrapContractV1:
+    from trading.research.portfolio_delta_sharpe import (
+        StationaryBootstrapContractV1,
+    )
+
+    configured = bundle.config.recursive_improvement.portfolio_sharpe
+    return StationaryBootstrapContractV1(
+        configured_seed=configured.configured_bootstrap_seed,
+        samples=configured.bootstrap_samples,
+        expected_block_sessions=configured.bootstrap_block_length,
+        lower_quantile=configured.lower_quantile,
+        variance_epsilon=configured.variance_epsilon,
+    )
+
+
+def promotion_evaluation_contract_v2(
+    bundle: ResearchConfigBundle,
+) -> PromotionEvaluationContractV2:
+    from trading.research.promotion_v2 import PromotionEvaluationContractV2
+
+    base = bundle.config.promotion.evaluation_contract
+    sharpe = bundle.config.recursive_improvement.portfolio_sharpe
+    return PromotionEvaluationContractV2(
+        contract_version="research-promotion-thresholds-v2",
+        minimum_common_oos_sessions=base.minimum_common_oos_sessions,
+        minimum_forward_sessions=base.minimum_forward_sessions,
+        minimum_independent_trades=base.minimum_independent_trades,
+        minimum_annualized_net_excess_return_after_cost=(
+            base.minimum_annualized_net_excess_return_after_cost
+        ),
+        minimum_matched_annualized_difference=(
+            base.minimum_matched_annualized_difference
+        ),
+        minimum_economic_effect=base.minimum_economic_effect,
+        maximum_drawdown=base.maximum_drawdown,
+        maximum_tail_loss=base.maximum_tail_loss,
+        maximum_annualized_turnover=base.maximum_annualized_turnover,
+        minimum_capacity_usd=base.minimum_capacity_usd,
+        minimum_regime_pass_fraction=base.minimum_regime_pass_fraction,
+        maximum_runtime_error_rate=base.maximum_runtime_error_rate,
+        minimum_oos_delta_sharpe_lcb=sharpe.minimum_delta_sharpe_lcb,
+        minimum_shadow_delta_sharpe_lcb=sharpe.minimum_delta_sharpe_lcb,
+        minimum_worst_cost_delta_sharpe_lcb=(
+            sharpe.minimum_worst_cost_delta_sharpe_lcb
+        ),
+    )
+
+
+def meta_oos_evaluation_contract(
+    bundle: ResearchConfigBundle,
+) -> MetaOosEvaluationContractV1:
+    from trading.research.chronological_meta_oos import (
+        build_meta_oos_evaluation_contract,
+    )
+
+    configured = bundle.config.recursive_improvement.meta_oos
+    return build_meta_oos_evaluation_contract(
+        contract_version="chronological-meta-oos-thresholds-v1",
+        annualization_sessions=(
+            bundle.config.recursive_improvement.portfolio_sharpe
+            .annualization_sessions
+        ),
+        minimum_epochs=configured.minimum_epochs,
+        maximum_epochs=configured.maximum_epochs,
+        maximum_candidate_generation_budget_per_epoch=(
+            configured.maximum_candidate_generation_budget_per_epoch
+        ),
+        maximum_oos_budget_per_epoch=(
+            configured.maximum_oos_budget_per_epoch
+        ),
+        maximum_outer_audit_uses_per_dataset=(
+            configured.maximum_outer_audit_uses_per_dataset
+        ),
+        reservation_ttl_hours=configured.reservation_ttl_hours,
+        minimum_adaptive_delta_sharpe_lcb=(
+            configured.minimum_adaptive_delta_sharpe_lcb
+        ),
+        minimum_research_efficiency=(
+            configured.minimum_research_efficiency
+        ),
+        maximum_allowed_drawdown=configured.maximum_allowed_drawdown,
+        tail_quantile=configured.tail_quantile,
+        maximum_absolute_daily_return=(
+            configured.maximum_absolute_daily_return
+        ),
+    )
+
+
 def oos_process_evaluation_config(
     bundle: ResearchConfigBundle,
     *,
@@ -321,6 +582,40 @@ def oos_process_evaluation_config(
         request_ttl_seconds=oos.request_ttl_seconds,
         worker_timeout_seconds=oos.worker_timeout_seconds,
         cost_sensitivity_bps=oos.cost_sensitivity_bps,
+        maximum_submissions=budgets.maximum_submissions_per_family,
+        maximum_oos_uses=budgets.maximum_oos_uses_per_family,
+    )
+
+
+def oos_process_evaluation_config_v2(
+    bundle: ResearchConfigBundle,
+    *,
+    dataset_id: str,
+    dataset_manifest_hash: str,
+    data_available_cutoff: datetime,
+    expected_source_data_manifest_hash: str,
+    expected_candidate_replay_hash: str,
+    portfolio_comparison_contract: PortfolioComparisonContractV1,
+) -> OosProcessEvaluationConfigV2:
+    from trading.research.oos_lockbox import OosProcessEvaluationConfigV2
+
+    recursive = bundle.config.recursive_improvement.portfolio_sharpe
+    budgets = bundle.config.experiment_budget
+    return OosProcessEvaluationConfigV2(
+        dataset_id=dataset_id,
+        dataset_manifest_hash=dataset_manifest_hash,
+        data_available_cutoff=data_available_cutoff,
+        expected_source_data_manifest_hash=expected_source_data_manifest_hash,
+        expected_candidate_replay_hash=expected_candidate_replay_hash,
+        portfolio_comparison_contract=portfolio_comparison_contract,
+        minimum_common_sessions=recursive.minimum_common_sessions,
+        minimum_independent_trades=recursive.minimum_independent_trades,
+        minimum_delta_sharpe_lcb=recursive.minimum_delta_sharpe_lcb,
+        minimum_worst_cost_delta_sharpe_lcb=(
+            recursive.minimum_worst_cost_delta_sharpe_lcb
+        ),
+        request_ttl_seconds=bundle.config.oos.request_ttl_seconds,
+        worker_timeout_seconds=bundle.config.oos.worker_timeout_seconds,
         maximum_submissions=budgets.maximum_submissions_per_family,
         maximum_oos_uses=budgets.maximum_oos_uses_per_family,
     )
@@ -421,6 +716,36 @@ def _validate_invariants(config: ResearchPlaneConfig) -> None:
         raise ValueError("candidate forbidden prefix contract changed")
     if tuple(config.candidate_patch.forbidden_exact) != DEFAULT_FORBIDDEN_EXACT:
         raise ValueError("candidate forbidden exact-path contract changed")
+    recursive = config.recursive_improvement
+    if (
+        recursive.candidate_patch_policy_version
+        != CANDIDATE_PATCH_POLICY_V2
+        or recursive.candidate_patch_policy_hash
+        != CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH
+    ):
+        raise ValueError("recursive Candidate patch policy binding changed")
+    portfolio_sharpe = recursive.portfolio_sharpe
+    if portfolio_sharpe.cost_stress_multipliers != (1.0, 2.0, 3.0):
+        raise ValueError("portfolio Sharpe cost stress must remain 1x/2x/3x")
+    if portfolio_sharpe.minimum_common_sessions < 126:
+        raise ValueError("portfolio Sharpe OOS requires at least 126 sessions")
+    if (
+        portfolio_sharpe.trusted_producer_version
+        != "trusted_candidate_evaluation_v2"
+    ):
+        raise ValueError("portfolio OOS trusted producer version changed")
+    meta_oos = recursive.meta_oos
+    if meta_oos.minimum_epochs > meta_oos.maximum_epochs:
+        raise ValueError("meta-OOS minimum epochs exceed maximum")
+    if meta_oos.maximum_outer_audit_uses_per_dataset != 1:
+        raise ValueError(
+            "initial meta-OOS dataset reuse budget must remain one"
+        )
+    if (
+        meta_oos.maximum_absolute_daily_return
+        != portfolio_sharpe.maximum_absolute_daily_return
+    ):
+        raise ValueError("meta-OOS and portfolio return bounds differ")
     candidate_execution = config.candidate_execution
     if (
         candidate_execution.isolation_kind

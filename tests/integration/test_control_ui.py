@@ -40,6 +40,10 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert "제어 모델 선택" in page.text
         assert "Adaptive alpha research plane" in page.text
         assert "Champion 직접 수정 금지" in page.text
+        assert "Recursive Improvement" in page.text
+        assert "DISABLED · AUDIT ONLY" in page.text
+        assert "EFFECTIVE EVENTS" in page.text
+        assert "LEARNING ELIGIBLE" in page.text
 
         selected = client.post(
             "/api/control/provider",
@@ -88,6 +92,37 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert research_status.json()["operational_algorithm"][
             "mutation_policy"
         ] == "VERSIONED_CHALLENGER_ONLY"
+        recursive = research_status.json()["recursive_improvement"]
+        assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR4"
+        assert recursive["enabled"] is False
+        assert recursive["audit_only"] is True
+        assert recursive["candidate_patch_policy"] == {
+            "version": "candidate_patch_policy_v2",
+            "contract_hash": (
+                "73af5956c12a042eb99c0c15929b7f4db2b3b45110373204d39c8163fedc716c"
+            ),
+        }
+        assert recursive["experiment_outcome_ledger"][
+            "effective_unsuperseded_event_count"
+        ] == 0
+        assert recursive["experiment_outcome_ledger"][
+            "effective_eligible_learning_forward_event_count"
+        ] == 0
+        assert recursive["automatic_outcome_maintenance_enabled"] is False
+        assert recursive["portfolio_delta_sharpe"]["status"] == (
+            "IMPLEMENTED_DISABLED"
+        )
+        assert recursive["portfolio_delta_sharpe"]["ledger"][
+            "comparison_contract_count"
+        ] == 0
+        assert recursive["chronological_meta_oos"]["status"] == (
+            "IMPLEMENTED_DISABLED"
+        )
+        assert recursive["chronological_meta_oos"]["ledger"][
+            "plan_count"
+        ] == 0
+        assert recursive["automatic_promotion_enabled"] is False
+        assert recursive["real_order_routing"] is False
         assert research_status.json()["promotion_gate"] == {
             "eligible_challenger_ids": [],
             "manually_approved_challenger_ids": [],

@@ -1,0 +1,196 @@
+{
+  "$defs": {
+    "MetaOosGroupAggregateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "mean_net_return": {
+          "title": "Mean Net Return",
+          "type": "number"
+        },
+        "observations": {
+          "minimum": 1,
+          "title": "Observations",
+          "type": "integer"
+        },
+        "positive_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Positive Fraction",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observations",
+        "mean_net_return",
+        "positive_fraction"
+      ],
+      "title": "MetaOosGroupAggregateV1",
+      "type": "object"
+    },
+    "MetaOosPolicyArm": {
+      "enum": [
+        "STATIC_CHAMPION",
+        "FIXED_RECALIBRATION",
+        "MEMORYLESS_COMMANDER",
+        "ADAPTIVE_META_CONTROLLER"
+      ],
+      "title": "MetaOosPolicyArm",
+      "type": "string"
+    },
+    "MetaOosPredictionCalibrationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "mean_absolute_error": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mean Absolute Error"
+        },
+        "mean_error": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mean Error"
+        },
+        "prediction_count": {
+          "minimum": 0,
+          "title": "Prediction Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "prediction_count",
+        "mean_error",
+        "mean_absolute_error"
+      ],
+      "title": "MetaOosPredictionCalibrationV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-arm-aggregate-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action_results": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetaOosGroupAggregateV1"
+      },
+      "title": "Action Results",
+      "type": "object"
+    },
+    "annualized_turnover": {
+      "minimum": 0,
+      "title": "Annualized Turnover",
+      "type": "number"
+    },
+    "annualized_volatility": {
+      "minimum": 0,
+      "title": "Annualized Volatility",
+      "type": "number"
+    },
+    "arm": {
+      "$ref": "#/$defs/MetaOosPolicyArm"
+    },
+    "arm_result_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Arm Result Hash",
+      "type": "string"
+    },
+    "candidate_count": {
+      "minimum": 0,
+      "title": "Candidate Count",
+      "type": "integer"
+    },
+    "experiment_count": {
+      "minimum": 0,
+      "title": "Experiment Count",
+      "type": "integer"
+    },
+    "maximum_drawdown": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Maximum Drawdown",
+      "type": "number"
+    },
+    "net_sequence_return": {
+      "title": "Net Sequence Return",
+      "type": "number"
+    },
+    "oos_use_count": {
+      "minimum": 0,
+      "title": "Oos Use Count",
+      "type": "integer"
+    },
+    "portfolio_sharpe": {
+      "title": "Portfolio Sharpe",
+      "type": "number"
+    },
+    "positive_matured_outcome_count": {
+      "minimum": 0,
+      "title": "Positive Matured Outcome Count",
+      "type": "integer"
+    },
+    "prediction_calibration": {
+      "$ref": "#/$defs/MetaOosPredictionCalibrationV1"
+    },
+    "promotion_eligible_count": {
+      "minimum": 0,
+      "title": "Promotion Eligible Count",
+      "type": "integer"
+    },
+    "regime_results": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetaOosGroupAggregateV1"
+      },
+      "title": "Regime Results",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "meta_oos_arm_aggregate_v1",
+      "default": "meta_oos_arm_aggregate_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tail_loss": {
+      "minimum": 0,
+      "title": "Tail Loss",
+      "type": "number"
+    },
+    "technical_failure_count": {
+      "minimum": 0,
+      "title": "Technical Failure Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "arm",
+    "net_sequence_return",
+    "annualized_volatility",
+    "portfolio_sharpe",
+    "maximum_drawdown",
+    "tail_loss",
+    "annualized_turnover",
+    "experiment_count",
+    "candidate_count",
+    "oos_use_count",
+    "positive_matured_outcome_count",
+    "technical_failure_count",
+    "promotion_eligible_count",
+    "regime_results",
+    "action_results",
+    "prediction_calibration",
+    "arm_result_hash"
+  ],
+  "title": "MetaOosArmAggregateV1",
+  "type": "object"
+}

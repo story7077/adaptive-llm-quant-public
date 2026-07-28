@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "MetaOosPolicyArm": {
+      "enum": [
+        "STATIC_CHAMPION",
+        "FIXED_RECALIBRATION",
+        "MEMORYLESS_COMMANDER",
+        "ADAPTIVE_META_CONTROLLER"
+      ],
+      "title": "MetaOosPolicyArm",
+      "type": "string"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-paired-comparison-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "baseline_arm": {
+      "$ref": "#/$defs/MetaOosPolicyArm"
+    },
+    "candidate_arm": {
+      "$ref": "#/$defs/MetaOosPolicyArm"
+    },
+    "common_sessions": {
+      "minimum": 2,
+      "title": "Common Sessions",
+      "type": "integer"
+    },
+    "comparison_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Comparison Hash",
+      "type": "string"
+    },
+    "delta_sharpe_lcb": {
+      "title": "Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "delta_sharpe_point": {
+      "title": "Delta Sharpe Point",
+      "type": "number"
+    },
+    "delta_sharpe_ucb": {
+      "title": "Delta Sharpe Ucb",
+      "type": "number"
+    },
+    "schema_version": {
+      "const": "meta_oos_paired_comparison_v1",
+      "default": "meta_oos_paired_comparison_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_arm",
+    "baseline_arm",
+    "common_sessions",
+    "delta_sharpe_point",
+    "delta_sharpe_lcb",
+    "delta_sharpe_ucb",
+    "comparison_hash"
+  ],
+  "title": "MetaOosPairedComparisonV1",
+  "type": "object"
+}

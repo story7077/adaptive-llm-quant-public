@@ -46,6 +46,13 @@ uv run pyright
 `doctor` must show broker production gates disabled. A configuration that enables
 real routing or automatic promotion is invalid.
 
+Recursive improvement is also disabled in the checked-in contract:
+`recursive_improvement.enabled=false`. The current branch implements Phase 0
+through PR 4: the experiment-outcome ledger, immutable memory, deterministic
+Meta Controller, V2 Commander contracts, portfolio DeltaSharpe/OOS V2, matched
+shadow and Promotion V2, and chronological meta-OOS. None is automatically
+invoked. Automatic promotion and real order routing remain unavailable.
+
 ## Synthetic smoke test
 
 The public fixtures contain no real account state:
@@ -96,6 +103,149 @@ fences. A reclaimed or expired worker cannot append a receipt or outcome.
 Failures and retries are append-only events; raw exception detail and credentials
 are never persisted. Inspect `scheduler` in `research status` or the Research UI
 before operating the downstream aggregation/deep-research consumer.
+
+### Recursive outcome ledger (Phase 0 and PR 1)
+
+Migration `0014_experiment_outcome_ledger` adds immutable experiment actions,
+per-experiment outcome-event hash chains, and point-in-time research-memory
+snapshots. The feature remains disabled; normal scheduler planning therefore
+does not create recursive-maintenance work.
+
+The scheduler contract reserves this order for a later enabled implementation:
+
+```text
+DAILY_AGGREGATION
+→ OUTCOME_MATURATION
+→ RESEARCH_MEMORY_MATERIALIZATION
+```
+
+Each successor waits for the predecessor's append-only `SUCCEEDED` event. A
+dispatch receipt does not execute maturation or memory materialization, and no
+production consumer for those targets exists in PR 1.
+
+Operators can inspect due experiments:
+
+```powershell
+uv run python -m trading.cli research outcome mature `
+  --as-of 2026-07-28T00:00:00Z
+```
+
+### Deterministic Meta Controller (PR 2)
+
+Migration `0015_meta_controller_v1` adds append-only action plans and accepted
+V2 proposals. First persist a point-in-time memory snapshot, then build a plan.
+The command is dry-run unless `--commit` is supplied:
+
+```powershell
+uv run python -m trading.cli research meta-policy build `
+  --snapshot-id <IMMUTABLE_SNAPSHOT_ID> `
+  --research-cycle-id <NEW_CYCLE_ID> `
+  --regime-cluster-id <REGIME> `
+  --failure-cluster-id <FAILURE> `
+  --portfolio-exposure-cluster-id <EXPOSURE> `
+  --maximum-total-submissions 3 `
+  --idempotency-key <UNIQUE_KEY>
+```
+
+The controller reads only the verified event prefix bound to the snapshot.
+`PROMOTION_OOS`, `META_AUDIT`, future, unmatured, invalid, and legacy events do
+not become reward samples. A committed plan authorizes only action kinds and
+submission counts; it does not execute a Commander, Builder, promotion, or
+trade. Inspect `recursive_improvement.meta_controller` in `research status`.
+
+Validate a trusted host-produced outcome without writing:
+
+```powershell
+uv run python -m trading.cli research outcome mature `
+  --input .local/research/outcome.json
+```
+
+Append only after reviewing the dry-run output:
+
+```powershell
+uv run python -m trading.cli research outcome mature `
+  --input .local/research/outcome.json `
+  --commit
+```
+
+Materialize memory with explicit point-in-time bounds:
+
+```powershell
+uv run python -m trading.cli research memory materialize `
+  --as-of 2026-07-28T00:00:00Z `
+  --data-available-cutoff 2026-07-28T00:00:00Z `
+  --created-at 2026-07-28T00:00:00Z
+```
+
+This command also defaults to dry-run; add `--commit` to persist the immutable
+snapshot. The CLI does not calculate economic outcomes, register actions
+automatically, feed memory to a model, promote a Challenger, or create orders.
+See [Recursive improvement](research/recursive-improvement.md) and
+[Experiment outcome ledger](research/experiment-outcome-ledger.md).
+
+### Portfolio-level Delta-Sharpe and OOS V2 (PR 3)
+
+Migration `0016_portfolio_delta_sharpe_v2` stores one append-only
+`PortfolioComparisonContractV1` per registered Candidate artifact. Create and
+persist that allocation/integration contract before reserving OOS budget.
+Creation after an OOS reservation or result fails closed.
+
+The production V2 lockbox uses a fresh worker and private-root dataset exactly
+like V1, while binding the full-portfolio comparison contract. It returns only
+bounded aggregate Sharpes, DeltaSharpe confidence bounds, cost-stress results,
+reason codes, and hashes. Never copy private rows or raw bootstrap samples to
+logs, the database, UI, Commander, Builder, or a public artifact.
+
+`research status` reports
+`recursive_improvement.portfolio_delta_sharpe.status=IMPLEMENTED_DISABLED` and
+the immutable comparison-contract count. There is intentionally no CLI that
+lets an operator inject daily returns. OOS production calls must use the
+trusted Candidate evaluation producer and `OosLockboxServiceV2`.
+
+Promotion V2 independently requires positive configured OOS and shadow
+DeltaSharpe lower bounds plus the worst-cost gate and all legacy risk,
+capacity, replay, and falsification gates. It can only produce eligibility;
+manual approval and explicit Champion designation remain separate.
+
+### Chronological Meta-OOS (PR 4)
+
+Migration `0017_chronological_meta_oos_v1` stores immutable plans, protected
+dataset reservations, bounded epoch-arm audit hashes, and aggregate results in
+an isolated append-only namespace. The four mandatory arms are
+`STATIC_CHAMPION`, `FIXED_RECALIBRATION`, `MEMORYLESS_COMMANDER`, and
+`ADAPTIVE_META_CONTROLLER`.
+
+Validate and persist a predeclared plan:
+
+```powershell
+uv run python -m trading.cli research meta-oos plan `
+  --input .local/research/meta-oos/plan.json
+uv run python -m trading.cli research meta-oos plan `
+  --input .local/research/meta-oos/plan.json `
+  --commit
+```
+
+Inspect readiness, then explicitly reserve the protected dataset:
+
+```powershell
+uv run python -m trading.cli research meta-oos run --plan-id <PLAN_ID>
+uv run python -m trading.cli research meta-oos run `
+  --plan-id <PLAN_ID> `
+  --idempotency-key <UNIQUE_KEY> `
+  --commit
+```
+
+The CLI never accepts raw audit returns. The private trusted service runs the
+predeclared plan and persists only the aggregate boundary. Verification is
+read-only:
+
+```powershell
+uv run python -m trading.cli research meta-oos verify --plan-id <PLAN_ID>
+```
+
+`recursive_improvement.meta_oos` remains
+`IMPLEMENTED_DISABLED`; synthetic fixtures validate implementation, not alpha.
+See [Chronological meta-OOS](research/chronological-meta-oos.md).
 
 Select exactly one Research Commander with optimistic version checking:
 
@@ -177,6 +327,10 @@ Start the loopback UI:
 ```powershell
 uv run python -m trading.cli ui serve --host 127.0.0.1 --port 8765
 ```
+
+Both UI serve commands reject non-loopback hosts. They are local operator
+surfaces and must not be exposed through a custom ASGI runner or reverse proxy
+without a separately reviewed authentication boundary.
 
 The Research tab reports:
 

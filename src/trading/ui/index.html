@@ -611,6 +611,24 @@
         <article class="panel wide">
           <div class="panel-head">
             <div>
+              <div class="eyebrow">Recursive Improvement</div>
+              <h2 id="researchRecursiveState">DISABLED · AUDIT ONLY</h2>
+              <p>Phase 0/PR 1 결과 원장만 활성화되어 있으며 meta-controller·자동 승격·실주문은 구현되지 않았습니다.</p>
+            </div>
+          </div>
+          <div class="q1-status-grid">
+            <div class="q1-status-card"><span>CONTRACT</span><strong id="researchRecursiveContract">—</strong></div>
+            <div class="q1-status-card"><span>PATCH POLICY</span><strong id="researchRecursivePolicy">—</strong></div>
+            <div class="q1-status-card"><span>ACTIONS</span><strong id="researchRecursiveActions">0</strong></div>
+            <div class="q1-status-card"><span>EFFECTIVE EVENTS</span><strong id="researchRecursiveEvents">0</strong></div>
+            <div class="q1-status-card"><span>LEARNING ELIGIBLE</span><strong id="researchRecursiveEligible">0</strong></div>
+            <div class="q1-status-card"><span>MEMORY SNAPSHOTS</span><strong id="researchRecursiveSnapshots">0</strong></div>
+          </div>
+          <pre id="researchRecursivePolicyHash">policy hash 없음</pre>
+        </article>
+        <article class="panel wide">
+          <div class="panel-head">
+            <div>
               <div class="eyebrow">Research Scheduler</div>
               <h2>Append-only cadence and dispatch outbox</h2>
               <p>실제 market calendar, weekly local clock, 새 evidence threshold로만 work를 생성합니다.</p>
@@ -1589,6 +1607,28 @@
       $("researchScoutState").textContent = data.web_scout?.status || "—";
       $("researchScoutContract").textContent = `${data.web_scout?.required_model || "—"} · ${data.web_scout?.required_reasoning || "—"} · ${data.web_scout?.access_path || "—"}`;
       $("researchUniverse").textContent = `${(data.available_data_catalog?.asset_classes || []).join(" · ")} · hardcoded allowlist=${data.available_data_catalog?.hardcoded_symbol_allowlist}`;
+      const recursive = data.recursive_improvement || {};
+      const outcomeLedger = recursive.experiment_outcome_ledger ||
+        data.experiment_outcome_ledger || {};
+      const patchPolicy = recursive.candidate_patch_policy || {};
+      $("researchRecursiveState").textContent = `${recursive.status || "DISABLED_RESEARCH_ONLY_PR4"} · enabled=${recursive.enabled === true}`;
+      $("researchRecursiveContract").textContent = `${recursive.contract_version || "—"} · ${recursive.implementation_scope || "—"}`;
+      $("researchRecursivePolicy").textContent = patchPolicy.version || "—";
+      $("researchRecursiveActions").textContent = formatNumber(outcomeLedger.action_count ?? 0);
+      $("researchRecursiveEvents").textContent = `${formatNumber(outcomeLedger.effective_unsuperseded_event_count ?? 0)} / ${formatNumber(outcomeLedger.event_count ?? 0)} physical`;
+      $("researchRecursiveEligible").textContent = formatNumber(outcomeLedger.effective_eligible_learning_forward_event_count ?? outcomeLedger.eligible_learning_forward_event_count ?? 0);
+      $("researchRecursiveSnapshots").textContent = formatNumber(outcomeLedger.snapshot_count ?? 0);
+      $("researchRecursivePolicyHash").textContent = JSON.stringify({
+        policy_contract_hash: patchPolicy.contract_hash || null,
+        config_manifest_hash: recursive.config_manifest_hash || null,
+        audit_only: recursive.audit_only,
+        automatic_outcome_maintenance_enabled: recursive.automatic_outcome_maintenance_enabled,
+        meta_controller: recursive.meta_controller || { status: "IMPLEMENTED_DISABLED" },
+        portfolio_delta_sharpe: recursive.portfolio_delta_sharpe || { status: "IMPLEMENTED_DISABLED" },
+        chronological_meta_oos: recursive.chronological_meta_oos || { status: "IMPLEMENTED_DISABLED" },
+        automatic_promotion_enabled: recursive.automatic_promotion_enabled,
+        real_order_routing: recursive.real_order_routing
+      }, null, 2);
       const scheduler = data.scheduler || {};
       $("researchSchedulerVersion").textContent = scheduler.schedule_version || "—";
       $("researchSchedulerTimezone").textContent = scheduler.timezone || "—";

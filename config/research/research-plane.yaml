@@ -208,3 +208,64 @@ falsification:
     minimum_ablation_edge_ratio: 0.50
     minimum_ablation_pass_fraction: 0.75
     numeric_tolerance: 0.000000000001
+
+recursive_improvement:
+  enabled: false
+  contract_version: recursive-improvement-v1
+  candidate_patch_policy_version: candidate_patch_policy_v2
+  candidate_patch_policy_hash: 73af5956c12a042eb99c0c15929b7f4db2b3b45110373204d39c8163fedc716c
+
+  outcome_ledger:
+    learning_forward_horizon_sessions: 63
+    reject_unmatured_outcomes: true
+    exclude_promotion_oos_from_training: true
+    exclude_meta_audit_from_training: true
+
+  meta_controller:
+    policy_version: hierarchical-contextual-ucb-v1
+    maximum_actions_per_cycle: 3
+    prior_strength: 4.0
+    exploration_coefficient: 0.25
+    exploration_floor: 0.01
+    technical_failure_weight: 0.25
+    reward_clip: 1.0
+    turnover_penalty_weight: 0.05
+    turnover_scale: 1.0
+    drawdown_penalty_weight: 0.10
+    drawdown_scale: 0.05
+    cost_penalty_weight: 0.05
+    cost_scale_bps: 10.0
+    complexity_penalty_weight: 0.05
+    complexity_scale: 1.0
+
+  portfolio_sharpe:
+    annualization_sessions: 252
+    minimum_common_sessions: 126
+    minimum_independent_trades: 30
+    configured_bootstrap_seed: 7077
+    bootstrap_samples: 5000
+    bootstrap_block_length: 10
+    lower_quantile: 0.025
+    variance_epsilon: 1.0e-12
+    maximum_absolute_daily_return: 1.0
+    minimum_delta_sharpe_lcb: 0.0
+    minimum_worst_cost_delta_sharpe_lcb: 0.0
+    cost_stress_multipliers: [1.0, 2.0, 3.0]
+    trusted_producer_version: trusted_candidate_evaluation_v2
+
+  meta_oos:
+    enabled: false
+    require_outer_audit_reservation: true
+    prohibit_best_seed_selection: true
+    plan_version: chronological-meta-oos-v1
+    maximum_outer_audit_uses_per_dataset: 1
+    reservation_ttl_hours: 24
+    minimum_epochs: 8
+    maximum_epochs: 52
+    maximum_candidate_generation_budget_per_epoch: 10
+    maximum_oos_budget_per_epoch: 3
+    minimum_adaptive_delta_sharpe_lcb: 0.0
+    minimum_research_efficiency: 0.0
+    maximum_allowed_drawdown: 0.25
+    tail_quantile: 0.05
+    maximum_absolute_daily_return: 1.0

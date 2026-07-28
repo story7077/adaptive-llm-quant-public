@@ -1,0 +1,230 @@
+{
+  "$defs": {
+    "MetaOosCommanderInvocationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "commander_binding_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Commander Binding Hash",
+          "type": "string"
+        },
+        "invocation_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Invocation Hash",
+          "type": "string"
+        },
+        "invoked_at": {
+          "format": "date-time",
+          "title": "Invoked At",
+          "type": "string"
+        },
+        "model_family": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Model Family",
+          "type": "string"
+        },
+        "model_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Model Version",
+          "type": "string"
+        },
+        "output_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Output Hash",
+          "type": "string"
+        },
+        "output_schema_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Output Schema Hash",
+          "type": "string"
+        },
+        "prompt_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Prompt Hash",
+          "type": "string"
+        },
+        "reasoning_profile": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Reasoning Profile",
+          "type": "string"
+        },
+        "request_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Request Hash",
+          "type": "string"
+        },
+        "request_schema_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Request Schema Hash",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "meta_oos_commander_invocation_v1",
+          "default": "meta_oos_commander_invocation_v1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commander_binding_hash",
+        "model_family",
+        "model_version",
+        "reasoning_profile",
+        "prompt_hash",
+        "request_hash",
+        "request_schema_hash",
+        "output_schema_hash",
+        "output_hash",
+        "invoked_at",
+        "invocation_hash"
+      ],
+      "title": "MetaOosCommanderInvocationV1",
+      "type": "object"
+    },
+    "MetaOosDecisionKind": {
+      "enum": [
+        "NO_CHANGE",
+        "RUN_ACTION"
+      ],
+      "title": "MetaOosDecisionKind",
+      "type": "string"
+    },
+    "MetaOosPolicyArm": {
+      "enum": [
+        "STATIC_CHAMPION",
+        "FIXED_RECALIBRATION",
+        "MEMORYLESS_COMMANDER",
+        "ADAPTIVE_META_CONTROLLER"
+      ],
+      "title": "MetaOosPolicyArm",
+      "type": "string"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-policy-decision-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action_kind": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Action Kind"
+    },
+    "arm": {
+      "$ref": "#/$defs/MetaOosPolicyArm"
+    },
+    "candidate_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Candidate Id"
+    },
+    "commander_invocation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetaOosCommanderInvocationV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "context_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Context Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decision_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Decision Hash",
+      "type": "string"
+    },
+    "decision_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Decision Id",
+      "type": "string"
+    },
+    "decision_kind": {
+      "$ref": "#/$defs/MetaOosDecisionKind"
+    },
+    "epoch_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Epoch Id",
+      "type": "string"
+    },
+    "plan_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Plan Hash",
+      "type": "string"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "predicted_reward": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Predicted Reward"
+    },
+    "research_memory_snapshot_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Research Memory Snapshot Hash"
+    },
+    "schema_version": {
+      "const": "meta_oos_policy_decision_v1",
+      "default": "meta_oos_policy_decision_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision_id",
+    "plan_id",
+    "plan_hash",
+    "epoch_id",
+    "arm",
+    "context_hash",
+    "decision_kind",
+    "created_at",
+    "decision_hash"
+  ],
+  "title": "MetaOosPolicyDecisionV1",
+  "type": "object"
+}

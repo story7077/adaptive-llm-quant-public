@@ -1461,6 +1461,143 @@ class ResearchCandidateArtifactRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ResearchExperimentActionRow(Base):
+    __tablename__ = "research_experiment_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "experiment_id",
+            name="uq_research_experiment_action_experiment",
+        ),
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_research_experiment_action_idempotency",
+        ),
+    )
+
+    action_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String(160))
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    proposal_id: Mapped[str] = mapped_column(String(160))
+    challenger_id: Mapped[str] = mapped_column(String(160))
+    information_role: Mapped[str] = mapped_column(String(40))
+    primary_action_kind: Mapped[str] = mapped_column(String(50))
+    maturity_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    meta_training_permitted: Mapped[bool] = mapped_column(Boolean)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    action_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ResearchExperimentOutcomeEventRow(Base):
+    __tablename__ = "research_experiment_outcome_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "experiment_id",
+            "event_sequence",
+            name="uq_research_experiment_outcome_sequence",
+        ),
+        UniqueConstraint(
+            "experiment_id",
+            "idempotency_key",
+            name="uq_research_experiment_outcome_idempotency",
+        ),
+        CheckConstraint(
+            "event_sequence >= 1",
+            name="ck_research_experiment_outcome_sequence",
+        ),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    action_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_experiment_actions.action_id",
+            ondelete="RESTRICT",
+        )
+    )
+    experiment_id: Mapped[str] = mapped_column(String(160))
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    proposal_id: Mapped[str] = mapped_column(String(160))
+    challenger_id: Mapped[str] = mapped_column(String(160))
+    information_role: Mapped[str] = mapped_column(String(40))
+    primary_action_kind: Mapped[str] = mapped_column(String(50))
+    event_kind: Mapped[str] = mapped_column(String(60))
+    experiment_stage: Mapped[str] = mapped_column(String(40))
+    event_sequence: Mapped[int] = mapped_column(Integer)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    maturity_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    maturity_status: Mapped[str] = mapped_column(String(30))
+    eligible_for_meta_training: Mapped[bool] = mapped_column(Boolean)
+    previous_event_hash: Mapped[str | None] = mapped_column(String(64))
+    supersedes_event_id: Mapped[str | None] = mapped_column(
+        ForeignKey(
+            "research_experiment_outcome_events.event_id",
+            ondelete="RESTRICT",
+        )
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    maturation_input_hash: Mapped[str] = mapped_column(String(64))
+    event_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ResearchMemorySnapshotRow(Base):
+    __tablename__ = "research_memory_snapshots"
+
+    snapshot_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data_available_cutoff: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    snapshot_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ResearchActionPlanRow(Base):
+    __tablename__ = "research_action_plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "research_cycle_id",
+            name="uq_research_action_plan_cycle",
+        ),
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_research_action_plan_idempotency",
+        ),
+    )
+
+    action_plan_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    policy_version: Mapped[str] = mapped_column(String(160))
+    research_memory_snapshot_hash: Mapped[str] = mapped_column(String(64))
+    training_view_hash: Mapped[str] = mapped_column(String(64))
+    context_hash: Mapped[str] = mapped_column(String(64))
+    config_hash: Mapped[str] = mapped_column(String(64))
+    plan_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AlgorithmProposalV2Row(Base):
+    __tablename__ = "algorithm_proposals_v2"
+
+    proposal_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    hypothesis_id: Mapped[str] = mapped_column(String(160))
+    parent_strategy_id: Mapped[str] = mapped_column(String(160))
+    parent_strategy_version: Mapped[str] = mapped_column(String(80))
+    proposed_strategy_id: Mapped[str] = mapped_column(String(160))
+    proposed_strategy_version: Mapped[str] = mapped_column(String(80))
+    primary_action_kind: Mapped[str] = mapped_column(String(50))
+    action_plan_hash: Mapped[str] = mapped_column(String(64))
+    proposal_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ChallengerEventRow(Base):
     __tablename__ = "challenger_events"
     __table_args__ = (
@@ -1590,6 +1727,163 @@ class ResearchReplayArtifactRow(Base):
     deterministic_match: Mapped[bool] = mapped_column(Boolean)
     artifact_hash: Mapped[str] = mapped_column(String(64), unique=True)
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PortfolioComparisonContractRow(Base):
+    __tablename__ = "portfolio_comparison_contracts"
+    __table_args__ = (
+        UniqueConstraint(
+            "challenger_id",
+            "candidate_artifact_hash",
+            name="uq_portfolio_comparison_challenger_artifact",
+        ),
+    )
+
+    comparison_contract_id: Mapped[str] = mapped_column(
+        String(160),
+        primary_key=True,
+    )
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey("challenger_manifests.challenger_id", ondelete="RESTRICT")
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    champion_portfolio_manifest_hash: Mapped[str] = mapped_column(String(64))
+    candidate_portfolio_manifest_hash: Mapped[str] = mapped_column(String(64))
+    allocation_policy_hash: Mapped[str] = mapped_column(String(64))
+    weight_selection_data_cutoff: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    allocation_policy_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    contract_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ChronologicalMetaOosPlanRow(Base):
+    __tablename__ = "chronological_meta_oos_plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "outer_audit_dataset_id",
+            "outer_audit_budget_ordinal",
+            name="uq_meta_oos_plan_dataset_budget",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_plan_paper_only",
+        ),
+    )
+
+    plan_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_version: Mapped[str] = mapped_column(String(160))
+    initial_champion_manifest_hash: Mapped[str] = mapped_column(String(64))
+    evaluation_contract_hash: Mapped[str] = mapped_column(String(64))
+    outer_audit_dataset_id: Mapped[str] = mapped_column(String(160))
+    outer_audit_budget_ordinal: Mapped[int] = mapped_column(Integer)
+    plan_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MetaOosOuterAuditReservationRow(Base):
+    __tablename__ = "meta_oos_outer_audit_reservations"
+    __table_args__ = (
+        UniqueConstraint(
+            "outer_audit_dataset_id",
+            "outer_audit_budget_ordinal",
+            name="uq_meta_oos_reservation_dataset_budget",
+        ),
+        UniqueConstraint(
+            "outer_audit_dataset_id",
+            "idempotency_key",
+            name="uq_meta_oos_reservation_idempotency",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_reservation_paper_only",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_meta_oos_reservation_expiry",
+        ),
+    )
+
+    reservation_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        ForeignKey("chronological_meta_oos_plans.plan_id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    plan_hash: Mapped[str] = mapped_column(String(64))
+    outer_audit_dataset_id: Mapped[str] = mapped_column(String(160))
+    outer_audit_budget_ordinal: Mapped[int] = mapped_column(Integer)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    reservation_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MetaOosEpochArmAuditRecordRow(Base):
+    __tablename__ = "meta_oos_epoch_arm_audit_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "plan_id",
+            "epoch_id",
+            "arm",
+            name="uq_meta_oos_epoch_arm_record",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_epoch_arm_paper_only",
+        ),
+    )
+
+    record_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        ForeignKey("chronological_meta_oos_plans.plan_id", ondelete="RESTRICT")
+    )
+    epoch_id: Mapped[str] = mapped_column(String(160))
+    arm: Mapped[str] = mapped_column(String(50))
+    decision_hash: Mapped[str] = mapped_column(String(64))
+    memory_snapshot_hash: Mapped[str | None] = mapped_column(String(64))
+    private_outcome_hash: Mapped[str] = mapped_column(String(64))
+    record_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ChronologicalMetaOosResultRow(Base):
+    __tablename__ = "chronological_meta_oos_results"
+    __table_args__ = (
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_meta_oos_result_paper_only",
+        ),
+    )
+
+    result_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        ForeignKey("chronological_meta_oos_plans.plan_id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    reservation_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "meta_oos_outer_audit_reservations.reservation_id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+    evaluation_contract_hash: Mapped[str] = mapped_column(String(64))
+    adaptive_system_pass: Mapped[bool] = mapped_column(Boolean)
+    result_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -1842,11 +2136,21 @@ APPEND_ONLY_MODEL_TYPES = (
     AlgorithmProposalRow,
     ChallengerManifestRow,
     ResearchCandidateArtifactRow,
+    ResearchExperimentActionRow,
+    ResearchExperimentOutcomeEventRow,
+    ResearchMemorySnapshotRow,
+    ResearchActionPlanRow,
+    AlgorithmProposalV2Row,
     ChallengerEventRow,
     ExperimentBudgetEventRow,
     OosBudgetReservationRow,
     FalsificationReportRow,
     ResearchReplayArtifactRow,
+    PortfolioComparisonContractRow,
+    ChronologicalMetaOosPlanRow,
+    MetaOosOuterAuditReservationRow,
+    MetaOosEpochArmAuditRecordRow,
+    ChronologicalMetaOosResultRow,
     OosLockboxResultRow,
     ResearchShadowArmRegistrationRow,
     ResearchShadowPerformanceSummaryRow,

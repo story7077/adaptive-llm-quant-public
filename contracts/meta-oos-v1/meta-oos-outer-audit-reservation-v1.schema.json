@@ -1,0 +1,77 @@
+{
+  "$id": "https://adaptive-llm-quant.example/schemas/meta-oos-outer-audit-reservation-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "outer_audit_budget_ordinal": {
+      "minimum": 1,
+      "title": "Outer Audit Budget Ordinal",
+      "type": "integer"
+    },
+    "outer_audit_dataset_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Outer Audit Dataset Id",
+      "type": "string"
+    },
+    "plan_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Plan Hash",
+      "type": "string"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "real_order_routing": {
+      "const": false,
+      "default": false,
+      "title": "Real Order Routing",
+      "type": "boolean"
+    },
+    "reservation_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Reservation Hash",
+      "type": "string"
+    },
+    "reservation_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Reservation Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "meta_oos_outer_audit_reservation_v1",
+      "default": "meta_oos_outer_audit_reservation_v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reservation_id",
+    "plan_id",
+    "plan_hash",
+    "outer_audit_dataset_id",
+    "outer_audit_budget_ordinal",
+    "idempotency_key",
+    "created_at",
+    "expires_at",
+    "reservation_hash"
+  ],
+  "title": "MetaOosOuterAuditReservationV1",
+  "type": "object"
+}

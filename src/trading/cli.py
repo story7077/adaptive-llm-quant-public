@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import tempfile
@@ -57,6 +58,17 @@ from trading.persistence.db import (
     make_session_factory,
     upgrade_database,
 )
+from trading.persistence.experiment_outcomes import (
+    ExperimentOutcomePersistenceError,
+)
+from trading.persistence.meta_controller import (
+    MetaControllerPersistenceError,
+    MetaControllerRepository,
+)
+from trading.persistence.meta_oos import (
+    MetaOosPersistenceError,
+    MetaOosRepository,
+)
 from trading.persistence.models import NavSnapshotRow, RunRow, ShadowArmRow
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
@@ -65,21 +77,40 @@ from trading.replay.engine import replay_full
 from trading.replay.q1 import replay_q1_run
 from trading.replay.verifier import verify_ledger_arm, verify_run
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
+from trading.research.chronological_meta_oos import (
+    ChronologicalMetaOosPlanV1,
+    ChronologicalMetaOosResultV1,
+    MetaOosError,
+    verify_chronological_meta_oos_result,
+)
 from trading.research.config import (
     FACTORIAL_CONFIG_FILE,
     RESEARCH_CONFIG_FILE,
+    ResearchConfigBundle,
     load_research_config,
+    meta_controller_parameters,
+    meta_oos_evaluation_contract,
+    recursive_improvement_status,
 )
 from trading.research.contracts import (
     ResearchCommanderKind,
     ResearchDecisionV1,
     ResearchRequestV1,
 )
+from trading.research.experiment_outcomes import (
+    AlgorithmProposalV2,
+    ExperimentOutcomeEventV1,
+    ExperimentOutcomeMaturationInputV1,
+    ResearchActionKind,
+    ResearchExperimentActionV1,
+    ResearchMemorySnapshotV1,
+)
 from trading.research.file_runtime import (
     ResearchFileRuntimeError,
     ResearchPlaneFileRuntime,
     atomic_write_json,
     load_json_model,
+    load_research_request,
     local_artifact_label,
     resolve_local_output,
     write_cycle_decision,
@@ -89,11 +120,19 @@ from trading.research.lifecycle import (
     ResearchLifecycleError,
     ResearchLifecycleService,
 )
+from trading.research.meta_controller import (
+    ResearchActionPlanV1,
+    build_research_context,
+)
 from trading.research.promotion_evidence import (
     ChampionDesignationV1,
     PromotionEvidenceV1,
     TrustedPromotionEvaluationV1,
     TrustedShadowPerformanceSummaryV1,
+)
+from trading.research.v2_contracts import (
+    ResearchDecisionV2,
+    ResearchRequestV2,
 )
 from trading.research.webgpt_commander import (
     WebGptActiveResearchCommander,
@@ -149,6 +188,10 @@ market_app = typer.Typer(no_args_is_help=True)
 paper_app = typer.Typer(no_args_is_help=True)
 webgpt_app = typer.Typer(no_args_is_help=True)
 research_app = typer.Typer(no_args_is_help=True)
+research_outcome_app = typer.Typer(no_args_is_help=True)
+research_memory_app = typer.Typer(no_args_is_help=True)
+research_meta_policy_app = typer.Typer(no_args_is_help=True)
+research_meta_oos_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
@@ -164,8 +207,12 @@ app.add_typer(ui_app, name="ui")
 app.add_typer(market_app, name="market")
 app.add_typer(paper_app, name="paper")
 app.add_typer(research_app, name="research")
+research_app.add_typer(research_outcome_app, name="outcome")
+research_app.add_typer(research_memory_app, name="memory")
+research_app.add_typer(research_meta_policy_app, name="meta-policy")
+research_app.add_typer(research_meta_oos_app, name="meta-oos")
 
-EXPECTED_DATABASE_REVISION = "0013_candidate_artifact_registry"
+EXPECTED_DATABASE_REVISION = "0017_chronological_meta_oos_v1"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -187,6 +234,23 @@ def _paper_algorithm_version(value: str) -> str:
             f"algorithm version must be one of {SUPPORTED_PAPER_ALGORITHM_VERSIONS}"
         )
     return selected
+
+
+def _require_loopback_host(value: str) -> str:
+    host = value.strip()
+    if host.lower() == "localhost":
+        return host
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            "operator UI host must be a loopback IP address or localhost"
+        ) from exc
+    if not address.is_loopback:
+        raise typer.BadParameter(
+            "operator UI host must remain loopback-only"
+        )
+    return host
 
 
 @app.command("doctor")
@@ -752,8 +816,22 @@ def research_status() -> None:
     _require_research_paper_only(settings)
     factory = make_session_factory(engine)
     research_config = load_research_config(settings.config_dir)
+    research_repository = ResearchRepository(factory)
+    persisted_status = research_repository.status()
+    meta_controller_status = MetaControllerRepository(factory).status()
+    portfolio_sharpe_status = research_repository.portfolio_sharpe().status()
+    meta_oos_status = MetaOosRepository(factory).status()
     payload = {
-        **ResearchRepository(factory).status(),
+        **persisted_status,
+        "recursive_improvement": recursive_improvement_status(
+            research_config,
+            experiment_outcome_ledger=(
+                persisted_status["experiment_outcome_ledger"]
+            ),
+            meta_controller_ledger=meta_controller_status,
+            portfolio_sharpe_ledger=portfolio_sharpe_status,
+            meta_oos_ledger=meta_oos_status,
+        ),
         "scheduler": ResearchSchedulerService(
             repository=ResearchSchedulerRepository(factory),
             config=research_config,
@@ -761,6 +839,423 @@ def research_status() -> None:
         "real_order_routing": False,
     }
     engine.dispose()
+    _emit(payload)
+
+
+@research_outcome_app.command("mature")
+def research_outcome_mature(
+    input_file: Annotated[
+        Path | None,
+        typer.Option("--input", exists=True, dir_okay=False),
+    ] = None,
+    as_of: Annotated[
+        str | None,
+        typer.Option("--as-of"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """List due outcomes or append one host-validated maturity event."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = ResearchRepository(
+            make_session_factory(engine)
+        ).experiment_outcomes()
+        if input_file is None:
+            instant = _research_timestamp(as_of, "--as-of")
+            due = repository.due_experiments(as_of=instant)
+            result = {
+                "mode": "READ_ONLY_DUE_OUTCOMES",
+                "as_of": instant.isoformat().replace("+00:00", "Z"),
+                "due_experiment_ids": [
+                    item.experiment_id for item in due
+                ],
+                "due_action_hashes": [item.action_hash for item in due],
+                "dry_run": True,
+                "real_order_routing": False,
+            }
+        else:
+            maturation = load_json_model(
+                input_file,
+                ExperimentOutcomeMaturationInputV1,
+            )
+            if dry_run:
+                event, already_exists = repository.prepare_outcome(maturation)
+                created = False
+            else:
+                event, created = repository.append_outcome(maturation)
+                already_exists = not created
+            result = {
+                "mode": "DRY_RUN" if dry_run else "COMMIT",
+                "event": event.model_dump(mode="json"),
+                "created": created,
+                "already_exists": already_exists,
+                "dry_run": dry_run,
+                "real_order_routing": False,
+            }
+    except (ExperimentOutcomePersistenceError, ValueError) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_memory_app.command("materialize")
+def research_memory_materialize(
+    as_of: Annotated[
+        str | None,
+        typer.Option("--as-of"),
+    ] = None,
+    data_available_cutoff: Annotated[
+        str | None,
+        typer.Option("--data-available-cutoff"),
+    ] = None,
+    created_at: Annotated[
+        str | None,
+        typer.Option("--created-at"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Materialize a point-in-time snapshot from the trusted outcome ledger."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    instant = _research_timestamp(as_of, "--as-of")
+    cutoff = (
+        instant
+        if data_available_cutoff is None
+        else _research_timestamp(
+            data_available_cutoff,
+            "--data-available-cutoff",
+        )
+    )
+    created = _research_timestamp(created_at, "--created-at")
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = ResearchRepository(
+            make_session_factory(engine)
+        ).experiment_outcomes()
+        snapshot, persisted = repository.materialize_memory(
+            as_of=instant,
+            data_available_cutoff=cutoff,
+            created_at=created,
+            persist=not dry_run,
+        )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "snapshot": snapshot.model_dump(mode="json"),
+            "persisted": persisted,
+            "dry_run": dry_run,
+            "real_order_routing": False,
+        }
+    except (ExperimentOutcomePersistenceError, ValueError) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_meta_policy_app.command("build")
+def research_meta_policy_build(
+    snapshot_id: Annotated[
+        str,
+        typer.Option("--snapshot-id", min=1, max=160),
+    ],
+    research_cycle_id: Annotated[
+        str,
+        typer.Option("--research-cycle-id", min=1, max=160),
+    ],
+    regime_cluster_id: Annotated[
+        str,
+        typer.Option("--regime-cluster-id", min=1, max=160),
+    ],
+    failure_cluster_id: Annotated[
+        str,
+        typer.Option("--failure-cluster-id", min=1, max=160),
+    ],
+    portfolio_exposure_cluster_id: Annotated[
+        str,
+        typer.Option("--portfolio-exposure-cluster-id", min=1, max=160),
+    ],
+    maximum_total_submissions: Annotated[
+        int,
+        typer.Option("--maximum-total-submissions", min=1),
+    ],
+    idempotency_key: Annotated[
+        str,
+        typer.Option("--idempotency-key", min=1, max=160),
+    ],
+    actions: Annotated[
+        str,
+        typer.Option(
+            "--actions",
+            help="Comma-separated ResearchActionKind values; defaults to all typed actions.",
+        ),
+    ] = "",
+    generated_at: Annotated[
+        str | None,
+        typer.Option("--generated-at"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Build a deterministic action ranking from one immutable memory snapshot."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    selected_actions = _parse_research_action_kinds(actions)
+    context = build_research_context(
+        regime_cluster_id=regime_cluster_id,
+        failure_cluster_id=failure_cluster_id,
+        portfolio_exposure_cluster_id=portfolio_exposure_cluster_id,
+    )
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = MetaControllerRepository(make_session_factory(engine))
+        plan, persisted = repository.build_plan(
+            research_cycle_id=research_cycle_id,
+            snapshot_id=snapshot_id,
+            context=context,
+            parameters=meta_controller_parameters(config),
+            config_hash=config.manifest_hash,
+            available_action_kinds=selected_actions,
+            maximum_total_submissions=maximum_total_submissions,
+            idempotency_key=idempotency_key,
+            generated_at=_research_timestamp(
+                generated_at,
+                "--generated-at",
+            ),
+            persist=not dry_run,
+        )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "plan": plan.model_dump(mode="json"),
+            "persisted": persisted,
+            "dry_run": dry_run,
+            "automatic_execution_enabled": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (
+        ExperimentOutcomePersistenceError,
+        MetaControllerPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_meta_oos_app.command("plan")
+def research_meta_oos_plan(
+    plan_file: Annotated[
+        Path,
+        typer.Option("--input", exists=True, dir_okay=False),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Validate or persist one immutable chronological outer-audit plan."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    engine = create_database_engine(settings.database_url)
+    try:
+        plan = load_json_model(plan_file, ChronologicalMetaOosPlanV1)
+        _validate_meta_oos_plan_config(plan, config)
+        persisted = False
+        if not dry_run:
+            persisted = MetaOosRepository(
+                make_session_factory(engine)
+            ).store_plan(
+                plan,
+                meta_oos_evaluation_contract(config),
+            )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "plan": plan.model_dump(mode="json"),
+            "persisted": persisted,
+            "outer_audit_opened": False,
+            "automatic_execution_enabled": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (
+        MetaOosError,
+        MetaOosPersistenceError,
+        ResearchFileRuntimeError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_meta_oos_app.command("run")
+def research_meta_oos_run(
+    plan_id: Annotated[
+        str,
+        typer.Option("--plan-id", min=1, max=160),
+    ],
+    idempotency_key: Annotated[
+        str,
+        typer.Option("--idempotency-key", max=160),
+    ] = "",
+    created_at: Annotated[
+        str | None,
+        typer.Option("--created-at"),
+    ] = None,
+    expires_at: Annotated[
+        str | None,
+        typer.Option("--expires-at"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Inspect readiness or reserve one run for the trusted private service."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    meta_config = config.config.recursive_improvement.meta_oos
+    now = _research_timestamp(created_at, "--created-at")
+    expiry = (
+        now + timedelta(hours=meta_config.reservation_ttl_hours)
+        if expires_at is None
+        else _research_timestamp(expires_at, "--expires-at")
+    )
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = MetaOosRepository(make_session_factory(engine))
+        plan = repository.plan(plan_id)
+        if plan is None:
+            raise MetaOosPersistenceError("unknown meta-OOS plan")
+        _validate_meta_oos_plan_config(plan, config)
+        reservation = repository.reservation(plan_id)
+        created = False
+        if not dry_run:
+            if not idempotency_key.strip():
+                raise MetaOosPersistenceError(
+                    "--idempotency-key is required with --commit"
+                )
+            reservation, created = repository.reserve_outer_audit(
+                plan_id=plan_id,
+                idempotency_key=idempotency_key,
+                maximum_dataset_uses=(
+                    meta_config.maximum_outer_audit_uses_per_dataset
+                ),
+                maximum_ttl_hours=meta_config.reservation_ttl_hours,
+                created_at=now,
+                expires_at=expiry,
+            )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "status": (
+                "DRY_RUN_READY"
+                if dry_run
+                else "RESERVED_AWAITING_TRUSTED_ENVIRONMENT"
+            ),
+            "plan_id": plan.plan_id,
+            "plan_hash": plan.plan_hash,
+            "audit_mode": plan.audit_mode.value,
+            "reservation": (
+                None
+                if reservation is None
+                else reservation.model_dump(mode="json")
+            ),
+            "reservation_created": created,
+            "trusted_service_entrypoint": (
+                "trading.research.chronological_meta_oos."
+                "run_chronological_meta_oos"
+            ),
+            "raw_audit_input_accepted_by_cli": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (MetaOosPersistenceError, ValueError) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_meta_oos_app.command("verify")
+def research_meta_oos_verify(
+    plan_id: Annotated[
+        str,
+        typer.Option("--plan-id", min=1, max=160),
+    ],
+    result_file: Annotated[
+        Path | None,
+        typer.Option("--result", exists=True, dir_okay=False),
+    ] = None,
+) -> None:
+    """Read and hash-verify one bounded aggregate result without writing."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    contract = meta_oos_evaluation_contract(config)
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = MetaOosRepository(make_session_factory(engine))
+        plan = repository.plan(plan_id)
+        if plan is None:
+            raise MetaOosPersistenceError("unknown meta-OOS plan")
+        result = (
+            repository.result(plan_id)
+            if result_file is None
+            else load_json_model(
+                result_file,
+                ChronologicalMetaOosResultV1,
+            )
+        )
+        if result is None:
+            raise MetaOosPersistenceError("meta-OOS result is not available")
+        verify_chronological_meta_oos_result(
+            plan=plan,
+            evaluation_contract=contract,
+            result=result,
+        )
+        payload = {
+            "verified": True,
+            "read_only": True,
+            "plan_id": plan.plan_id,
+            "plan_hash": plan.plan_hash,
+            "result_id": result.result_id,
+            "result_hash": result.result_hash,
+            "adaptive_system_pass": result.adaptive_system_pass,
+            "synthetic_fixture_is_performance_evidence": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (
+        MetaOosError,
+        MetaOosPersistenceError,
+        ResearchFileRuntimeError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
     _emit(payload)
 
 
@@ -1030,7 +1525,25 @@ def research_schema() -> None:
         {
             "request": ResearchRequestV1.model_json_schema(),
             "decision": ResearchDecisionV1.model_json_schema(),
+            "research_request_v2": ResearchRequestV2.model_json_schema(),
+            "research_decision_v2": ResearchDecisionV2.model_json_schema(),
+            "research_action_plan_v1": (
+                ResearchActionPlanV1.model_json_schema()
+            ),
             "candidate_artifact": (CandidateArtifactBundleV1.model_json_schema()),
+            "algorithm_proposal_v2": AlgorithmProposalV2.model_json_schema(),
+            "experiment_outcome_event_v1": (
+                ExperimentOutcomeEventV1.model_json_schema()
+            ),
+            "experiment_outcome_maturation_input_v1": (
+                ExperimentOutcomeMaturationInputV1.model_json_schema()
+            ),
+            "research_experiment_action_v1": (
+                ResearchExperimentActionV1.model_json_schema()
+            ),
+            "research_memory_snapshot_v1": (
+                ResearchMemorySnapshotV1.model_json_schema()
+            ),
             "trusted_shadow_summary": (TrustedShadowPerformanceSummaryV1.model_json_schema()),
             "promotion_evidence": PromotionEvidenceV1.model_json_schema(),
             "trusted_promotion_evaluation": (TrustedPromotionEvaluationV1.model_json_schema()),
@@ -1144,7 +1657,7 @@ def research_commander_run(
         )
     engine = create_database_engine(settings.database_url)
     try:
-        request = load_json_model(request_file, ResearchRequestV1)
+        request = load_research_request(request_file)
         config = WebGptScoutConfig.from_env()
         artifact_root = resolve_local_output(
             config.artifact_root,
@@ -1501,6 +2014,7 @@ def ui_serve(
         help="Explicit paper algorithm shown by the operator UI.",
     ),
 ) -> None:
+    host = _require_loopback_host(host)
     import uvicorn
 
     from trading.ui.app import create_app
@@ -1770,6 +2284,7 @@ def paper_serve(
         ),
     ),
 ) -> None:
+    host = _require_loopback_host(host)
     import uvicorn
 
     from trading.ui.app import create_app
@@ -2062,6 +2577,56 @@ def _research_timestamp(value: str | None, option_name: str) -> datetime:
         raise typer.BadParameter(
             f"{option_name} must be an ISO-8601 timestamp with a UTC offset"
         ) from exc
+
+
+def _parse_research_action_kinds(
+    value: str,
+) -> tuple[ResearchActionKind, ...]:
+    raw = tuple(item.strip() for item in value.split(",") if item.strip())
+    if not raw:
+        return tuple(
+            action
+            for action in ResearchActionKind
+            if action is not ResearchActionKind.UNKNOWN_LEGACY
+        )
+    try:
+        actions = tuple(ResearchActionKind(item) for item in raw)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            "--actions contains an unknown ResearchActionKind"
+        ) from exc
+    if (
+        ResearchActionKind.UNKNOWN_LEGACY in actions
+        or len(set(actions)) != len(actions)
+    ):
+        raise typer.BadParameter(
+            "--actions must contain unique typed non-legacy actions"
+        )
+    return actions
+
+
+def _validate_meta_oos_plan_config(
+    plan: ChronologicalMetaOosPlanV1,
+    config: ResearchConfigBundle,
+) -> None:
+    configured = config.config.recursive_improvement.meta_oos
+    contract = meta_oos_evaluation_contract(config)
+    if (
+        plan.plan_version != configured.plan_version
+        or plan.evaluation_contract_hash != contract.contract_hash
+        or len(plan.epochs) < configured.minimum_epochs
+        or len(plan.epochs) > configured.maximum_epochs
+        or plan.outer_audit_budget_ordinal
+        > configured.maximum_outer_audit_uses_per_dataset
+        or any(
+            epoch.candidate_generation_budget
+            > configured.maximum_candidate_generation_budget_per_epoch
+            or epoch.oos_budget
+            > configured.maximum_oos_budget_per_epoch
+            for epoch in plan.epochs
+        )
+    ):
+        raise ValueError("meta-OOS plan violates versioned configuration")
 
 
 def _require_research_paper_only(settings: Settings) -> None:

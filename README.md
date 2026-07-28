@@ -10,6 +10,11 @@ particular ticker, sector, or trading style.
 > - This is a research and paper-trading system. It does not guarantee profit.
 > - Real broker routing is unavailable and `real_order_routing=false` is enforced.
 > - AI cannot edit, replace, promote, or trade through the current Champion.
+> - Recursive improvement remains disabled for automatic operation:
+>   `recursive_improvement.enabled=false`. Phase 0 through PR 4 provide the
+>   outcome ledger, immutable memory, deterministic Meta Controller, V2
+>   Commander contracts, whole-portfolio delta-Sharpe/OOS V2, matched shadow
+>   V2, Promotion V2, and a protected chronological meta-OOS evaluator.
 > - Every public account, position, balance, order, and result is synthetic.
 > - WebGPT/AGBrowse and Codex execution require separate user-managed local
 >   environments; browser state, credentials, and private datasets are not bundled.
@@ -37,7 +42,7 @@ flowchart TB
     subgraph RP["Research Plane"]
         WS["WebGPT Sol Pro Scout<br/>AGBrowse · fresh conversation"] --> EB["ResearchEvidenceBundleV1"]
         EB --> RC["Selected Research Commander<br/>Codex Sol Max or WebGPT Sol Pro"]
-        RC --> AP["AlgorithmProposalV1"]
+        RC --> AP["AlgorithmProposalV1 / V2"]
         AP --> CB["Isolated Candidate Builder"]
         CB --> CF["Falsification · replay · OOS lockbox"]
         CF --> CH["Versioned Challenger"]
@@ -79,15 +84,18 @@ The selected Research Commander is exactly one of:
 - `WEBGPT_SOL_PRO`: GPT-5.6 Sol Pro, reasoning profile `xhigh`, executed through
   headed Chrome, CDP, and AGBrowse in a fresh ChatGPT conversation.
 
-Both receive the same hashed `ResearchRequestV1` and must return the same
-`ResearchDecisionV1` schema. Commander selection is append-only. Changing the
-selection makes outstanding requests stale. Each request binds the exact
-selection ID and version, so switching away and later back to the same model
-does not revive an older request.
+Both receive the same version-matched, hashed request contract. Historical
+cycles retain `ResearchRequestV1`/`ResearchDecisionV1`. Recursive cycles use
+`ResearchRequestV2`/`ResearchDecisionV2`, embedding one immutable verified
+memory snapshot and one deterministic action plan. Commander selection is
+append-only. Changing the selection makes outstanding requests stale. Each
+request binds the exact selection ID and version, so switching away and later
+back to the same model does not revive an older request.
 
-The Scout, Commander, and Builder are separate invocations. The Builder receives
-only an approved structured proposal and a clean source snapshot—not the
-Commander conversation or hidden reasoning.
+The Scout, Commander, and Builder are separate invocations. The Builder
+receives only an approved structured proposal, a sanitized request binding,
+constraints, and a clean source snapshot—not the full Research Memory,
+Commander conversation, or hidden reasoning.
 
 ## Universe: catalog-driven US equities and ETFs
 
@@ -110,8 +118,11 @@ Challenger research.
 
 - The Champion is immutable in place.
 - Every change creates a new semantic strategy version.
-- Candidate patches are limited to research, feature, strategy, calibration,
-  experiment, test, configuration, and research-document paths.
+- Historical V1 Candidate artifacts retain their original patch contract.
+  New recursive V2 Candidates are limited to dedicated `challengers/`
+  strategy, feature, calibration, experiment, strategy-config, candidate-test,
+  and Challenger-document namespaces, and every V2 change must add a new file
+  rather than modify, delete, rename, or copy an existing file.
 - Risk, execution, ledger, broker, persistence schema, migrations, credentials,
   and the release-security workflow are outside Builder authority.
 - Mandatory falsification failure prevents OOS or shadow admission.
@@ -178,6 +189,7 @@ Research contract and status commands:
 uv run python -m trading.cli research schema
 uv run python -m trading.cli research status
 uv run python -m trading.cli research select --commander CODEX_SOL_MAX
+uv run python -m trading.cli research meta-policy build --help
 ```
 
 The UI can be started on a loopback address:
@@ -240,6 +252,11 @@ Any release-scan failure blocks publication.
 - [Operations](docs/operations.md)
 - [Legacy forward paper operations](docs/forward-paper-operations.md)
 - [Q1 mathematical core](docs/q1-math-core.md)
+- [Recursive improvement status and contracts](docs/research/recursive-improvement.md)
+- [Experiment outcome ledger](docs/research/experiment-outcome-ledger.md)
+- [Deterministic Meta Controller and research memory](docs/research/meta-controller.md)
+- [Portfolio-level delta-Sharpe V2](docs/research/portfolio-delta-sharpe.md)
+- [Chronological meta-OOS V1](docs/research/chronological-meta-oos.md)
 
 ## License and responsibility
 

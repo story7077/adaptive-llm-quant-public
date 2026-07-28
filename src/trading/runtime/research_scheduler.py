@@ -58,6 +58,9 @@ class ResearchSchedulerService:
             market_sessions=sessions,
             evidence=evidence,
             consumed_evidence_hashes=consumed,
+            include_outcome_maintenance=(
+                self._config.config.recursive_improvement.enabled
+            ),
         )
         created = self._repository.store_plans(
             plans,

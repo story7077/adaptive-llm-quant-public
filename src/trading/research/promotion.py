@@ -32,14 +32,15 @@ def evaluate_promotion_eligibility(
     criteria: dict[str, bool],
     replay_hash: str,
     created_at: datetime,
+    required_criteria: tuple[str, ...] = REQUIRED_PROMOTION_CRITERIA,
 ) -> PromotionDecisionV1:
-    missing = sorted(set(REQUIRED_PROMOTION_CRITERIA) - set(criteria))
-    unknown = sorted(set(criteria) - set(REQUIRED_PROMOTION_CRITERIA))
+    missing = sorted(set(required_criteria) - set(criteria))
+    unknown = sorted(set(criteria) - set(required_criteria))
     if missing or unknown:
         raise ValueError(
             f"promotion criteria mismatch missing={missing} unknown={unknown}"
         )
-    failed = [name.upper() for name in REQUIRED_PROMOTION_CRITERIA if not criteria[name]]
+    failed = [name.upper() for name in required_criteria if not criteria[name]]
     verdict = (
         PromotionVerdict.ELIGIBLE_REQUIRES_MANUAL_APPROVAL
         if not failed

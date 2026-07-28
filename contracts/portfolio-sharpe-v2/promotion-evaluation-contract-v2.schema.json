@@ -1,0 +1,111 @@
+{
+  "$id": "https://adaptive-llm-quant.example/schemas/promotion-evaluation-contract-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "maximum_annualized_turnover": {
+      "exclusiveMinimum": 0,
+      "title": "Maximum Annualized Turnover",
+      "type": "number"
+    },
+    "maximum_drawdown": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Maximum Drawdown",
+      "type": "number"
+    },
+    "maximum_runtime_error_rate": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Maximum Runtime Error Rate",
+      "type": "number"
+    },
+    "maximum_tail_loss": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Maximum Tail Loss",
+      "type": "number"
+    },
+    "minimum_annualized_net_excess_return_after_cost": {
+      "title": "Minimum Annualized Net Excess Return After Cost",
+      "type": "number"
+    },
+    "minimum_capacity_usd": {
+      "exclusiveMinimum": 0,
+      "title": "Minimum Capacity Usd",
+      "type": "number"
+    },
+    "minimum_common_oos_sessions": {
+      "minimum": 2,
+      "title": "Minimum Common Oos Sessions",
+      "type": "integer"
+    },
+    "minimum_economic_effect": {
+      "title": "Minimum Economic Effect",
+      "type": "number"
+    },
+    "minimum_forward_sessions": {
+      "exclusiveMinimum": 1,
+      "title": "Minimum Forward Sessions",
+      "type": "integer"
+    },
+    "minimum_independent_trades": {
+      "exclusiveMinimum": 0,
+      "title": "Minimum Independent Trades",
+      "type": "integer"
+    },
+    "minimum_matched_annualized_difference": {
+      "title": "Minimum Matched Annualized Difference",
+      "type": "number"
+    },
+    "minimum_oos_delta_sharpe_lcb": {
+      "title": "Minimum Oos Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "minimum_regime_pass_fraction": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Minimum Regime Pass Fraction",
+      "type": "number"
+    },
+    "minimum_shadow_delta_sharpe_lcb": {
+      "title": "Minimum Shadow Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "minimum_worst_cost_delta_sharpe_lcb": {
+      "title": "Minimum Worst Cost Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "schema_version": {
+      "const": "promotion_evaluation_contract_v2",
+      "default": "promotion_evaluation_contract_v2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "contract_version",
+    "minimum_common_oos_sessions",
+    "minimum_forward_sessions",
+    "minimum_independent_trades",
+    "minimum_annualized_net_excess_return_after_cost",
+    "minimum_matched_annualized_difference",
+    "minimum_economic_effect",
+    "maximum_drawdown",
+    "maximum_tail_loss",
+    "maximum_annualized_turnover",
+    "minimum_capacity_usd",
+    "minimum_regime_pass_fraction",
+    "maximum_runtime_error_rate",
+    "minimum_oos_delta_sharpe_lcb",
+    "minimum_shadow_delta_sharpe_lcb",
+    "minimum_worst_cost_delta_sharpe_lcb"
+  ],
+  "title": "PromotionEvaluationContractV2",
+  "type": "object"
+}
