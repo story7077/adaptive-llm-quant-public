@@ -21,9 +21,9 @@ Web research
 The resulting Challenger remains `PROPOSED`. It has not entered mandatory
 falsification, the locked OOS service, or an independent Challenger shadow arm.
 Automatic promotion remains disabled. The separate operational
-`q1_math_core_v1` paper runtime is live with a synthetic account and is waiting
-for the next observed market session; it does not run this unvalidated
-Challenger.
+`q1_math_core_v1` paper runtime is live with a synthetic account, has captured
+the completed prior-session adjusted inputs, and is waiting for the next
+observed market session; it does not run this unvalidated Challenger.
 
 ## Research cycle identity
 
@@ -101,19 +101,19 @@ manual promotion recommendation.
 
 ## Operational Q1 paper runtime
 
-The active synthetic run is `paper_q1_research_20260729_v4`.
+The active synthetic run is `paper_q1_research_20260729_v5`.
 
-At `2026-07-28T18:25Z` its server-reported state was:
+At `2026-07-28T20:08Z` its server-reported state was:
 
 - algorithm: `q1_math_core_v1`;
-- Alpaca data feed: IEX, `CONNECTED`, `LIVE`;
+- Alpaca data feed: IEX, `CONNECTED`;
 - coverage: single exchange, not SIP/NBBO;
-- paper quote input: ready;
+- adjusted-history refresh: `READY`, with no refresh error;
 - run state: `PENDING_BOOTSTRAP`;
+- Q1 worker: `Q1_WORKER_RUNNING`;
 - evaluation anchor: not yet established;
 - next cycle: `Q1_SETTLEMENT` at `2026-07-29T13:30Z`
   (09:30 ET);
-- LLM operational overlay: `NO_POLICY`;
 - Alpaca Paper order canary: disabled;
 - real broker routing: unavailable and `false`.
 
@@ -136,15 +136,58 @@ Two runtime defects were found during bring-up and fixed:
 The earlier diagnostic run rows and cycle records were retained. No append-only
 record was deleted or rewritten.
 
+### Post-close adjusted-history verification
+
+Public PR
+[#9](https://github.com/story7077/adaptive-llm-quant-public/pull/9)
+added a bounded adjusted-history refresh projection to the market status API
+and UI. Both public GitHub workflows passed, and merge commit
+`fbde26a9fce67ca47eb2a26d247b5f5be399851a` is deployed locally.
+
+The 2026-07-28 session closed at `2026-07-28T20:00Z` according to the stored
+versioned market-calendar row. The first post-close refresh appended six daily
+bar revisions. A later restart appended three more revisions, including a QQQ
+late-volume revision. At `2026-07-28T20:15:15Z`, a deliberate confirmation
+fetch appended seven additional provider revisions. The same history request
+nine seconds later returned 1,054 bars and appended zero rows. This verifies
+both provider-result stability at that observation time and append-only
+idempotency; it does not claim that a data vendor can never publish a later
+correction.
+
+The exact prospective Q1 preflight for the next `10:00 ET` signal cutoff
+returned:
+
+| Field | Value |
+| --- | --- |
+| Signal cutoff | `2026-07-29T14:00:00Z` |
+| Completed-session range | `2026-02-03` through `2026-07-28` |
+| Aligned sessions | 121 |
+| Source bars | 242 |
+| Source-bar manifest | `8264b4f971d1b63f611d743ee54d4cd83548ca8a53e1deeeb7262b5117ec1d25` |
+| All records available by cutoff | `true` |
+
+The selected QQQ revision was available at
+`2026-07-28T20:15:16.447182Z`; the selected SOXX revision was available at
+`2026-07-28T20:05:57.761422Z`. Both carried `adjustment=all` and dataset
+version `alpaca_iex_adjusted_all_v1`.
+
+The first attempt to restart the merged code under the existing v4 run ID was
+rejected with `Q1PAPERRUNCONFLICT: Q1 run code version changed`. This is the
+intended run-identity fence: a run cannot silently change code version. The v4
+records were preserved, and the merged code was started as the new v5 run
+instead.
+
 ## Validation
 
 Public repository:
 
-- `uv run pytest`: **614 passed**, one third-party
+- `uv run pytest`: **615 passed**, one third-party
   FastAPI/Starlette deprecation warning;
 - `uv run ruff check .`: passed;
 - `uv run pyright`: 0 errors, 0 warnings;
 - `uv run python -m trading.cli config validate --all`: passed;
+- public release scan: passed;
+- PR #9 push and pull-request workflows: passed;
 - Q1 config manifest:
   `afcaa7ea2939b3ca39ecae9f553794450ca498a0d1a48a19758eaab70479ad36`;
 - Research config manifest:
@@ -161,13 +204,13 @@ A clean disposable SQLite database upgraded to
 `0016_portfolio_delta_sharpe_v2`, and re-upgraded to
 `0017_chronological_meta_oos_v1`.
 
-The live v4 run is not yet replay-complete because its first session has not
+The live v5 run is not yet replay-complete because its first session has not
 opened. `replay` and `verify` returned the same deterministic incomplete-stream
 hash,
-`d11e7915554fe798d68bc9fbdf178aec5420df305736c820959afed69f2fbede`,
+`1af290f96e41284c6e4ce70081bba141be00358757b10a2552371354c633cbd0`,
 with all available hash and state-machine checks passing and the required
 initial-state/session-completeness checks correctly false. The repository's
-complete synthetic Q1 replay tests passed in the 614-test suite.
+complete synthetic Q1 replay tests passed in the 615-test suite.
 
 ### Migration validation incident
 
