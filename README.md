@@ -26,6 +26,9 @@ capacity limits, regime splits, out-of-sample evaluation, and independent shadow
 forward observation. It is a research objective, not a claim about current or
 future returns.
 
+The engineering record for the first tool-backed cycle is
+[First Live Research Cycle — 2026-07-29 KST](docs/research/first-live-cycle-2026-07-29.md).
+
 ## System overview
 
 ```mermaid
