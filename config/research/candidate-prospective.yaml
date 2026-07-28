@@ -1,0 +1,64 @@
+schema_version: candidate_prospective_config_v1
+producer_version: q1_det_candidate_feature_producer_v1
+strategy_config_path: strategies/challengers/q1-det-v2.0.0.yaml
+strategy_config_content_sha256: ca584917c436f8bc29263a14ed7030e9e6223fe6ce849364d3d7ded90d870228
+strategy_id: Q1-DET
+strategy_version: 2.0.0
+reference_universe: [GLD, QQQ, SGOV, SOXX, TLT]
+
+market_data:
+  provider: alpaca
+  feed: iex
+  timeframe: 1Day
+  adjustment: all
+  dataset_version: alpaca_iex_adjusted_all_v1
+  required_completed_sessions: 200
+  query_limit: 260
+
+features:
+  total_return_short_sessions: 63
+  total_return_long_sessions: 126
+  moving_average_sessions: 200
+  realized_volatility_sessions: 63
+  downside_beta_sessions: 126
+  annualization_sessions: 252
+  realized_volatility_ddof: 1
+  minimum_variance: 0.000000000001
+  source_revision: 0
+  initial_completed_sessions_since_review: 21
+
+membership:
+  available_at: "2026-07-29T00:00:00Z"
+  valid_from: "2026-07-29T00:00:00Z"
+  valid_until: null
+  instrument_is_non_survivor: false
+
+constraints:
+  long_only: true
+  leverage_permitted: false
+  new_symbols_permitted: false
+  maximum_gross_weight: 1.0
+  minimum_cash_weight: 0.0
+  maximum_weight_by_symbol:
+    GLD: 0.20
+    QQQ: 0.80
+    SGOV: 0.35
+    SOXX: 0.45
+    TLT: 0.20
+  numeric_tolerance: 0.000000000001
+
+state:
+  initial_state: CASH_ONLY_AT_EVALUATION_ANCHOR
+  subsequent_state: PRIOR_VERIFIED_TARGETS
+  decision_time_source: PARENT_DECISION_CREATED_AT
+
+operations:
+  watch_poll_seconds: 15
+  maximum_wait_seconds: 86400
+
+safety:
+  real_order_routing: false
+  automatic_promotion_enabled: false
+  challenger_lifecycle_advance_enabled: false
+  shadow_activation_enabled: false
+  broker_access_permitted: false

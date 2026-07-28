@@ -99,6 +99,33 @@ falsification suite. A mandatory failure must reject the Candidate before OOS
 or shadow. At least 126 common out-of-sample sessions are required before any
 manual promotion recommendation.
 
+### Versioned prospective evidence producer
+
+The follow-up `candidate_prospective_v1` path is intentionally not an
+independent shadow arm. It binds one completed parent `Q1-DET` strategic
+decision to one sealed Candidate request using:
+
+- the parent's actual creation time as both decision time and signal cutoff;
+- 200 aligned completed sessions for GLD, QQQ, SGOV, SOXX, and TLT;
+- exact source bar IDs, event and availability times, and payload hashes;
+- the common evaluation anchor and parent decision/input-manifest hashes;
+- a versioned feature/config contract;
+- the finalized Candidate artifact, aggregate config hash, and exact approved
+  strategy-config content hash; and
+- independent network-denied `PRIMARY` and `REPLAY` executions.
+
+The first request starts from cash at the common evaluation anchor. A later
+request may use only the prior verified Candidate target state. The append-only
+tables introduced by migration `0018_candidate_prospective_v1` store requests
+and execution evidence separately so a failed Candidate process can be retried
+without rewriting the request. Immutable `request_recorded_at` and
+`execution_recorded_at` values come from the database clock and remain separate
+from the parent-bound logical decision/cutoff time.
+
+This path never creates orders, fills, ledger postings, NAV, returns, a
+Challenger lifecycle transition, or a shadow registration. Even a successful
+response is explicitly `IMMATURE_FORWARD_ONLY`.
+
 ## Operational Q1 paper runtime
 
 The active synthetic run is `paper_q1_research_20260729_v5`.
@@ -181,17 +208,17 @@ instead.
 
 Public repository:
 
-- `uv run pytest`: **615 passed**, one third-party
+- `uv run pytest`: **629 passed**, one third-party
   FastAPI/Starlette deprecation warning;
 - `uv run ruff check .`: passed;
 - `uv run pyright`: 0 errors, 0 warnings;
 - `uv run python -m trading.cli config validate --all`: passed;
-- public release scan: passed;
-- PR #9 push and pull-request workflows: passed;
 - Q1 config manifest:
   `afcaa7ea2939b3ca39ecae9f553794450ca498a0d1a48a19758eaab70479ad36`;
 - Research config manifest:
-  `e7f2d7bb6876431f8b1e17508ed4f35baf69548b62d877f73d771a9b9b6b2a5b`.
+  `2b8475fd62f76d100ea5254847f2492ddbca6fe8d8d60629d394e1bf7e08d203`;
+- prospective Candidate config manifest:
+  `8c3bda4b64c55d350448821c0f14d91f24da4656b9aeeaa1368656ef9e069fa0`.
 
 Commander repository:
 
@@ -200,9 +227,16 @@ Commander repository:
 - Pyright: 0 errors.
 
 A clean disposable SQLite database upgraded to
-`0017_chronological_meta_oos_v1`, downgraded to
-`0016_portfolio_delta_sharpe_v2`, and re-upgraded to
-`0017_chronological_meta_oos_v1`.
+`0018_candidate_prospective_v1`, downgraded to
+`0017_chronological_meta_oos_v1`, and re-upgraded to
+`0018_candidate_prospective_v1`. The CLI downgrade gate now accepts SQLite
+only, so a localhost PostgreSQL URL cannot be mistaken for the disposable
+database.
+
+The synthetic seven-arm demo replay returned
+`ab7ca27aab4152b0cea1951a39c4b3bc552d4727ef399a64a03f1d53efbf096c`
+on two independent invocations. All 11 verification checks passed and every
+arm ledger balanced.
 
 The live v5 run is not yet replay-complete because its first session has not
 opened. `replay` and `verify` returned the same deterministic incomplete-stream
@@ -210,7 +244,7 @@ hash,
 `1af290f96e41284c6e4ce70081bba141be00358757b10a2552371354c633cbd0`,
 with all available hash and state-machine checks passing and the required
 initial-state/session-completeness checks correctly false. The repository's
-complete synthetic Q1 replay tests passed in the 615-test suite.
+complete synthetic Q1 replay tests passed in the 629-test suite.
 
 ### Migration validation incident
 
@@ -220,12 +254,15 @@ PostgreSQL research database was downgraded from 0017 to 0016, then immediately
 re-upgraded to 0017. Migration 0017 drops and recreates four chronological
 meta-OOS tables. Their current row counts are all zero, but pre-downgrade counts
 were not captured, so loss of an unknown pre-existing row cannot be ruled out.
-The active database is back at revision 0017. The validated SQLite round trip
-above was then run with an explicit dialect preflight.
+The incident recovery returned the active database to revision 0017 at that
+time. The validated SQLite round trip above was then run with an explicit
+dialect preflight; subsequent deployment upgrades are performed separately and
+never use the downgrade command against PostgreSQL.
 
 ## Remaining gates
 
-- collect prospective PIT-adjusted bars and revision provenance;
+- record the first parent-bound prospective target and continue chronological
+  forward observation without backfill;
 - run every mandatory falsification and cost/capacity stress;
 - request locked OOS only after falsification passes;
 - create an independent Challenger shadow arm only after locked OOS passes;

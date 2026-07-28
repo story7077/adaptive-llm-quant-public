@@ -18,6 +18,9 @@ particular ticker, sector, or trading style.
 > - Every public account, position, balance, order, and result is synthetic.
 > - WebGPT/AGBrowse and Codex execution require separate user-managed local
 >   environments; browser state, credentials, and private datasets are not bundled.
+> - The first live-built `Q1-DET 2.0.0` Challenger remains `PROPOSED`.
+>   Its prospective target-state observations are forward research evidence,
+>   not an independent shadow portfolio, OOS pass, or promotion evidence.
 
 The system searches for robust improvements by trying to falsify each hypothesis
 before accepting it. “Stable alpha” therefore means a candidate edge that remains

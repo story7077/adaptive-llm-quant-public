@@ -5,13 +5,20 @@ import subprocess
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Literal, Protocol
+from pathlib import Path, PurePosixPath
+from typing import Literal, Protocol, Self
 
-from pydantic import Field, JsonValue, TypeAdapter, ValidationError
+from pydantic import (
+    Field,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from trading.domain.contracts import DomainModel
-from trading.domain.hashing import canonical_json
+from trading.domain.hashing import canonical_hash, canonical_json
 from trading.research.candidate_artifact import (
     CandidateArtifactBundleV1,
     CandidateRuntimeV1,
@@ -90,12 +97,33 @@ class SubprocessHostProcessRunner:
         )
 
 
+class CandidateConfigFileAttestationV1(DomainModel):
+    path: str = Field(min_length=8, max_length=320)
+    sha256: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("path", mode="after")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        parsed = PurePosixPath(value)
+        if (
+            parsed.is_absolute()
+            or not value.startswith("config/")
+            or ".." in parsed.parts
+        ):
+            raise ValueError("Candidate config file path is invalid")
+        return value
+
+
 class CandidateRuntimeAttestationV1(DomainModel):
     schema_version: Literal["candidate_runtime_attestation_v1"]
     isolation_kind: Literal["native_windows_codex_sandbox"]
     isolation_version: Literal["candidate_runtime_v1"]
     candidate_artifact_hash: str = Field(pattern=HASH_PATTERN)
     candidate_tree_hash: str = Field(pattern=HASH_PATTERN)
+    candidate_config_hash: str = Field(pattern=HASH_PATTERN)
+    candidate_config_files: tuple[CandidateConfigFileAttestationV1, ...] = Field(
+        min_length=1
+    )
     runtime: CandidateRuntimeV1
     worker_code_hash: str = Field(pattern=HASH_PATTERN)
     declared_entrypoint: str = Field(
@@ -107,15 +135,44 @@ class CandidateRuntimeAttestationV1(DomainModel):
     filesystem_write_permitted: Literal[False] = False
     real_order_routing: Literal[False] = False
 
+    @field_validator("candidate_config_files", mode="after")
+    @classmethod
+    def validate_config_files(
+        cls,
+        value: tuple[CandidateConfigFileAttestationV1, ...],
+    ) -> tuple[CandidateConfigFileAttestationV1, ...]:
+        paths = tuple(item.path for item in value)
+        if len(paths) != len(set(paths)):
+            raise ValueError("Candidate config file paths are duplicated")
+        return value
+
+    @model_validator(mode="after")
+    def validate_config_hash(self) -> Self:
+        records = [item.model_dump(mode="python") for item in self.candidate_config_files]
+        if canonical_hash(records) != self.candidate_config_hash:
+            raise ValueError("Candidate config file hashes do not match config hash")
+        return self
+
     def assert_bound_to(self, bundle: CandidateArtifactBundleV1) -> None:
         if (
             self.candidate_artifact_hash != bundle.bundle_hash
             or self.candidate_tree_hash != bundle.candidate_tree_hash
+            or self.candidate_config_hash != bundle.config_hash
             or self.runtime != bundle.runtime
             or self.declared_entrypoint != bundle.declared_entrypoint
         ):
             raise CommanderCandidateError(
                 "COMMANDER_CANDIDATE_ATTESTATION_MISMATCH"
+            )
+
+    def assert_config_file(self, *, path: str, sha256: str) -> None:
+        match = next(
+            (item for item in self.candidate_config_files if item.path == path),
+            None,
+        )
+        if match is None or match.sha256 != sha256:
+            raise CommanderCandidateError(
+                "COMMANDER_CANDIDATE_CONFIG_FILE_MISMATCH"
             )
 
 

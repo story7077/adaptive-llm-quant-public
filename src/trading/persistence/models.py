@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     event,
+    func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -1461,6 +1462,135 @@ class ResearchCandidateArtifactRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ResearchCandidateProspectiveRequestRow(Base):
+    __tablename__ = "research_candidate_prospective_requests"
+    __table_args__ = (
+        UniqueConstraint(
+            "challenger_id",
+            "parent_portfolio_decision_id",
+            name="uq_candidate_prospective_parent_decision",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_candidate_prospective_request_paper_only",
+        ),
+    )
+
+    prospective_request_id: Mapped[str] = mapped_column(
+        String(160),
+        primary_key=True,
+    )
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey("challenger_manifests.challenger_id", ondelete="RESTRICT")
+    )
+    candidate_artifact_bundle_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_candidate_artifacts.bundle_id",
+            ondelete="RESTRICT",
+        )
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    candidate_config_hash: Mapped[str] = mapped_column(String(64))
+    strategy_config_content_sha256: Mapped[str] = mapped_column(String(64))
+    parent_run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.run_id", ondelete="RESTRICT")
+    )
+    parent_portfolio_decision_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "portfolio_decisions.portfolio_decision_id",
+            ondelete="RESTRICT",
+        )
+    )
+    calendar_session_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "market_calendar_sessions.calendar_session_id",
+            ondelete="RESTRICT",
+        )
+    )
+    evaluation_anchor_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "strategy_evaluation_anchors.evaluation_anchor_id",
+            ondelete="RESTRICT",
+        )
+    )
+    prior_prospective_request_id: Mapped[str | None] = mapped_column(
+        ForeignKey(
+            "research_candidate_prospective_requests.prospective_request_id",
+            ondelete="RESTRICT",
+        )
+    )
+    parent_scheduled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    signal_data_cutoff: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    request_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    source_manifest_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    host_config_manifest_hash: Mapped[str] = mapped_column(String(64))
+    evidence_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    source_manifest_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class ResearchCandidateProspectiveExecutionRow(Base):
+    __tablename__ = "research_candidate_prospective_executions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('SUCCEEDED', 'FAILED')",
+            name="ck_candidate_prospective_execution_status",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_candidate_prospective_execution_paper_only",
+        ),
+    )
+
+    execution_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    prospective_request_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_candidate_prospective_requests.prospective_request_id",
+            ondelete="RESTRICT",
+        )
+    )
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey("challenger_manifests.challenger_id", ondelete="RESTRICT")
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20))
+    runtime_attestation_hash: Mapped[str] = mapped_column(String(64))
+    security_contract_hash: Mapped[str] = mapped_column(String(64))
+    primary_response_hash: Mapped[str | None] = mapped_column(String(64))
+    replay_response_hash: Mapped[str | None] = mapped_column(String(64))
+    deterministic_match: Mapped[bool] = mapped_column(Boolean)
+    error_code: Mapped[str | None] = mapped_column(String(160))
+    success_identity: Mapped[str | None] = mapped_column(
+        String(160),
+        unique=True,
+    )
+    execution_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class ResearchExperimentActionRow(Base):
     __tablename__ = "research_experiment_actions"
     __table_args__ = (
@@ -2136,6 +2266,8 @@ APPEND_ONLY_MODEL_TYPES = (
     AlgorithmProposalRow,
     ChallengerManifestRow,
     ResearchCandidateArtifactRow,
+    ResearchCandidateProspectiveRequestRow,
+    ResearchCandidateProspectiveExecutionRow,
     ResearchExperimentActionRow,
     ResearchExperimentOutcomeEventRow,
     ResearchMemorySnapshotRow,

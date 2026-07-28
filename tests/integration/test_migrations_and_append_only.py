@@ -10,6 +10,7 @@ from alembic import command
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from trading.cli import _is_local_database
 from trading.control.providers import CommanderProvider
 from trading.control.service import ControlPlaneService
 from trading.persistence import q1 as q1_persistence
@@ -24,11 +25,21 @@ from trading.persistence.models import SourceRecordRow
 from trading.persistence.repositories import SourceRecordRepository
 
 
+def test_cli_downgrade_gate_accepts_only_sqlite() -> None:
+    assert _is_local_database("sqlite+pysqlite:///disposable.db")
+    assert not _is_local_database(
+        "postgresql+psycopg://postgres@127.0.0.1:55432/trading_phase0"
+    )
+    assert not _is_local_database(
+        "postgresql+psycopg://postgres@localhost/disposable"
+    )
+
+
 def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
     url = f"sqlite+pysqlite:///{(tmp_path / 'migration.db').as_posix()}"
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
+    assert current_revision(engine) == "0018_candidate_prospective_v1"
     engine.dispose()
 
     downgrade_database(url, "base")
@@ -43,7 +54,7 @@ def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
+    assert current_revision(engine) == "0018_candidate_prospective_v1"
     engine.dispose()
 
 
@@ -114,7 +125,7 @@ def test_q1_migration_preserves_legacy_append_only_rows(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
+    assert current_revision(engine) == "0018_candidate_prospective_v1"
     with engine.connect() as connection:
         decision = connection.execute(
             text(
@@ -177,7 +188,7 @@ def test_q1_migration_preserves_legacy_append_only_rows(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0017_chronological_meta_oos_v1"
+    assert current_revision(engine) == "0018_candidate_prospective_v1"
     with engine.connect() as connection:
         assert (
             connection.execute(

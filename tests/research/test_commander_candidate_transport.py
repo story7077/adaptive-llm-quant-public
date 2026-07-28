@@ -26,6 +26,7 @@ from trading.research.candidate_artifact import (
 )
 from trading.research.candidate_process import build_candidate_process_result
 from trading.research.commander_candidate import (
+    CandidateRuntimeAttestationV1,
     CommanderCandidateError,
     HostProcessResult,
     connect_candidate_runtime,
@@ -38,6 +39,13 @@ HASH_A = "a" * 64
 HASH_B = "b" * 64
 HASH_C = "c" * 64
 HASH_D = "d" * 64
+CONFIG_FILES = [
+    {
+        "path": "config/strategies/challengers/q1-det-v2.0.0.yaml",
+        "sha256": "9" * 64,
+    }
+]
+CONFIG_HASH = canonical_hash(CONFIG_FILES)
 
 
 def _bundle():
@@ -58,7 +66,7 @@ def _bundle():
         source_snapshot_hash=HASH_B,
         candidate_tree_hash=HASH_C,
         code_hash=HASH_D,
-        config_hash="e" * 64,
+        config_hash=CONFIG_HASH,
         patch_hash="f" * 64,
         proposal_hash="1" * 64,
         builder_result_hash="2" * 64,
@@ -156,6 +164,8 @@ class _CommanderRunner:
                 "isolation_version": "candidate_runtime_v1",
                 "candidate_artifact_hash": self.artifact_hash,
                 "candidate_tree_hash": self.bundle.candidate_tree_hash,
+                "candidate_config_hash": self.bundle.config_hash,
+                "candidate_config_files": CONFIG_FILES,
                 "runtime": self.bundle.runtime.model_dump(mode="json"),
                 "worker_code_hash": "8" * 64,
                 "declared_entrypoint": self.bundle.declared_entrypoint,
@@ -238,6 +248,10 @@ def test_connected_runtime_attests_and_uses_independent_replay_lane(
     assert primary.output_hash == replay.output_hash
     assert connection.security.real_order_routing is False
     assert connection.attestation.credential_access_permitted is False
+    connection.attestation.assert_config_file(
+        path="config/strategies/challengers/q1-det-v2.0.0.yaml",
+        sha256="9" * 64,
+    )
     assert any("PRIMARY" in call for call in runner.calls)
     assert any("REPLAY" in call for call in runner.calls)
     assert all("-I" in call and "research_commander.cli" in call for call in runner.calls)
@@ -261,6 +275,36 @@ def test_runtime_attestation_mismatch_fails_closed(
             run_root=run,
             research_config=load_research_config(repository_root / "config"),
             runner=_CommanderRunner(bundle=bundle, artifact_hash="9" * 64),
+        )
+
+
+def test_runtime_config_file_mismatch_fails_closed() -> None:
+    bundle = _bundle()
+    attestation = {
+        "schema_version": "candidate_runtime_attestation_v1",
+        "isolation_kind": "native_windows_codex_sandbox",
+        "isolation_version": "candidate_runtime_v1",
+        "candidate_artifact_hash": bundle.bundle_hash,
+        "candidate_tree_hash": bundle.candidate_tree_hash,
+        "candidate_config_hash": bundle.config_hash,
+        "candidate_config_files": CONFIG_FILES,
+        "runtime": bundle.runtime.model_dump(mode="json"),
+        "worker_code_hash": "8" * 64,
+        "declared_entrypoint": bundle.declared_entrypoint,
+        "network_access_permitted": False,
+        "credential_access_permitted": False,
+        "broker_access_permitted": False,
+        "filesystem_write_permitted": False,
+        "real_order_routing": False,
+    }
+    validated = CandidateRuntimeAttestationV1.model_validate(attestation)
+    with pytest.raises(
+        CommanderCandidateError,
+        match="COMMANDER_CANDIDATE_CONFIG_FILE_MISMATCH",
+    ):
+        validated.assert_config_file(
+            path="config/strategies/challengers/q1-det-v2.0.0.yaml",
+            sha256="7" * 64,
         )
 
 

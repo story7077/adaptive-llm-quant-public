@@ -5,6 +5,18 @@ Research Lifecycle Champion/Challenger pair. It does not route broker orders,
 and both the runtime specification and every committed cycle persist
 `real_order_routing=false`.
 
+## Prospective target-state evidence is not shadow
+
+`candidate_prospective_v1` is a pre-gate evidence producer. It evaluates a
+sealed Candidate against the same parent decision cutoff and stores a
+deterministic target response. It deliberately has no independent cash,
+positions, orders, fills, ledger, NAV, or returns.
+
+Only a Challenger that has passed every mandatory falsification check and the
+locked OOS gate may enter the matched runtime described below. Prospective
+observations cannot be relabeled as shadow performance and cannot advance the
+Challenger lifecycle.
+
 ## Entry gate
 
 The durable adapter starts only after the Research database contains:

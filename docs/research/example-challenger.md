@@ -17,3 +17,25 @@ receive a shadow arm. The failed candidate and reason remain append-only.
 This rejection is intentional evidence that the pipeline fails closed. It is not
 evidence that the economic hypothesis is false; it means the currently available
 data cannot test it without leakage.
+
+## First live-built Challenger: Q1-DET v2.0.0
+
+The first actual Web Scout → Commander → Builder cycle produced
+`challenger-c0bb5e7ebe50e442a6e39250`, backed by Candidate artifact
+`8abe061a438043d6889f7205720c023bae916b508d6d7e3a1b79ba66434cf4c3`.
+Its proposal adds a capped GLD/TLT/SGOV diversifying sleeve around the parent
+QQQ/SOXX strategy. The isolated Candidate ABI test and all 12 declared
+Candidate tests passed.
+
+That build result does not prove the hypothesis. The Challenger remains
+`PROPOSED` because it has no mandatory falsification report and no locked OOS
+result. It therefore has no independent shadow arm and cannot be promotion
+eligible.
+
+The host may record forward-only prospective target-state observations for
+this Candidate. Each observation is bound to one completed parent `Q1-DET`
+decision, 200 completed PIT-valid sessions for GLD/QQQ/SGOV/SOXX/TLT, the
+common evaluation anchor, the sealed Candidate artifact and configuration, and
+matching independent primary/replay outputs. These observations mature future
+research evidence; they do not create orders, positions, P&L, or a shadow
+portfolio.
