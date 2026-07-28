@@ -83,6 +83,11 @@ from trading.replay.q1 import replay_q1_run
 from trading.replay.verifier import verify_ledger_arm, verify_run
 from trading.research.candidate_abi import CandidateDecisionRequestV1
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
+from trading.research.candidate_experiment import (
+    CandidateExperimentRegistrationError,
+    CandidateExperimentRegistrationService,
+    verify_candidate_test_manifest,
+)
 from trading.research.chronological_meta_oos import (
     ChronologicalMetaOosPlanV1,
     ChronologicalMetaOosResultV1,
@@ -120,6 +125,7 @@ from trading.research.file_runtime import (
     ResearchPlaneFileRuntime,
     atomic_write_json,
     load_json_model,
+    load_json_object,
     load_research_request,
     local_artifact_label,
     resolve_local_output,
@@ -180,6 +186,7 @@ from trading.runtime.q1_config import (
 from trading.runtime.q1_cycle import Q1PaperCycleProcessor
 from trading.runtime.q1_paper import Q1PaperRuntimeService
 from trading.runtime.q1_provider import Q1SelectedCommanderProvider
+from trading.runtime.q1_scheduler import VersionedMarketSession
 from trading.runtime.q1_worker import Q1PaperRuntimeWorker
 from trading.runtime.research_scheduler import ResearchSchedulerService
 from trading.runtime.scheduler import PaperCycleStore
@@ -946,6 +953,48 @@ def research_outcome_mature(
     _emit(result)
 
 
+@research_outcome_app.command("register-candidate")
+def research_outcome_register_candidate(
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+    test_manifest_file: Annotated[
+        Path,
+        typer.Option(
+            "--test-manifest",
+            exists=True,
+            dir_okay=False,
+        ),
+    ],
+) -> None:
+    """Register one sealed V2 Candidate as DISCOVERY-only audit evidence."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        factory = make_session_factory(engine)
+        result = CandidateExperimentRegistrationService(
+            research_repository=ResearchRepository(factory),
+            outcome_repository=ResearchRepository(
+                factory
+            ).experiment_outcomes(),
+            scheduler_repository=ResearchSchedulerRepository(factory),
+            config=load_research_config(settings.config_dir),
+        ).register_discovery(
+            challenger_id=challenger_id,
+            test_manifest=load_json_object(test_manifest_file),
+        )
+    except (
+        CandidateExperimentRegistrationError,
+        ResearchFileRuntimeError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result.status_payload())
+
+
 @research_memory_app.command("materialize")
 def research_memory_materialize(
     as_of: Annotated[
@@ -1399,6 +1448,14 @@ def research_candidate_artifact_register(
         str | None,
         typer.Option("--registered-at"),
     ] = None,
+    test_manifest_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--test-manifest",
+            exists=True,
+            dir_okay=False,
+        ),
+    ] = None,
 ) -> None:
     settings = Settings.from_env(repo_root())
     _require_research_paper_only(settings)
@@ -1408,8 +1465,19 @@ def research_candidate_artifact_register(
             artifact_file,
             CandidateArtifactBundleV1,
         )
+        test_manifest = (
+            None
+            if test_manifest_file is None
+            else load_json_object(test_manifest_file)
+        )
+        if test_manifest is not None:
+            verify_candidate_test_manifest(
+                test_manifest,
+                artifact=bundle,
+            )
+        factory = make_session_factory(engine)
         result = ResearchLifecycleService(
-            repository=ResearchRepository(make_session_factory(engine))
+            repository=ResearchRepository(factory)
         ).register_candidate_artifact(
             bundle,
             created_at=_research_timestamp(
@@ -1417,7 +1485,23 @@ def research_candidate_artifact_register(
                 "--registered-at",
             ),
         )
+        discovery = (
+            None
+            if test_manifest is None
+            else CandidateExperimentRegistrationService(
+                research_repository=ResearchRepository(factory),
+                outcome_repository=ResearchRepository(
+                    factory
+                ).experiment_outcomes(),
+                scheduler_repository=ResearchSchedulerRepository(factory),
+                config=load_research_config(settings.config_dir),
+            ).register_discovery(
+                challenger_id=bundle.challenger_id,
+                test_manifest=test_manifest,
+            )
+        )
     except (
+        CandidateExperimentRegistrationError,
         ResearchFileRuntimeError,
         ResearchLifecycleError,
         ValueError,
@@ -1431,6 +1515,9 @@ def research_candidate_artifact_register(
             "challenger_id": result.challenger_id,
             "status": result.status.value,
             "candidate_artifact_hash": result.artifact_hash,
+            "discovery_registration": (
+                None if discovery is None else discovery.status_payload()
+            ),
             "real_order_routing": False,
         }
     )
@@ -2686,6 +2773,93 @@ def market_calendar(
                     }
                     for item in sessions
                 ]
+            }
+        finally:
+            await client.aclose()
+
+    try:
+        payload = asyncio.run(run())
+    finally:
+        engine.dispose()
+    _emit(payload)
+
+
+@market_app.command("calendar-sync-q1")
+def market_calendar_sync_q1(
+    start: str = typer.Option(..., "--start"),
+    end: str = typer.Option(..., "--end"),
+) -> None:
+    """Append read-only Alpaca calendar observations without scheduling runs."""
+
+    settings, _, engine = runtime()
+    _require_research_paper_only(settings)
+    credentials = _alpaca_credentials(settings)
+    factory = make_session_factory(engine)
+    q1_config = load_q1_config_bundle(settings.config_dir)
+    paper = Q1PaperRuntimeService(
+        factory,
+        config=q1_config,
+        workspace_root=repo_root(),
+        alpaca_paper_enabled=False,
+        alpaca_paper_config=load_alpaca_paper_config_bundle(
+            settings.config_dir
+        ),
+    )
+    client = AlpacaReferenceClient(
+        credentials=credentials,
+        raw_store=ImmutableRawStore(settings.raw_store),
+        trading_base_url=settings.alpaca_trading_url,
+        data_base_url=settings.alpaca_data_url,
+    )
+
+    async def run() -> dict[str, Any]:
+        now = SystemClock().now()
+        try:
+            sessions = await client.fetch_calendar(
+                start=date.fromisoformat(start),
+                end=date.fromisoformat(end),
+            )
+            calendar_version = str(
+                q1_config.document["market_calendar_version"]
+            )
+            inserted = 0
+            unchanged = 0
+            for source in sessions:
+                existing = await asyncio.to_thread(
+                    paper.calendar_session,
+                    session_date=source.session_date,
+                    cutoff=now,
+                )
+                candidate = VersionedMarketSession.from_reference(
+                    source,
+                    calendar_version=calendar_version,
+                )
+                if (
+                    existing is not None
+                    and existing.open_at == candidate.open_at
+                    and existing.close_at == candidate.close_at
+                ):
+                    unchanged += 1
+                    continue
+                await asyncio.to_thread(
+                    paper.register_calendar_session,
+                    candidate,
+                    now=now,
+                )
+                inserted += 1
+            return {
+                "calendar_version": calendar_version,
+                "start": start,
+                "end": end,
+                "fetched": len(sessions),
+                "inserted": inserted,
+                "unchanged": unchanged,
+                "source_manifest_hash": canonical_hash(
+                    sorted(item.payload_hash for item in sessions)
+                ),
+                "schedules_created": 0,
+                "orders_created": 0,
+                "real_order_routing": False,
             }
         finally:
             await client.aclose()

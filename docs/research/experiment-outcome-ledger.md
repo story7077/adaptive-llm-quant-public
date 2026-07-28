@@ -1,12 +1,12 @@
 # Experiment Outcome Ledger
 
-> **Implementation status: PR 1 audit substrate**
+> **Implementation status: typed ledger plus V2 Candidate discovery producer**
 >
 > The typed contracts, append-only persistence, migration, deterministic memory
-> materialization, dry-run-first CLI, and scheduler work types are implemented.
-> Automatic outcome measurement, automatic action registration, memory
-> injection into Commander requests, and a production meta-controller are not
-> implemented. `recursive_improvement.enabled=false`.
+> materialization, dry-run-first maturation CLI, scheduler work types, and a
+> sealed V2 Candidate-to-`DISCOVERY` registration path are implemented.
+> Economic outcome measurement and recursive maintenance remain disabled.
+> `recursive_improvement.enabled=false`.
 
 ## Purpose
 
@@ -40,9 +40,19 @@ includes:
 - legacy and meta-training permission flags;
 - idempotency key and canonical `action_hash`.
 
-The action must exist before an outcome can be prepared or appended.
-Registration is exposed through the trusted repository API in PR 1; there is
-no general action-registration CLI or automatic Commander-to-ledger pipeline.
+The action must exist before an outcome can be prepared or appended. A trusted
+producer now maps a registered `ResearchRequestV2`, `AlgorithmProposalV2`,
+Challenger manifest, Candidate artifact, and passed Candidate test manifest to
+one immutable `DISCOVERY` action. V1 and arbitrary operator payloads are not
+eligible for this producer.
+
+The action starts at the database-clock registration instant after the sealed
+Candidate artifact became available, not at the earlier Commander or Builder
+timestamp. Its 63-session maturity horizon is selected from full market
+sessions whose versioned calendar records were already available at that
+registration instant. All selected session hashes are retained in the action's
+source provenance. Future calendar revisions cannot change the registered
+action.
 
 ### Action kinds
 
@@ -143,6 +153,26 @@ A technical build/test failure may be recorded immediately without economic
 metrics. It remains useful failure evidence but is not an economic
 meta-training observation.
 
+The Candidate discovery producer records two events:
+
+1. `EXPERIMENT_REGISTERED` with `PENDING` maturity;
+2. `TECHNICAL_OUTCOME_RECORDED` with `technical_success=true`.
+
+Before the second event is written, the host recomputes the complete Candidate
+test-manifest hash and requires:
+
+- `status=PASSED`, exit code zero, at least one passed test, and no failed or
+  errored tests;
+- unchanged Candidate tree, source projection, test projection, and host ABI
+  test;
+- no persisted host principal or raw process output;
+- no broker, credential, network, or real-order permission;
+- exact source snapshot, tree, patch, proposal, Builder result, entrypoint, and
+  runtime bindings to the sealed Candidate artifact.
+
+The raw test manifest and its local path are not stored in the public database.
+Only its already-sealed hash enters provenance.
+
 `due_experiments(as_of)` returns actions whose maturity time has arrived and
 that have no event or whose latest event remains `PENDING`. It does not
 calculate the missing outcome.
@@ -230,6 +260,32 @@ must define and test those bounds before treating the snapshot as model context.
 
 ## CLI
 
+Register a sealed V2 Candidate as technical `DISCOVERY` evidence:
+
+```powershell
+uv run python -m trading.cli research outcome register-candidate `
+  --challenger-id <CHALLENGER_ID> `
+  --test-manifest <LOCAL_CANDIDATE_TEST_MANIFEST_JSON>
+```
+
+The command is append-only and idempotent. It uses the database clock for the
+action and both outcome events. The same test manifest can also be supplied to
+`research candidate-artifact-register --test-manifest ...`, which validates it
+before artifact registration and then invokes the same producer.
+
+If the versioned calendar does not yet contain 63 full future sessions as known
+at Candidate registration time, the producer fails closed. Append read-only
+Alpaca calendar observations without creating schedules using:
+
+```powershell
+uv run python -m trading.cli market calendar-sync-q1 `
+  --start 2026-07-29 `
+  --end 2026-11-30
+```
+
+This command performs reference-data GETs and append-only calendar writes. It
+does not create schedules, orders, broker actions, or real routing.
+
 List due actions without writing:
 
 ```powershell
@@ -268,7 +324,7 @@ report `real_order_routing=false`.
 `ResearchExperimentActionV1`, `ExperimentOutcomeMaturationInputV1`,
 `ExperimentOutcomeEventV1`, and `ResearchMemorySnapshotV1`. `research status`
 reports action, physical/effective event, eligible-learning-event, and snapshot
-counts plus the latest snapshot.
+counts plus the latest snapshot and latest Candidate discovery registration.
 
 ## Scheduler integration
 
@@ -301,13 +357,14 @@ schema upgrade from silently turning historical outcomes into training data.
 
 ## Current limitations
 
-- No production path automatically creates `ResearchExperimentActionV1` from a
-  Commander decision.
 - No trusted worker computes a maturation input from shadow or forward results.
+- The automatic Candidate producer registers technical `DISCOVERY` evidence
+  only. It deliberately does not create a `LEARNING_FORWARD` action, economic
+  values, a Portfolio Comparison Contract, falsification success, OOS success,
+  or a shadow arm.
 - Candidate, proposal, and evaluation hashes are structurally recorded, but
-  PR 1 does not yet verify a maturation input against a trusted PR 3 evaluator
-  receipt. Committed CLI input is operator-supplied audit data, not promotion
-  evidence.
+  economic maturation still requires a trusted evaluator receipt. Committed
+  legacy CLI input is operator-supplied audit data, not promotion evidence.
 - No scheduler consumer executes the two new dispatch targets.
 - The legacy outcome CLI still accepts operator-supplied trusted-host audit
   data; it is not itself a DeltaSharpe or promotion evaluator.
