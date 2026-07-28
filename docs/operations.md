@@ -66,6 +66,22 @@ Meta Controller, V2 Commander contracts, portfolio DeltaSharpe/OOS V2, matched
 shadow and Promotion V2, and chronological meta-OOS. None is automatically
 invoked. Automatic promotion and real order routing remain unavailable.
 
+### Isolated Candidate runtime connection
+
+After a finalized Candidate artifact has been registered, use
+`research candidate-execute` with one host-produced
+`CandidateDecisionRequestV1` to verify the actual separate-repository runtime.
+The Commander root and finalized run are explicit local arguments and must never
+be committed. The host verifies runtime attestation before sending the bounded
+request, executes independent `PRIMARY` and `REPLAY` lanes, and fails closed on
+any hash, capability, output, or determinism mismatch.
+
+This command is a runtime/ABI check only. Its output is not falsification
+evidence and cannot transition a Challenger into OOS or shadow. The registered
+Candidate remains `PROPOSED` until the trusted data producer has supplied
+point-in-time scenarios with matured outcomes and every lifecycle gate has
+accepted its append-only artifacts.
+
 ## Synthetic smoke test
 
 The public fixtures contain no real account state:

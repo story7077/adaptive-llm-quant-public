@@ -26,6 +26,7 @@ from trading.research.candidate_evaluation import (
     build_candidate_evaluation_dataset,
     build_candidate_evaluation_scenario,
     evaluate_candidate_twice,
+    execute_candidate_dataset_twice,
 )
 from trading.research.candidate_process import (
     CandidateExecutionSecurityV1,
@@ -197,6 +198,18 @@ class _FixedExecutor:
         )
 
 
+class _CountingExecutor(_FixedExecutor):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(
+        self,
+        request: CandidateDecisionRequestV1,
+    ) -> CandidateDecisionResponseV1:
+        self.calls += 1
+        return super().execute(request)
+
+
 class _NondeterministicExecutor:
     calls = 0
 
@@ -321,6 +334,25 @@ def _response_json(request: CandidateDecisionRequestV1) -> str:
             ),
         )
     )
+
+
+def test_candidate_replay_can_use_an_independent_executor_lane() -> None:
+    _, dataset = _dataset()
+    primary = _CountingExecutor()
+    replay = _CountingExecutor()
+
+    result = execute_candidate_dataset_twice(
+        dataset=dataset,
+        executor=primary,
+        replay_executor=replay,
+        config_hash=HASH_C,
+        code_hash=HASH_D,
+        created_at=NOW,
+    )
+
+    assert result.replay.deterministic_match is True
+    assert primary.calls == 1
+    assert replay.calls == 1
 
 
 def test_candidate_request_contains_only_point_in_time_features() -> None:

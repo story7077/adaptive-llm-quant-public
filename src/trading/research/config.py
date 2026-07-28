@@ -204,6 +204,9 @@ class CandidateExecutionConfig(DomainModel):
     maximum_stderr_bytes: int = Field(gt=0)
     maximum_memory_bytes: int = Field(gt=0)
     maximum_processes: int = Field(gt=0)
+    host_process_timeout_seconds: int = Field(gt=0)
+    maximum_host_stdout_bytes: int = Field(gt=0)
+    maximum_host_stderr_bytes: int = Field(gt=0)
 
 
 class ResearchFalsificationConfig(DomainModel):
@@ -639,7 +642,13 @@ def candidate_process_limits(
     return CandidateProcessLimitsV1.model_validate(
         execution.model_dump(
             mode="python",
-            exclude={"isolation_kind", "isolation_version"},
+            exclude={
+                "isolation_kind",
+                "isolation_version",
+                "host_process_timeout_seconds",
+                "maximum_host_stdout_bytes",
+                "maximum_host_stderr_bytes",
+            },
         )
     )
 

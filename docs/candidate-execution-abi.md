@@ -28,6 +28,19 @@ resource limits. Its invariant permissions are:
 An un-attested in-process function is suitable only for unit tests. It is not a
 production Candidate executor.
 
+The public host connects to the separate Commander repository through fixed
+argument-vector subprocess calls. It first requests
+`candidate-runtime-info`, verifies the artifact, Candidate tree, runtime,
+worker, and entrypoint bindings, and then creates the versioned security
+contract. Candidate input and the security contract exist only in a temporary
+UTF-8 directory and are removed after the call. Process stderr and local paths
+are never relayed through a Research artifact or CLI error.
+
+Every trusted determinism check uses two distinct Commander execution lanes:
+`PRIMARY` and `REPLAY`. Each lane is independently process-executed on its first
+use and idempotently replays only within that lane. A cached primary result
+therefore cannot masquerade as the independent replay.
+
 ## Trusted artifact registry
 
 The isolated Builder emits `candidate_artifact_bundle_v1`. The trusted host
@@ -65,3 +78,18 @@ predeclared aggregate PASS/FAIL response.
 Candidate expiry or model failure cannot create an order. Research output
 becomes tradable only after mandatory falsification, deterministic replay, OOS,
 independent shadow evaluation, and an explicit manual Champion designation.
+
+For an already registered Candidate, operators can verify the production ABI
+connection without advancing its lifecycle:
+
+```powershell
+uv run python -m trading.cli research candidate-execute `
+  --request <candidate-decision-request-v1.json> `
+  --commander-root <adaptive-llm-quant-research-commander> `
+  --commander-run <current-finalized-builder-run>
+```
+
+The command executes both lanes and reports only bound hashes, Candidate targets,
+isolation status, and invariant false capabilities. It does not record
+falsification evidence, start shadow paper, create orders, or change the
+Challenger status.
