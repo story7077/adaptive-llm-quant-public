@@ -18,6 +18,8 @@ DISPATCH_RECEIPT_SCHEMA_VERSION = "research_work_dispatch_receipt_v1"
 
 class ResearchScheduleWorkKind(StrEnum):
     DAILY_AGGREGATION = "DAILY_AGGREGATION"
+    OUTCOME_MATURATION = "OUTCOME_MATURATION"
+    RESEARCH_MEMORY_MATERIALIZATION = "RESEARCH_MEMORY_MATERIALIZATION"
     WEEKLY_DEEP_RESEARCH = "WEEKLY_DEEP_RESEARCH"
     EVIDENCE_TRIGGERED_RESEARCH = "EVIDENCE_TRIGGERED_RESEARCH"
 
@@ -33,6 +35,10 @@ class ResearchScheduleEventType(StrEnum):
 
 class ResearchDispatchTarget(StrEnum):
     DAILY_AGGREGATION_V1 = "RESEARCH_DAILY_AGGREGATION_V1"
+    OUTCOME_MATURATION_V1 = "RESEARCH_OUTCOME_MATURATION_V1"
+    RESEARCH_MEMORY_MATERIALIZATION_V1 = (
+        "RESEARCH_MEMORY_MATERIALIZATION_V1"
+    )
     DEEP_RESEARCH_CYCLE_V1 = "RESEARCH_DEEP_CYCLE_V1"
 
 
@@ -109,6 +115,8 @@ class ResearchSchedulePlanV1(DomainModel):
         )
         if self.work_kind in {
             ResearchScheduleWorkKind.DAILY_AGGREGATION,
+            ResearchScheduleWorkKind.OUTCOME_MATURATION,
+            ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION,
             ResearchScheduleWorkKind.WEEKLY_DEEP_RESEARCH,
         } and any(value is None for value in session_fields):
             raise ValueError("calendar-backed work requires a versioned session")
@@ -193,6 +201,7 @@ def build_due_schedule_plans(
     market_sessions: tuple[VersionedResearchMarketSession, ...],
     evidence: tuple[ResearchEvidenceMarker, ...],
     consumed_evidence_hashes: frozenset[str] = frozenset(),
+    include_outcome_maintenance: bool = False,
 ) -> tuple[ResearchSchedulePlanV1, ...]:
     cutoff = require_aware_utc(as_of)
     timezone = ZoneInfo(schedule.timezone)
@@ -210,6 +219,7 @@ def build_due_schedule_plans(
             earliest=earliest,
             timezone=timezone,
             sessions=latest_sessions,
+            include_outcome_maintenance=include_outcome_maintenance,
         ),
         *_weekly_plans(
             schedule=schedule,
@@ -232,7 +242,7 @@ def build_due_schedule_plans(
             plans,
             key=lambda item: (
                 item.scheduled_for,
-                item.work_kind.value,
+                _work_kind_order(item.work_kind),
                 item.work_item_id,
             ),
         )
@@ -244,6 +254,13 @@ def dispatch_target_for(
 ) -> ResearchDispatchTarget:
     if work_kind is ResearchScheduleWorkKind.DAILY_AGGREGATION:
         return ResearchDispatchTarget.DAILY_AGGREGATION_V1
+    if work_kind is ResearchScheduleWorkKind.OUTCOME_MATURATION:
+        return ResearchDispatchTarget.OUTCOME_MATURATION_V1
+    if (
+        work_kind
+        is ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION
+    ):
+        return ResearchDispatchTarget.RESEARCH_MEMORY_MATERIALIZATION_V1
     return ResearchDispatchTarget.DEEP_RESEARCH_CYCLE_V1
 
 
@@ -286,6 +303,7 @@ def _daily_plans(
     earliest: datetime,
     timezone: ZoneInfo,
     sessions: tuple[VersionedResearchMarketSession, ...],
+    include_outcome_maintenance: bool,
 ) -> list[ResearchSchedulePlanV1]:
     configured_clock = time.fromisoformat(schedule.daily_aggregation_time)
     plans: list[ResearchSchedulePlanV1] = []
@@ -301,16 +319,34 @@ def _daily_plans(
         scheduled_for = max(configured_at, after_actual_close)
         if scheduled_for < earliest or scheduled_for > as_of:
             continue
-        plans.append(
-            _calendar_plan(
-                work_kind=ResearchScheduleWorkKind.DAILY_AGGREGATION,
-                identity=session.session_date.isoformat(),
-                scheduled_for=scheduled_for,
-                session=session,
-                schedule=schedule,
-                config_manifest_hash=config_manifest_hash,
-            )
+        identity = session.session_date.isoformat()
+        daily = _calendar_plan(
+            work_kind=ResearchScheduleWorkKind.DAILY_AGGREGATION,
+            identity=identity,
+            scheduled_for=scheduled_for,
+            session=session,
+            schedule=schedule,
+            config_manifest_hash=config_manifest_hash,
         )
+        plans.append(daily)
+        if include_outcome_maintenance:
+            plans.extend(
+                _calendar_plan(
+                    work_kind=work_kind,
+                    identity=identity,
+                    scheduled_for=scheduled_for,
+                    session=session,
+                    schedule=schedule,
+                    config_manifest_hash=config_manifest_hash,
+                )
+                for work_kind in (
+                    ResearchScheduleWorkKind.OUTCOME_MATURATION,
+                    (
+                        ResearchScheduleWorkKind
+                        .RESEARCH_MEMORY_MATERIALIZATION
+                    ),
+                )
+            )
     return plans
 
 
@@ -538,6 +574,16 @@ def _weekday_number(value: str) -> int:
         "FRIDAY": 4,
         "SATURDAY": 5,
         "SUNDAY": 6,
+    }[value]
+
+
+def _work_kind_order(value: ResearchScheduleWorkKind) -> int:
+    return {
+        ResearchScheduleWorkKind.DAILY_AGGREGATION: 0,
+        ResearchScheduleWorkKind.OUTCOME_MATURATION: 1,
+        ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION: 2,
+        ResearchScheduleWorkKind.WEEKLY_DEEP_RESEARCH: 3,
+        ResearchScheduleWorkKind.EVIDENCE_TRIGGERED_RESEARCH: 4,
     }[value]
 
 

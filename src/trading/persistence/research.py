@@ -51,6 +51,9 @@ from trading.research.contracts import (
 )
 
 if TYPE_CHECKING:
+    from trading.persistence.experiment_outcomes import (
+        ExperimentOutcomeRepository,
+    )
     from trading.research.oos_lockbox import OosEvaluationRequest
 from trading.research.evidence import ResearchEvidenceBundleV1
 from trading.research.promotion import REQUIRED_PROMOTION_CRITERIA
@@ -131,6 +134,15 @@ LIFECYCLE_GATED_TRANSITIONS = frozenset(
 class ResearchRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
+
+    def experiment_outcomes(self) -> ExperimentOutcomeRepository:
+        """Return the trusted recursive-outcome ledger bound to this database."""
+
+        from trading.persistence.experiment_outcomes import (
+            ExperimentOutcomeRepository,
+        )
+
+        return ExperimentOutcomeRepository(self._session_factory)
 
     def select_commander(
         self,
@@ -2010,6 +2022,7 @@ class ResearchRepository:
                 "champion_mutation_available": False,
                 "real_order_routing": False,
             },
+            "experiment_outcome_ledger": self.experiment_outcomes().status(),
             "publications": [],
             "automatic_promotion_enabled": False,
             "real_order_routing": False,

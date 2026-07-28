@@ -54,6 +54,18 @@ def test_config_validate_all_includes_legacy_and_q1(
     assert Q1_ALGORITHM_VERSION in payload["configs"]
 
 
+def test_operator_ui_serve_commands_reject_non_loopback_hosts() -> None:
+    runner = CliRunner()
+
+    for command in (
+        ["ui", "serve", "--host", "0.0.0.0"],
+        ["paper", "serve", "--host", "192.0.2.10"],
+    ):
+        result = runner.invoke(app, command)
+        assert result.exit_code != 0
+        assert "loopback" in result.output
+
+
 def test_paper_cli_requires_explicit_q1_and_preserves_run_identity(
     sqlite_database,
     repository_root,

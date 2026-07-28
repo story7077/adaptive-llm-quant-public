@@ -379,6 +379,28 @@ class PublicReleaseScannerTests(unittest.TestCase):
             )
             self.assertIn("FORBIDDEN_DOTENV", {item.rule for item in forced_violations})
 
+    def test_staged_secret_is_scanned_when_worktree_copy_is_safe(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_safe_repository(root)
+            _git(root, "init")
+            _commit_all(root, "public foundation")
+            staged_path = root / "release-note.txt"
+            staged_secret = "gh" + "p_" + ("D" * 40)
+            staged_path.write_text(staged_secret, encoding="utf-8")
+            _git(root, "add", staged_path.name)
+            staged_path.write_text("sanitized worktree copy\n", encoding="utf-8")
+
+            violations = SCANNER.scan_repository(
+                root,
+                expected_repository="story7077/adaptive-llm-quant-public",
+            )
+
+            rules = {item.rule for item in violations}
+            self.assertIn("GITHUB_TOKEN", rules)
+            self.assertIn("WORKTREE_INDEX_MISMATCH", rules)
+            self.assertNotIn(staged_secret, SCANNER.format_report(violations))
+
 
 if __name__ == "__main__":
     unittest.main()
