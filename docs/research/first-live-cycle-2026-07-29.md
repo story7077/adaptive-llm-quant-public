@@ -74,6 +74,44 @@ return, or P&L interfaces. `broker_access_permitted=false`,
 `credential_access_permitted=false`, and `real_order_routing=false` are part of
 the registered artifact.
 
+### Typed discovery registration
+
+Public PR
+[#13](https://github.com/story7077/adaptive-llm-quant-public/pull/13)
+connected a sealed V2 Candidate to the existing typed experiment-outcome
+ledger without changing its lifecycle state. Commander PR
+[#7](https://github.com/story7077/adaptive-llm-quant-research-commander/pull/7)
+made the verified Candidate test manifest available as a sanitized, hash-bound
+output for future cycles. Their merge commits are
+`f702bd9143b99c04f810f7f264b462538924f266` and
+`b422e467b0955e7dd8d475d1352c0226858f220c`, respectively.
+
+Before the first registration, the read-only Alpaca calendar request returned
+87 sessions through 2026-11-30. It appended 65 new PIT observations and left
+22 identical observations unchanged. The source manifest hash was
+`55292472cc6f9fec3b064cdc6e6dfbfca5044e46a02c5d948f5501503287608b`;
+the command created zero schedules and zero orders.
+
+At the database-clock decision time
+`2026-07-28T23:39:12.758013Z`, the sealed Candidate became experiment
+`candidate-discovery-experiment_59c4a93864a27828050d462f`. The immutable
+records are:
+
+| Record | Hash |
+| --- | --- |
+| Discovery action | `694839550c142d26d4b78ce151c463560e43035cef25f6a457f4fc92912275b5` |
+| Registration event | `eb5c09daacbcc98cf315d2f6a265816acb8dc3a50443a6ab0d4a570820945533` |
+| Technical-success event | `f29dd2c32668537b5f88126fb58f80b0bb666f3d08e57fa8e24812bc971f4c36` |
+
+The maturity boundary is the close of the 63rd full future versioned market
+session, `2026-10-26T20:00:00Z`. Repeating the registration returned the same
+three hashes with all three `*_created` fields false. The resulting ledger has
+one action, two effective events, and zero learning-eligible events.
+`information_role=DISCOVERY`, `meta_training_permitted=false`, and
+`eligible_for_meta_training=false`; the Challenger remains `PROPOSED`, with no
+falsification pass, locked OOS result, shadow registration, promotion decision,
+or order-routing capability.
+
 ## Why the Challenger is not in shadow
 
 The downloaded adjusted daily history is useful for discovery, but it was
@@ -89,6 +127,9 @@ statistical significance and is not promotion evidence.
 
 Current lifecycle counts for the new Challenger are:
 
+- typed discovery actions: 1;
+- effective discovery events: 2;
+- learning-eligible events: 0;
 - mandatory falsification reports: 0;
 - locked OOS results: 0;
 - Challenger shadow registrations: 0;
@@ -208,7 +249,7 @@ instead.
 
 Public repository:
 
-- `uv run pytest`: **629 passed**, one third-party
+- `uv run pytest`: **639 passed**, one third-party
   FastAPI/Starlette deprecation warning;
 - `uv run ruff check .`: passed;
 - `uv run pyright`: 0 errors, 0 warnings;
@@ -244,7 +285,7 @@ hash,
 `1af290f96e41284c6e4ce70081bba141be00358757b10a2552371354c633cbd0`,
 with all available hash and state-machine checks passing and the required
 initial-state/session-completeness checks correctly false. The repository's
-complete synthetic Q1 replay tests passed in the 629-test suite.
+complete synthetic Q1 replay tests passed in the 639-test suite.
 
 ### Migration validation incident
 
