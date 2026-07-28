@@ -100,7 +100,7 @@ class Q1PaperRuntimeWorker:
         )
 
     async def sync_calendar(self) -> int:
-        """Persist the versioned calendar, then create only q1 schedule slots."""
+        """Persist calendar history, but schedule only open or future sessions."""
 
         now = self._clock.now()
         local_date = now.astimezone(NEW_YORK).date()
@@ -126,8 +126,6 @@ class Q1PaperRuntimeWorker:
                 current is None
                 or current.open_at != candidate.open_at
                 or current.close_at != candidate.close_at
-                or current.source_payload_hash
-                != candidate.source_payload_hash
             ):
                 await asyncio.to_thread(
                     self._paper.register_calendar_session,
@@ -137,6 +135,14 @@ class Q1PaperRuntimeWorker:
                 session = candidate
             else:
                 session = current
+            # Historical and already-open sessions are required for signal and
+            # settlement PIT lookups, but their runtime slots must never be
+            # backfilled. A Q1_BOOTSTRAP scheduled before this observation can
+            # never satisfy available_at <= scheduled_at and, because it is
+            # retryable, would starve every later cycle forever. A run first
+            # started intraday therefore begins on the next observed session.
+            if session.open_at < now:
+                continue
             slots = build_q1_session_slots(
                 session,
                 schedule=self._paper.schedule,

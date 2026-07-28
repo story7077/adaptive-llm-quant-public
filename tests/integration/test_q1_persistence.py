@@ -43,6 +43,7 @@ from trading.persistence.q1 import (
     MarketCalendarSessionRepository,
     OrderEventRepository,
     Q1CycleFenceError,
+    Q1PersistenceConflict,
     Q1StrategyDecisionRepository,
     RiskEpisodeRepository,
     StrategyEvaluationAnchorRepository,
@@ -481,6 +482,39 @@ def test_calendar_and_anchor_are_point_in_time_and_immutable(sqlite_database) ->
                 "SET initial_nav_usd=1 WHERE evaluation_anchor_id='anchor-1'"
             )
         )
+
+
+def test_calendar_reobservation_is_idempotent_by_stable_source_id(
+    sqlite_database,
+) -> None:
+    _, _, factory = sqlite_database
+    original = _calendar()
+    reobserved = original.model_copy(
+        update={
+            "available_at": NOW + timedelta(hours=1),
+            "created_at": NOW + timedelta(hours=1),
+            "config_manifest_hash": "b" * 64,
+            "code_version": "later-code",
+            "source_manifest_hash": "c" * 64,
+            "session_hash": "d" * 64,
+        }
+    )
+    conflicting_hours = reobserved.model_copy(
+        update={"close_at": original.close_at - timedelta(hours=1)}
+    )
+
+    with factory.begin() as session:
+        repository = MarketCalendarSessionRepository(session)
+        first = repository.append(original)
+        repeated = repository.append(reobserved)
+
+        assert repeated is first
+        assert repeated.available_at == original.available_at
+        with pytest.raises(
+            Q1PersistenceConflict,
+            match="different immutable market hours",
+        ):
+            repository.append(conflicting_hours)
 
 
 def test_pending_orders_come_only_from_latest_order_event(sqlite_database) -> None:

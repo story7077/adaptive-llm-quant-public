@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from trading.data.alpaca_reference import MarketSession
 from trading.domain.algorithm import Q1_ALGORITHM_VERSION
 from trading.persistence.q1_runtime import Q1StaleWorkerError
 from trading.runtime.q1_config import operational_config
@@ -199,6 +200,118 @@ def test_q1_worker_uses_versioned_calendar_operational_ranges(
         hours=operations.calendar_sync_interval_hours
     )
     assert operations.calendar_history_lookback_days == 260
+
+
+def test_q1_worker_persists_history_without_backfilling_runtime_slots(
+    repository_root,
+    tmp_path,
+) -> None:
+    config = load_q1_config_bundle(repository_root / "config")
+    now = datetime(2026, 7, 27, 16, 0, tzinfo=UTC)
+    historical = MarketSession(
+        session_date=now.astimezone(NEW_YORK).date() - timedelta(days=1),
+        open_at=datetime(2026, 7, 24, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 24, 20, 0, tzinfo=UTC),
+        payload_hash="historical-calendar",
+        available_at=now,
+        raw_object_uri="raw://calendar/history",
+    )
+    current = MarketSession(
+        session_date=now.astimezone(NEW_YORK).date(),
+        open_at=datetime(2026, 7, 27, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 27, 20, 0, tzinfo=UTC),
+        payload_hash="current-calendar",
+        available_at=now,
+        raw_object_uri="raw://calendar/current",
+    )
+    future = MarketSession(
+        session_date=current.session_date + timedelta(days=1),
+        open_at=datetime(2026, 7, 28, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 28, 20, 0, tzinfo=UTC),
+        payload_hash="future-calendar",
+        available_at=now,
+        raw_object_uri="raw://calendar/future",
+    )
+
+    class Clock:
+        @staticmethod
+        def now() -> datetime:
+            return now
+
+    class Reference:
+        @staticmethod
+        async def fetch_calendar(*, start, end):
+            del start, end
+            return [historical, current, future]
+
+    class Paper:
+        schedule = SimpleNamespace(
+            first_nav_time_et=datetime.strptime("09:45", "%H:%M").time(),
+            nav_interval_minutes=15,
+            strategic_time_et=datetime.strptime("10:00", "%H:%M").time(),
+            llm_review_times_et=(),
+            normal_execution_start_et=datetime.strptime(
+                "10:01", "%H:%M"
+            ).time(),
+            normal_execution_end_et=datetime.strptime(
+                "10:20", "%H:%M"
+            ).time(),
+            execution_interval_minutes=1,
+            no_risk_increase_after_et=datetime.strptime(
+                "13:00", "%H:%M"
+            ).time(),
+        )
+
+        def __init__(self) -> None:
+            self.registered: list[object] = []
+
+        @staticmethod
+        def calendar_session(*, session_date, cutoff):
+            del session_date, cutoff
+            return None
+
+        def register_calendar_session(self, session, *, now) -> None:
+            del now
+            self.registered.append(session)
+
+    class Cycles:
+        def __init__(self) -> None:
+            self.sessions: list[tuple[object, ...]] = []
+
+        def ensure_slots(self, *, run_id, slots, now) -> int:
+            del run_id, now
+            self.sessions.append(tuple(slots))
+            return len(slots)
+
+    paper = Paper()
+    cycles = Cycles()
+    settings = Settings(
+        database_url="sqlite+pysqlite://",
+        config_dir=repository_root / "config",
+        raw_store=tmp_path / "raw",
+        real_broker_enabled=False,
+        real_llm_enabled=False,
+        production_unlock=False,
+        paper_algorithm_version=Q1_ALGORITHM_VERSION,
+    )
+    worker = Q1PaperRuntimeWorker(
+        settings=settings,
+        config=config,
+        paper=paper,
+        cycles=cycles,
+        processor=SimpleNamespace(),
+        reference_client=Reference(),
+        clock=Clock(),
+    )
+
+    created = asyncio.run(worker.sync_calendar())
+
+    assert len(paper.registered) == 3
+    assert len(cycles.sessions) == 1
+    assert created == len(cycles.sessions[0])
+    scheduled_at = [slot.scheduled_at for slot in cycles.sessions[0]]
+    assert min(scheduled_at) == future.open_at
+    assert all(slot >= future.open_at for slot in scheduled_at)
 
 
 def test_q1_operational_config_rejects_insufficient_calendar_history(

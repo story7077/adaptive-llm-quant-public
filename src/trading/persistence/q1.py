@@ -77,6 +77,27 @@ class MarketCalendarSessionRepository:
         self._session = session
 
     def append(self, item: MarketCalendarSession) -> MarketCalendarSessionRow:
+        existing_by_id = self._session.get(
+            MarketCalendarSessionRow,
+            item.calendar_session_id,
+        )
+        if existing_by_id is not None:
+            if (
+                existing_by_id.algorithm_version != item.algorithm_version
+                or existing_by_id.calendar_version != item.calendar_version
+                or existing_by_id.session_date != item.session_date
+                or existing_by_id.open_at != item.open_at
+                or existing_by_id.close_at != item.close_at
+                or existing_by_id.source != item.source
+            ):
+                raise Q1PersistenceConflict(
+                    "Calendar session ID has different immutable market hours"
+                )
+            # A repeated provider fetch can observe the same source payload at
+            # a later available_at and under a newer process provenance. The
+            # stable calendar ID denotes that source payload, so the first
+            # append remains authoritative.
+            return existing_by_id
         existing = self._session.scalar(
             select(MarketCalendarSessionRow).where(
                 MarketCalendarSessionRow.calendar_version == item.calendar_version,
