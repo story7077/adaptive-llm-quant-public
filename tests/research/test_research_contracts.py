@@ -403,3 +403,32 @@ def test_proposal_cannot_escape_request_file_scope() -> None:
             evidence_source_ids={"source-1"},
             request=request,
         )
+
+
+def test_proposal_accepts_path_under_recursive_request_scope() -> None:
+    request, catalog = _request()
+    request = request.model_copy(
+        update={
+            "allowed_change_scope": [
+                "src/trading/strategies/challengers/**",
+                "config/strategies/challengers/**",
+            ]
+        }
+    )
+    payload = _proposal(universe=["AAPL", "SPY"]).model_dump(mode="python")
+    payload["files_allowed_to_change"] = [
+        "src/trading/strategies/challengers/alpha_v2/**",
+        "config/strategies/challengers/alpha-v2.yaml",
+    ]
+    payload_without_hash = {
+        key: value for key, value in payload.items() if key != "proposal_hash"
+    }
+    payload["proposal_hash"] = canonical_hash(payload_without_hash)
+    proposal = AlgorithmProposalV1.model_validate(payload)
+
+    validate_proposal_against_catalog(
+        proposal,
+        catalog=catalog,
+        evidence_source_ids={"source-1"},
+        request=request,
+    )

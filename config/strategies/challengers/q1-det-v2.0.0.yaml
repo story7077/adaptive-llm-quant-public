@@ -1,0 +1,83 @@
+schema_version: challenger-strategy-config-v1
+strategy_id: Q1-DET
+strategy_version: 2.0.0
+parent_version: 1.0.0
+hypothesis_id: hypothesis-q1-residual-defensive-sleeve-v1
+status: CHALLENGER
+declared_entrypoint: trading.strategies.challengers.q1_det_v2_0_0.decision:decide
+
+target_universe_source: HOST_SUPPLIED_CANDIDATE_REQUEST
+reference_universe: [GLD, QQQ, SGOV, SOXX, TLT]
+decision_horizon_completed_sessions: 21
+signal_cutoff: PRIOR_CLOSE
+implementation_delay_sessions: 1
+
+features:
+  parent_target_weight: parent_target_weight
+  review_clock: completed_sessions_since_review
+  total_return_short: total_return_63
+  total_return_long: total_return_126
+  moving_average_gap: moving_average_gap_200
+  realized_volatility: realized_volatility_63
+  downside_beta_to_qqq: downside_beta_126_qqq
+  downside_observation_count: downside_observation_count_126
+  point_in_time_metadata_required: true
+
+parameters:
+  review_interval_sessions: 21
+  review_anchor_session_ordinal: 0
+  short_return_sessions: 63
+  long_return_sessions: 126
+  moving_average_sessions: 200
+  downside_beta_sessions: 126
+  minimum_downside_observations: 20
+  sleeve_cap: 0.35
+  diversifier_cap: 0.20
+  no_trade_band: 0.02
+  entry_excess_trend: 0.0
+  exit_excess_trend: -0.02
+  entry_moving_average_gap: 0.0
+  exit_moving_average_gap: -0.02
+  gld_entry_downside_beta: 0.25
+  gld_exit_downside_beta: 0.35
+  tlt_entry_downside_beta: 0.0
+  tlt_exit_downside_beta: 0.10
+
+allocation:
+  parent_symbols_unchanged: [QQQ, SOXX]
+  residual_reserve_symbol: SGOV
+  diversifiers: [GLD, TLT]
+  weighting: INVERSE_REALIZED_VOLATILITY
+  unused_sleeve_destination: SGOV_IF_VALID_OTHERWISE_CASH
+  host_constraints_take_precedence: true
+
+falsification:
+  minimum_net_portfolio_delta_sharpe_at_2x_costs: 0.05
+  net_effect_at_3x_costs_must_be_positive: true
+  maximum_parent_drawdown_increase: 0.02
+  maximum_total_one_way_daily_turnover: 0.055
+  minimum_capacity_usd: 250000
+  required_cost_multipliers: [1, 2, 3]
+  return_horizon_grid:
+    - [42, 105]
+    - [63, 126]
+    - [84, 168]
+  moving_average_grid: [180, 200, 220]
+  sleeve_cap_grid: [0.25, 0.35, 0.45]
+  gld_entry_downside_beta_grid: [0.15, 0.25, 0.35]
+  tlt_entry_downside_beta_grid: [-0.10, 0.0, 0.10]
+  execution_delays: [NEXT_OPEN, NEXT_CLOSE, ONE_ADDITIONAL_SESSION]
+  placebos:
+    - SGOV_ONLY
+    - STATIC_GLD_TLT
+    - SHUFFLED_ACTIVATION_DATES
+    - INVERTED_EXCESS_TREND
+    - NO_DOWNSIDE_BETA_GATE
+  ablations: [LEAVE_GLD_OUT, LEAVE_TLT_OUT]
+  regime_and_coverage_checks:
+    - MULTIPLE_START_DATES
+    - LEAVE_ONE_REGIME_OUT
+    - COMMON_SGOV_COVERAGE_ONLY
+    - FIRST_126_SESSIONS_REMOVED
+    - LAST_126_SESSIONS_REMOVED
+  host_owned_locked_oos_minimum_session_gate_required: true

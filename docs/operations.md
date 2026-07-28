@@ -29,6 +29,19 @@ local environment variables described in
 [WebGPT and AGBrowse research](webgpt-agbrowse-research.md). Do not commit
 environment-specific paths.
 
+## Q1 startup and point-in-time scheduling
+
+Calendar synchronization persists historical sessions for signal and settlement
+lookups, but it creates executable Q1 cycle slots only for sessions that have
+not opened yet. A new Q1 run first started intraday therefore remains
+`PENDING_BOOTSTRAP` until the next observed market session.
+
+Do not manufacture or manually backfill the missed 09:30 bootstrap. A calendar
+record first observed after a cycle's scheduled time cannot satisfy
+`available_at <= scheduled_at`. Waiting for the next session preserves the PIT
+contract and prevents a retryable historical bootstrap from starving later
+cycles.
+
 ## First local validation
 
 Run from the repository root:
