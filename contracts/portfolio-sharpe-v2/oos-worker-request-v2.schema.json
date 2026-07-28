@@ -1,0 +1,374 @@
+{
+  "$defs": {
+    "PortfolioComparisonContractV1": {
+      "additionalProperties": false,
+      "properties": {
+        "allocation_policy_created_at": {
+          "format": "date-time",
+          "title": "Allocation Policy Created At",
+          "type": "string"
+        },
+        "allocation_policy_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Allocation Policy Hash",
+          "type": "string"
+        },
+        "allocation_policy_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Allocation Policy Version",
+          "type": "string"
+        },
+        "annualization_sessions": {
+          "maximum": 366,
+          "minimum": 1,
+          "title": "Annualization Sessions",
+          "type": "integer"
+        },
+        "bootstrap_contract": {
+          "$ref": "#/$defs/StationaryBootstrapContractV1"
+        },
+        "candidate_artifact_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidate Artifact Hash",
+          "type": "string"
+        },
+        "candidate_portfolio_manifest_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidate Portfolio Manifest Hash",
+          "type": "string"
+        },
+        "candidate_risk_budget": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Candidate Risk Budget",
+          "type": "number"
+        },
+        "champion_portfolio_manifest_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Champion Portfolio Manifest Hash",
+          "type": "string"
+        },
+        "common_session_policy": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Common Session Policy",
+          "type": "string"
+        },
+        "comparison_contract_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Comparison Contract Id",
+          "type": "string"
+        },
+        "contract_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Contract Hash",
+          "type": "string"
+        },
+        "cost_model_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Cost Model Hash",
+          "type": "string"
+        },
+        "cost_stress_multipliers": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Cost Stress Multipliers",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "execution_contract_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Execution Contract Hash",
+          "type": "string"
+        },
+        "integration_mode": {
+          "$ref": "#/$defs/PortfolioIntegrationMode"
+        },
+        "market_data_manifest_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Market Data Manifest Hash",
+          "type": "string"
+        },
+        "maximum_absolute_daily_return": {
+          "exclusiveMinimum": 0,
+          "title": "Maximum Absolute Daily Return",
+          "type": "number"
+        },
+        "risk_free_series_manifest_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Risk Free Series Manifest Hash",
+          "type": "string"
+        },
+        "risk_free_series_mode": {
+          "$ref": "#/$defs/RiskFreeSeriesMode"
+        },
+        "schema_version": {
+          "default": "portfolio_comparison_contract_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sleeve_replaced_or_added": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Sleeve Replaced Or Added",
+          "type": "string"
+        },
+        "starting_nav": {
+          "exclusiveMinimum": 0,
+          "title": "Starting Nav",
+          "type": "number"
+        },
+        "weight_selection_data_cutoff": {
+          "format": "date-time",
+          "title": "Weight Selection Data Cutoff",
+          "type": "string"
+        }
+      },
+      "required": [
+        "comparison_contract_id",
+        "champion_portfolio_manifest_hash",
+        "candidate_portfolio_manifest_hash",
+        "candidate_artifact_hash",
+        "allocation_policy_version",
+        "allocation_policy_hash",
+        "integration_mode",
+        "sleeve_replaced_or_added",
+        "candidate_risk_budget",
+        "weight_selection_data_cutoff",
+        "allocation_policy_created_at",
+        "starting_nav",
+        "market_data_manifest_hash",
+        "execution_contract_hash",
+        "cost_model_hash",
+        "risk_free_series_manifest_hash",
+        "risk_free_series_mode",
+        "common_session_policy",
+        "annualization_sessions",
+        "bootstrap_contract",
+        "cost_stress_multipliers",
+        "maximum_absolute_daily_return",
+        "created_at",
+        "contract_hash"
+      ],
+      "title": "PortfolioComparisonContractV1",
+      "type": "object"
+    },
+    "PortfolioIntegrationMode": {
+      "enum": [
+        "ADD_SLEEVE",
+        "REPLACE_SLEEVE"
+      ],
+      "title": "PortfolioIntegrationMode",
+      "type": "string"
+    },
+    "RiskFreeSeriesMode": {
+      "enum": [
+        "SERIES",
+        "EXPLICIT_ZERO"
+      ],
+      "title": "RiskFreeSeriesMode",
+      "type": "string"
+    },
+    "StationaryBootstrapContractV1": {
+      "additionalProperties": false,
+      "properties": {
+        "configured_seed": {
+          "minimum": 0,
+          "title": "Configured Seed",
+          "type": "integer"
+        },
+        "expected_block_sessions": {
+          "maximum": 252,
+          "minimum": 1,
+          "title": "Expected Block Sessions",
+          "type": "integer"
+        },
+        "lower_quantile": {
+          "exclusiveMaximum": 0.5,
+          "exclusiveMinimum": 0,
+          "title": "Lower Quantile",
+          "type": "number"
+        },
+        "samples": {
+          "maximum": 100000,
+          "minimum": 100,
+          "title": "Samples",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "stationary_bootstrap_contract_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "variance_epsilon": {
+          "exclusiveMinimum": 0,
+          "title": "Variance Epsilon",
+          "type": "number"
+        }
+      },
+      "required": [
+        "configured_seed",
+        "samples",
+        "expected_block_sessions",
+        "lower_quantile",
+        "variance_epsilon"
+      ],
+      "title": "StationaryBootstrapContractV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/oos-worker-request-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidate_artifact_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Candidate Artifact Hash",
+      "type": "string"
+    },
+    "challenger_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Challenger Id",
+      "type": "string"
+    },
+    "data_available_cutoff": {
+      "format": "date-time",
+      "title": "Data Available Cutoff",
+      "type": "string"
+    },
+    "dataset_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_manifest_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Dataset Manifest Hash",
+      "type": "string"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "evaluation_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evaluation Contract Hash",
+      "type": "string"
+    },
+    "expected_candidate_replay_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Expected Candidate Replay Hash",
+      "type": "string"
+    },
+    "expected_source_data_manifest_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Expected Source Data Manifest Hash",
+      "type": "string"
+    },
+    "expected_trusted_producer_version": {
+      "const": "trusted_candidate_evaluation_v2",
+      "title": "Expected Trusted Producer Version",
+      "type": "string"
+    },
+    "experiment_family": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Experiment Family",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "minimum_common_sessions": {
+      "minimum": 2,
+      "title": "Minimum Common Sessions",
+      "type": "integer"
+    },
+    "minimum_delta_sharpe_lcb": {
+      "title": "Minimum Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "minimum_independent_trades": {
+      "minimum": 0,
+      "title": "Minimum Independent Trades",
+      "type": "integer"
+    },
+    "minimum_worst_cost_delta_sharpe_lcb": {
+      "title": "Minimum Worst Cost Delta Sharpe Lcb",
+      "type": "number"
+    },
+    "oos_budget_ordinal": {
+      "minimum": 1,
+      "title": "Oos Budget Ordinal",
+      "type": "integer"
+    },
+    "portfolio_comparison_contract": {
+      "$ref": "#/$defs/PortfolioComparisonContractV1"
+    },
+    "request_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Request Hash",
+      "type": "string"
+    },
+    "request_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "reservation_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Reservation Hash",
+      "type": "string"
+    },
+    "reservation_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Reservation Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "oos_worker_request_v2",
+      "default": "oos_worker_request_v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "submission_number": {
+      "minimum": 1,
+      "title": "Submission Number",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "request_id",
+    "challenger_id",
+    "experiment_family",
+    "submission_number",
+    "candidate_artifact_hash",
+    "evaluation_contract_hash",
+    "reservation_id",
+    "reservation_hash",
+    "oos_budget_ordinal",
+    "dataset_id",
+    "dataset_manifest_hash",
+    "expected_source_data_manifest_hash",
+    "expected_candidate_replay_hash",
+    "expected_trusted_producer_version",
+    "portfolio_comparison_contract",
+    "data_available_cutoff",
+    "minimum_common_sessions",
+    "minimum_independent_trades",
+    "minimum_delta_sharpe_lcb",
+    "minimum_worst_cost_delta_sharpe_lcb",
+    "evaluated_at",
+    "expires_at",
+    "request_hash"
+  ],
+  "title": "OosWorkerRequestV2",
+  "type": "object"
+}

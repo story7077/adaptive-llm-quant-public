@@ -1,0 +1,638 @@
+{
+  "$defs": {
+    "OosLockboxResultV2": {
+      "additionalProperties": false,
+      "properties": {
+        "all_metrics_finite": {
+          "title": "All Metrics Finite",
+          "type": "boolean"
+        },
+        "allocation_policy_fixed_before_oos": {
+          "title": "Allocation Policy Fixed Before Oos",
+          "type": "boolean"
+        },
+        "budget_consumed": {
+          "minimum": 1,
+          "title": "Budget Consumed",
+          "type": "integer"
+        },
+        "candidate_artifact_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidate Artifact Hash",
+          "type": "string"
+        },
+        "candidate_portfolio_sharpe": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Portfolio Sharpe"
+        },
+        "challenger_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Challenger Id",
+          "type": "string"
+        },
+        "champion_portfolio_sharpe": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Champion Portfolio Sharpe"
+        },
+        "common_sessions": {
+          "minimum": 0,
+          "title": "Common Sessions",
+          "type": "integer"
+        },
+        "cost_stress_results": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PortfolioCostStressResultV1"
+          },
+          "title": "Cost Stress Results",
+          "type": "array"
+        },
+        "delta_sharpe_lcb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta Sharpe Lcb"
+        },
+        "delta_sharpe_point": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta Sharpe Point"
+        },
+        "delta_sharpe_ucb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delta Sharpe Ucb"
+        },
+        "evaluated_at": {
+          "format": "date-time",
+          "title": "Evaluated At",
+          "type": "string"
+        },
+        "evaluation_contract_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Evaluation Contract Hash",
+          "type": "string"
+        },
+        "experiment_family": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Experiment Family",
+          "type": "string"
+        },
+        "independent_trades": {
+          "minimum": 0,
+          "title": "Independent Trades",
+          "type": "integer"
+        },
+        "no_degenerate_variance": {
+          "title": "No Degenerate Variance",
+          "type": "boolean"
+        },
+        "portfolio_comparison_contract_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Portfolio Comparison Contract Hash",
+          "type": "string"
+        },
+        "portfolio_contract_binding_valid": {
+          "title": "Portfolio Contract Binding Valid",
+          "type": "boolean"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "result_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Result Hash",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "oos_lockbox_result_v2",
+          "default": "oos_lockbox_result_v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "submission_number": {
+          "minimum": 1,
+          "title": "Submission Number",
+          "type": "integer"
+        },
+        "verdict": {
+          "$ref": "#/$defs/OosVerdict"
+        },
+        "worst_cost_delta_sharpe_lcb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Worst Cost Delta Sharpe Lcb"
+        }
+      },
+      "required": [
+        "challenger_id",
+        "experiment_family",
+        "submission_number",
+        "candidate_artifact_hash",
+        "evaluation_contract_hash",
+        "portfolio_comparison_contract_hash",
+        "verdict",
+        "reason_codes",
+        "common_sessions",
+        "independent_trades",
+        "no_degenerate_variance",
+        "portfolio_contract_binding_valid",
+        "allocation_policy_fixed_before_oos",
+        "all_metrics_finite",
+        "budget_consumed",
+        "evaluated_at",
+        "result_hash"
+      ],
+      "title": "OosLockboxResultV2",
+      "type": "object"
+    },
+    "OosVerdict": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ],
+      "title": "OosVerdict",
+      "type": "string"
+    },
+    "PortfolioCostStressResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_portfolio_sharpe": {
+          "title": "Candidate Portfolio Sharpe",
+          "type": "number"
+        },
+        "champion_portfolio_sharpe": {
+          "title": "Champion Portfolio Sharpe",
+          "type": "number"
+        },
+        "cost_multiplier": {
+          "exclusiveMinimum": 0,
+          "title": "Cost Multiplier",
+          "type": "number"
+        },
+        "delta_sharpe_lcb": {
+          "title": "Delta Sharpe Lcb",
+          "type": "number"
+        },
+        "delta_sharpe_point": {
+          "title": "Delta Sharpe Point",
+          "type": "number"
+        },
+        "delta_sharpe_ucb": {
+          "title": "Delta Sharpe Ucb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cost_multiplier",
+        "candidate_portfolio_sharpe",
+        "champion_portfolio_sharpe",
+        "delta_sharpe_point",
+        "delta_sharpe_lcb",
+        "delta_sharpe_ucb"
+      ],
+      "title": "PortfolioCostStressResultV1",
+      "type": "object"
+    },
+    "TrustedShadowPerformanceSummaryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "annualized_net_excess_return_after_cost": {
+          "title": "Annualized Net Excess Return After Cost",
+          "type": "number"
+        },
+        "annualized_turnover": {
+          "minimum": 0,
+          "title": "Annualized Turnover",
+          "type": "number"
+        },
+        "candidate_artifact_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidate Artifact Hash",
+          "type": "string"
+        },
+        "candidate_portfolio_manifest_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidate Portfolio Manifest Hash",
+          "type": "string"
+        },
+        "candidate_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$",
+          "title": "Candidate Version",
+          "type": "string"
+        },
+        "challenger_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Challenger Id",
+          "type": "string"
+        },
+        "champion_portfolio_manifest_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Champion Portfolio Manifest Hash",
+          "type": "string"
+        },
+        "cost_stress_results": {
+          "items": {
+            "$ref": "#/$defs/PortfolioCostStressResultV1"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Cost Stress Results",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "current_champion_version": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$",
+          "title": "Current Champion Version",
+          "type": "string"
+        },
+        "daily_evidence_hashes": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Daily Evidence Hashes",
+          "type": "array"
+        },
+        "data_available_cutoff": {
+          "format": "date-time",
+          "title": "Data Available Cutoff",
+          "type": "string"
+        },
+        "economic_effect": {
+          "title": "Economic Effect",
+          "type": "number"
+        },
+        "estimated_capacity_usd": {
+          "minimum": 0,
+          "title": "Estimated Capacity Usd",
+          "type": "number"
+        },
+        "execution_contract_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Execution Contract Hash",
+          "type": "string"
+        },
+        "forward_sessions": {
+          "exclusiveMinimum": 1,
+          "title": "Forward Sessions",
+          "type": "integer"
+        },
+        "independent_trades": {
+          "minimum": 0,
+          "title": "Independent Trades",
+          "type": "integer"
+        },
+        "matched_annualized_difference": {
+          "title": "Matched Annualized Difference",
+          "type": "number"
+        },
+        "materialized_evidence_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Materialized Evidence Hash",
+          "type": "string"
+        },
+        "maximum_drawdown": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Maximum Drawdown",
+          "type": "number"
+        },
+        "portfolio_comparison_contract_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Portfolio Comparison Contract Hash",
+          "type": "string"
+        },
+        "real_order_routing": {
+          "const": false,
+          "default": false,
+          "title": "Real Order Routing",
+          "type": "boolean"
+        },
+        "regime_pass_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Regime Pass Fraction",
+          "type": "number"
+        },
+        "run_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "runtime_error_rate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Runtime Error Rate",
+          "type": "number"
+        },
+        "schema_version": {
+          "const": "trusted_shadow_performance_summary_v2",
+          "default": "trusted_shadow_performance_summary_v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "shadow_candidate_portfolio_sharpe": {
+          "title": "Shadow Candidate Portfolio Sharpe",
+          "type": "number"
+        },
+        "shadow_champion_portfolio_sharpe": {
+          "title": "Shadow Champion Portfolio Sharpe",
+          "type": "number"
+        },
+        "shadow_delta_sharpe_lcb": {
+          "title": "Shadow Delta Sharpe Lcb",
+          "type": "number"
+        },
+        "shadow_delta_sharpe_point": {
+          "title": "Shadow Delta Sharpe Point",
+          "type": "number"
+        },
+        "shadow_delta_sharpe_ucb": {
+          "title": "Shadow Delta Sharpe Ucb",
+          "type": "number"
+        },
+        "shadow_pair_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Shadow Pair Id",
+          "type": "string"
+        },
+        "shadow_worst_cost_delta_sharpe_lcb": {
+          "title": "Shadow Worst Cost Delta Sharpe Lcb",
+          "type": "number"
+        },
+        "summary_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Summary Hash",
+          "type": "string"
+        },
+        "summary_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "title": "Summary Id",
+          "type": "string"
+        },
+        "tail_loss": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Tail Loss",
+          "type": "number"
+        }
+      },
+      "required": [
+        "summary_id",
+        "challenger_id",
+        "shadow_pair_id",
+        "run_id",
+        "current_champion_version",
+        "candidate_version",
+        "candidate_artifact_hash",
+        "champion_portfolio_manifest_hash",
+        "candidate_portfolio_manifest_hash",
+        "portfolio_comparison_contract_hash",
+        "execution_contract_hash",
+        "daily_evidence_hashes",
+        "materialized_evidence_hash",
+        "forward_sessions",
+        "independent_trades",
+        "shadow_candidate_portfolio_sharpe",
+        "shadow_champion_portfolio_sharpe",
+        "shadow_delta_sharpe_point",
+        "shadow_delta_sharpe_lcb",
+        "shadow_delta_sharpe_ucb",
+        "shadow_worst_cost_delta_sharpe_lcb",
+        "cost_stress_results",
+        "annualized_net_excess_return_after_cost",
+        "matched_annualized_difference",
+        "economic_effect",
+        "maximum_drawdown",
+        "tail_loss",
+        "annualized_turnover",
+        "estimated_capacity_usd",
+        "regime_pass_fraction",
+        "runtime_error_rate",
+        "data_available_cutoff",
+        "created_at",
+        "summary_hash"
+      ],
+      "title": "TrustedShadowPerformanceSummaryV2",
+      "type": "object"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/promotion-evidence-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allocation_policy_fixed_before_oos": {
+      "title": "Allocation Policy Fixed Before Oos",
+      "type": "boolean"
+    },
+    "annualized_net_excess_return_after_cost": {
+      "title": "Annualized Net Excess Return After Cost",
+      "type": "number"
+    },
+    "annualized_turnover": {
+      "minimum": 0,
+      "title": "Annualized Turnover",
+      "type": "number"
+    },
+    "candidate_artifact_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Candidate Artifact Hash",
+      "type": "string"
+    },
+    "candidate_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$",
+      "title": "Candidate Version",
+      "type": "string"
+    },
+    "challenger_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Challenger Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "current_champion_version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,79}$",
+      "title": "Current Champion Version",
+      "type": "string"
+    },
+    "data_available_cutoff": {
+      "format": "date-time",
+      "title": "Data Available Cutoff",
+      "type": "string"
+    },
+    "economic_effect": {
+      "title": "Economic Effect",
+      "type": "number"
+    },
+    "estimated_capacity_usd": {
+      "minimum": 0,
+      "title": "Estimated Capacity Usd",
+      "type": "number"
+    },
+    "evidence_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evidence Hash",
+      "type": "string"
+    },
+    "evidence_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "falsification_report_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Falsification Report Hash",
+      "type": "string"
+    },
+    "mandatory_tests_passed": {
+      "title": "Mandatory Tests Passed",
+      "type": "boolean"
+    },
+    "matched_annualized_difference": {
+      "title": "Matched Annualized Difference",
+      "type": "number"
+    },
+    "maximum_drawdown": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Maximum Drawdown",
+      "type": "number"
+    },
+    "oos_result": {
+      "$ref": "#/$defs/OosLockboxResultV2"
+    },
+    "portfolio_comparison_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Portfolio Comparison Contract Hash",
+      "type": "string"
+    },
+    "portfolio_contract_binding_valid": {
+      "title": "Portfolio Contract Binding Valid",
+      "type": "boolean"
+    },
+    "regime_pass_fraction": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Regime Pass Fraction",
+      "type": "number"
+    },
+    "replay_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Replay Hash",
+      "type": "string"
+    },
+    "replay_reproducible": {
+      "title": "Replay Reproducible",
+      "type": "boolean"
+    },
+    "runtime_error_rate": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Runtime Error Rate",
+      "type": "number"
+    },
+    "schema_version": {
+      "const": "promotion_evidence_v2",
+      "default": "promotion_evidence_v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "shadow_summary": {
+      "$ref": "#/$defs/TrustedShadowPerformanceSummaryV2"
+    },
+    "tail_loss": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Tail Loss",
+      "type": "number"
+    }
+  },
+  "required": [
+    "evidence_id",
+    "challenger_id",
+    "current_champion_version",
+    "candidate_version",
+    "candidate_artifact_hash",
+    "portfolio_comparison_contract_hash",
+    "falsification_report_hash",
+    "oos_result",
+    "shadow_summary",
+    "replay_hash",
+    "annualized_net_excess_return_after_cost",
+    "matched_annualized_difference",
+    "economic_effect",
+    "maximum_drawdown",
+    "tail_loss",
+    "annualized_turnover",
+    "estimated_capacity_usd",
+    "regime_pass_fraction",
+    "runtime_error_rate",
+    "replay_reproducible",
+    "mandatory_tests_passed",
+    "allocation_policy_fixed_before_oos",
+    "portfolio_contract_binding_valid",
+    "data_available_cutoff",
+    "created_at",
+    "evidence_hash"
+  ],
+  "title": "PromotionEvidenceV2",
+  "type": "object"
+}

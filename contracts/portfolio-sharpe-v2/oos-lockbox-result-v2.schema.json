@@ -1,0 +1,247 @@
+{
+  "$defs": {
+    "OosVerdict": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ],
+      "title": "OosVerdict",
+      "type": "string"
+    },
+    "PortfolioCostStressResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_portfolio_sharpe": {
+          "title": "Candidate Portfolio Sharpe",
+          "type": "number"
+        },
+        "champion_portfolio_sharpe": {
+          "title": "Champion Portfolio Sharpe",
+          "type": "number"
+        },
+        "cost_multiplier": {
+          "exclusiveMinimum": 0,
+          "title": "Cost Multiplier",
+          "type": "number"
+        },
+        "delta_sharpe_lcb": {
+          "title": "Delta Sharpe Lcb",
+          "type": "number"
+        },
+        "delta_sharpe_point": {
+          "title": "Delta Sharpe Point",
+          "type": "number"
+        },
+        "delta_sharpe_ucb": {
+          "title": "Delta Sharpe Ucb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cost_multiplier",
+        "candidate_portfolio_sharpe",
+        "champion_portfolio_sharpe",
+        "delta_sharpe_point",
+        "delta_sharpe_lcb",
+        "delta_sharpe_ucb"
+      ],
+      "title": "PortfolioCostStressResultV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://adaptive-llm-quant.example/schemas/oos-lockbox-result-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "all_metrics_finite": {
+      "title": "All Metrics Finite",
+      "type": "boolean"
+    },
+    "allocation_policy_fixed_before_oos": {
+      "title": "Allocation Policy Fixed Before Oos",
+      "type": "boolean"
+    },
+    "budget_consumed": {
+      "minimum": 1,
+      "title": "Budget Consumed",
+      "type": "integer"
+    },
+    "candidate_artifact_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Candidate Artifact Hash",
+      "type": "string"
+    },
+    "candidate_portfolio_sharpe": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Candidate Portfolio Sharpe"
+    },
+    "challenger_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Challenger Id",
+      "type": "string"
+    },
+    "champion_portfolio_sharpe": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Champion Portfolio Sharpe"
+    },
+    "common_sessions": {
+      "minimum": 0,
+      "title": "Common Sessions",
+      "type": "integer"
+    },
+    "cost_stress_results": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PortfolioCostStressResultV1"
+      },
+      "title": "Cost Stress Results",
+      "type": "array"
+    },
+    "delta_sharpe_lcb": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delta Sharpe Lcb"
+    },
+    "delta_sharpe_point": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delta Sharpe Point"
+    },
+    "delta_sharpe_ucb": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delta Sharpe Ucb"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "evaluation_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evaluation Contract Hash",
+      "type": "string"
+    },
+    "experiment_family": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Experiment Family",
+      "type": "string"
+    },
+    "independent_trades": {
+      "minimum": 0,
+      "title": "Independent Trades",
+      "type": "integer"
+    },
+    "no_degenerate_variance": {
+      "title": "No Degenerate Variance",
+      "type": "boolean"
+    },
+    "portfolio_comparison_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Portfolio Comparison Contract Hash",
+      "type": "string"
+    },
+    "portfolio_contract_binding_valid": {
+      "title": "Portfolio Contract Binding Valid",
+      "type": "boolean"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Reason Codes",
+      "type": "array"
+    },
+    "result_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Result Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "oos_lockbox_result_v2",
+      "default": "oos_lockbox_result_v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "submission_number": {
+      "minimum": 1,
+      "title": "Submission Number",
+      "type": "integer"
+    },
+    "verdict": {
+      "$ref": "#/$defs/OosVerdict"
+    },
+    "worst_cost_delta_sharpe_lcb": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Worst Cost Delta Sharpe Lcb"
+    }
+  },
+  "required": [
+    "challenger_id",
+    "experiment_family",
+    "submission_number",
+    "candidate_artifact_hash",
+    "evaluation_contract_hash",
+    "portfolio_comparison_contract_hash",
+    "verdict",
+    "reason_codes",
+    "common_sessions",
+    "independent_trades",
+    "no_degenerate_variance",
+    "portfolio_contract_binding_valid",
+    "allocation_policy_fixed_before_oos",
+    "all_metrics_finite",
+    "budget_consumed",
+    "evaluated_at",
+    "result_hash"
+  ],
+  "title": "OosLockboxResultV2",
+  "type": "object"
+}

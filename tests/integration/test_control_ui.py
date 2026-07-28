@@ -93,7 +93,7 @@ def test_operator_ui_selects_provider_and_processes_json(
             "mutation_policy"
         ] == "VERSIONED_CHALLENGER_ONLY"
         recursive = research_status.json()["recursive_improvement"]
-        assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR2"
+        assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR3"
         assert recursive["enabled"] is False
         assert recursive["audit_only"] is True
         assert recursive["candidate_patch_policy"] == {
@@ -109,6 +109,12 @@ def test_operator_ui_selects_provider_and_processes_json(
             "effective_eligible_learning_forward_event_count"
         ] == 0
         assert recursive["automatic_outcome_maintenance_enabled"] is False
+        assert recursive["portfolio_delta_sharpe"]["status"] == (
+            "IMPLEMENTED_DISABLED"
+        )
+        assert recursive["portfolio_delta_sharpe"]["ledger"][
+            "comparison_contract_count"
+        ] == 0
         assert recursive["automatic_promotion_enabled"] is False
         assert recursive["real_order_routing"] is False
         assert research_status.json()["promotion_gate"] == {

@@ -142,7 +142,7 @@ def test_recursive_improvement_is_disabled_and_bound_to_patch_policy_v2() -> Non
             "snapshot_count": 0,
         },
     )
-    assert status["status"] == "DISABLED_RESEARCH_ONLY_PR2"
+    assert status["status"] == "DISABLED_RESEARCH_ONLY_PR3"
     assert status["enabled"] is False
     assert status["audit_only"] is True
     assert status["candidate_patch_policy"] == {
@@ -150,5 +150,8 @@ def test_recursive_improvement_is_disabled_and_bound_to_patch_policy_v2() -> Non
         "contract_hash": CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH,
     }
     assert status["automatic_outcome_maintenance_enabled"] is False
+    assert status["portfolio_delta_sharpe"]["status"] == (
+        "IMPLEMENTED_DISABLED"
+    )
     assert status["automatic_promotion_enabled"] is False
     assert status["real_order_routing"] is False

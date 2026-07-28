@@ -211,10 +211,11 @@ See [Deterministic Meta Controller](meta-controller.md).
 
 - [Meta-controller](meta-controller.md): implemented but disabled for automatic
   scheduling.
-- [Portfolio delta Sharpe](portfolio-delta-sharpe.md): **UNIMPLEMENTED**,
-  planned trusted incremental-portfolio evaluation.
+- [Portfolio delta Sharpe](portfolio-delta-sharpe.md): implemented trusted
+  whole-portfolio paired evaluation, OOS V2, shadow V2, and Promotion V2;
+  automatic operation remains disabled.
 - [Chronological meta-OOS](chronological-meta-oos.md): **UNIMPLEMENTED**,
   planned outer chronological audit of the adaptive policy.
 
-The PR3 and PR4 documents remain design contracts until their stacked changes
-land. None of the current recursive components claims real-world alpha.
+PR 4 remains a design contract until its stacked change lands. None of the
+current recursive components claims real-world alpha.

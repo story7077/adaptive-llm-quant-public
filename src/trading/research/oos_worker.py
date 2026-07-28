@@ -21,6 +21,10 @@ from trading.research.contracts import (
     OosWorkerRequestV1,
     OosWorkerResponseV1,
 )
+from trading.research.oos_v2 import (
+    OosWorkerRequestV2,
+    evaluate_private_request_v2,
+)
 
 PRIVATE_ROOT_ENV = "TRADING_OOS_PRIVATE_ROOT"
 MAX_DATASET_BYTES = 32 * 1024 * 1024
@@ -409,12 +413,24 @@ def main() -> None:
         raw_request = sys.stdin.buffer.read(1_048_577)
         if len(raw_request) > 1_048_576:
             _abort()
-        decoded = json.loads(raw_request.decode("utf-8"))
-        request = OosWorkerRequestV1.model_validate(decoded)
-        response = evaluate_private_request(
-            request,
-            private_root=Path(private_root_value),
+        decoded_object: object = json.loads(raw_request.decode("utf-8"))
+        decoded = (
+            cast(dict[str, object], decoded_object)
+            if isinstance(decoded_object, dict)
+            else {}
         )
+        if decoded.get("schema_version") == "oos_worker_request_v2":
+            request_v2 = OosWorkerRequestV2.model_validate(decoded)
+            response = evaluate_private_request_v2(
+                request_v2,
+                private_root=Path(private_root_value),
+            )
+        else:
+            request_v1 = OosWorkerRequestV1.model_validate(decoded_object)
+            response = evaluate_private_request(
+                request_v1,
+                private_root=Path(private_root_value),
+            )
         serialized = response.model_dump_json()
     except (
         json.JSONDecodeError,

@@ -1730,6 +1730,38 @@ class ResearchReplayArtifactRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class PortfolioComparisonContractRow(Base):
+    __tablename__ = "portfolio_comparison_contracts"
+    __table_args__ = (
+        UniqueConstraint(
+            "challenger_id",
+            "candidate_artifact_hash",
+            name="uq_portfolio_comparison_challenger_artifact",
+        ),
+    )
+
+    comparison_contract_id: Mapped[str] = mapped_column(
+        String(160),
+        primary_key=True,
+    )
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey("challenger_manifests.challenger_id", ondelete="RESTRICT")
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    champion_portfolio_manifest_hash: Mapped[str] = mapped_column(String(64))
+    candidate_portfolio_manifest_hash: Mapped[str] = mapped_column(String(64))
+    allocation_policy_hash: Mapped[str] = mapped_column(String(64))
+    weight_selection_data_cutoff: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    allocation_policy_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    contract_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class OosLockboxResultRow(Base):
     __tablename__ = "oos_lockbox_results"
     __table_args__ = (
@@ -1989,6 +2021,7 @@ APPEND_ONLY_MODEL_TYPES = (
     OosBudgetReservationRow,
     FalsificationReportRow,
     ResearchReplayArtifactRow,
+    PortfolioComparisonContractRow,
     OosLockboxResultRow,
     ResearchShadowArmRegistrationRow,
     ResearchShadowPerformanceSummaryRow,

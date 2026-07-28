@@ -31,7 +31,15 @@ if TYPE_CHECKING:
         CandidateProcessLimitsV1,
     )
     from trading.research.meta_controller import MetaControllerParametersV1
-    from trading.research.oos_lockbox import OosProcessEvaluationConfig
+    from trading.research.oos_lockbox import (
+        OosProcessEvaluationConfig,
+        OosProcessEvaluationConfigV2,
+    )
+    from trading.research.portfolio_delta_sharpe import (
+        PortfolioComparisonContractV1,
+        StationaryBootstrapContractV1,
+    )
+    from trading.research.promotion_v2 import PromotionEvaluationContractV2
     from trading.research.shadow_runtime import ShadowPaperParametersV1
 
 RESEARCH_CONFIG_FILE = "research/research-plane.yaml"
@@ -229,13 +237,16 @@ class RecursivePortfolioSharpeConfig(DomainModel):
     annualization_sessions: int = Field(gt=0)
     minimum_common_sessions: int = Field(gt=0)
     minimum_independent_trades: int = Field(gt=0)
+    configured_bootstrap_seed: int = Field(ge=0)
     bootstrap_samples: int = Field(gt=0)
     bootstrap_block_length: int = Field(gt=0)
     lower_quantile: float = Field(gt=0, lt=0.5)
     variance_epsilon: float = Field(gt=0)
+    maximum_absolute_daily_return: float = Field(gt=0)
     minimum_delta_sharpe_lcb: float
     minimum_worst_cost_delta_sharpe_lcb: float
     cost_stress_multipliers: tuple[float, ...] = Field(min_length=1)
+    trusted_producer_version: Literal["trusted_candidate_evaluation_v2"]
 
 
 class RecursiveMetaOosConfig(DomainModel):
@@ -352,14 +363,15 @@ def recursive_improvement_status(
     *,
     experiment_outcome_ledger: dict[str, object],
     meta_controller_ledger: dict[str, object] | None = None,
+    portfolio_sharpe_ledger: dict[str, object] | None = None,
 ) -> dict[str, object]:
     recursive = bundle.config.recursive_improvement
     return {
         "schema_version": "recursive_improvement_status_v1",
-        "status": "DISABLED_RESEARCH_ONLY_PR2",
+        "status": "DISABLED_RESEARCH_ONLY_PR3",
         "enabled": recursive.enabled,
         "audit_only": True,
-        "implementation_scope": "PHASE_0_PR_1_PR_2",
+        "implementation_scope": "PHASE_0_PR_1_PR_2_PR_3",
         "contract_version": recursive.contract_version,
         "config_manifest_hash": bundle.manifest_hash,
         "candidate_patch_policy": {
@@ -373,7 +385,22 @@ def recursive_improvement_status(
             "policy_version": recursive.meta_controller.policy_version,
             **dict(meta_controller_ledger or {}),
         },
-        "portfolio_delta_sharpe": {"status": "UNIMPLEMENTED"},
+        "portfolio_delta_sharpe": {
+            "status": "IMPLEMENTED_DISABLED",
+            "ledger": dict(portfolio_sharpe_ledger or {}),
+            "minimum_common_sessions": (
+                recursive.portfolio_sharpe.minimum_common_sessions
+            ),
+            "minimum_delta_sharpe_lcb": (
+                recursive.portfolio_sharpe.minimum_delta_sharpe_lcb
+            ),
+            "minimum_worst_cost_delta_sharpe_lcb": (
+                recursive.portfolio_sharpe.minimum_worst_cost_delta_sharpe_lcb
+            ),
+            "trusted_producer_version": (
+                recursive.portfolio_sharpe.trusted_producer_version
+            ),
+        },
         "chronological_meta_oos": {
             "status": "UNIMPLEMENTED",
             "enabled": recursive.meta_oos.enabled,
@@ -398,6 +425,56 @@ def meta_controller_parameters(
     return MetaControllerParametersV1(
         schema_version="meta_controller_parameters_v1",
         **configured.model_dump(mode="python"),
+    )
+
+
+def portfolio_bootstrap_contract(
+    bundle: ResearchConfigBundle,
+) -> StationaryBootstrapContractV1:
+    from trading.research.portfolio_delta_sharpe import (
+        StationaryBootstrapContractV1,
+    )
+
+    configured = bundle.config.recursive_improvement.portfolio_sharpe
+    return StationaryBootstrapContractV1(
+        configured_seed=configured.configured_bootstrap_seed,
+        samples=configured.bootstrap_samples,
+        expected_block_sessions=configured.bootstrap_block_length,
+        lower_quantile=configured.lower_quantile,
+        variance_epsilon=configured.variance_epsilon,
+    )
+
+
+def promotion_evaluation_contract_v2(
+    bundle: ResearchConfigBundle,
+) -> PromotionEvaluationContractV2:
+    from trading.research.promotion_v2 import PromotionEvaluationContractV2
+
+    base = bundle.config.promotion.evaluation_contract
+    sharpe = bundle.config.recursive_improvement.portfolio_sharpe
+    return PromotionEvaluationContractV2(
+        contract_version="research-promotion-thresholds-v2",
+        minimum_common_oos_sessions=base.minimum_common_oos_sessions,
+        minimum_forward_sessions=base.minimum_forward_sessions,
+        minimum_independent_trades=base.minimum_independent_trades,
+        minimum_annualized_net_excess_return_after_cost=(
+            base.minimum_annualized_net_excess_return_after_cost
+        ),
+        minimum_matched_annualized_difference=(
+            base.minimum_matched_annualized_difference
+        ),
+        minimum_economic_effect=base.minimum_economic_effect,
+        maximum_drawdown=base.maximum_drawdown,
+        maximum_tail_loss=base.maximum_tail_loss,
+        maximum_annualized_turnover=base.maximum_annualized_turnover,
+        minimum_capacity_usd=base.minimum_capacity_usd,
+        minimum_regime_pass_fraction=base.minimum_regime_pass_fraction,
+        maximum_runtime_error_rate=base.maximum_runtime_error_rate,
+        minimum_oos_delta_sharpe_lcb=sharpe.minimum_delta_sharpe_lcb,
+        minimum_shadow_delta_sharpe_lcb=sharpe.minimum_delta_sharpe_lcb,
+        minimum_worst_cost_delta_sharpe_lcb=(
+            sharpe.minimum_worst_cost_delta_sharpe_lcb
+        ),
     )
 
 
@@ -434,6 +511,40 @@ def oos_process_evaluation_config(
         request_ttl_seconds=oos.request_ttl_seconds,
         worker_timeout_seconds=oos.worker_timeout_seconds,
         cost_sensitivity_bps=oos.cost_sensitivity_bps,
+        maximum_submissions=budgets.maximum_submissions_per_family,
+        maximum_oos_uses=budgets.maximum_oos_uses_per_family,
+    )
+
+
+def oos_process_evaluation_config_v2(
+    bundle: ResearchConfigBundle,
+    *,
+    dataset_id: str,
+    dataset_manifest_hash: str,
+    data_available_cutoff: datetime,
+    expected_source_data_manifest_hash: str,
+    expected_candidate_replay_hash: str,
+    portfolio_comparison_contract: PortfolioComparisonContractV1,
+) -> OosProcessEvaluationConfigV2:
+    from trading.research.oos_lockbox import OosProcessEvaluationConfigV2
+
+    recursive = bundle.config.recursive_improvement.portfolio_sharpe
+    budgets = bundle.config.experiment_budget
+    return OosProcessEvaluationConfigV2(
+        dataset_id=dataset_id,
+        dataset_manifest_hash=dataset_manifest_hash,
+        data_available_cutoff=data_available_cutoff,
+        expected_source_data_manifest_hash=expected_source_data_manifest_hash,
+        expected_candidate_replay_hash=expected_candidate_replay_hash,
+        portfolio_comparison_contract=portfolio_comparison_contract,
+        minimum_common_sessions=recursive.minimum_common_sessions,
+        minimum_independent_trades=recursive.minimum_independent_trades,
+        minimum_delta_sharpe_lcb=recursive.minimum_delta_sharpe_lcb,
+        minimum_worst_cost_delta_sharpe_lcb=(
+            recursive.minimum_worst_cost_delta_sharpe_lcb
+        ),
+        request_ttl_seconds=bundle.config.oos.request_ttl_seconds,
+        worker_timeout_seconds=bundle.config.oos.worker_timeout_seconds,
         maximum_submissions=budgets.maximum_submissions_per_family,
         maximum_oos_uses=budgets.maximum_oos_uses_per_family,
     )
@@ -542,6 +653,16 @@ def _validate_invariants(config: ResearchPlaneConfig) -> None:
         != CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH
     ):
         raise ValueError("recursive Candidate patch policy binding changed")
+    portfolio_sharpe = recursive.portfolio_sharpe
+    if portfolio_sharpe.cost_stress_multipliers != (1.0, 2.0, 3.0):
+        raise ValueError("portfolio Sharpe cost stress must remain 1x/2x/3x")
+    if portfolio_sharpe.minimum_common_sessions < 126:
+        raise ValueError("portfolio Sharpe OOS requires at least 126 sessions")
+    if (
+        portfolio_sharpe.trusted_producer_version
+        != "trusted_candidate_evaluation_v2"
+    ):
+        raise ValueError("portfolio OOS trusted producer version changed")
     candidate_execution = config.candidate_execution
     if (
         candidate_execution.isolation_kind

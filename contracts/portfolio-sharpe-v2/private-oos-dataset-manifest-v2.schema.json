@@ -1,0 +1,89 @@
+{
+  "$id": "https://adaptive-llm-quant.example/schemas/private-oos-dataset-manifest-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidate_artifact_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Candidate Artifact Hash",
+      "type": "string"
+    },
+    "candidate_replay_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Candidate Replay Hash",
+      "type": "string"
+    },
+    "common_session_count": {
+      "exclusiveMinimum": 0,
+      "title": "Common Session Count",
+      "type": "integer"
+    },
+    "dataset_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Dataset Hash",
+      "type": "string"
+    },
+    "dataset_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "evaluation_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Evaluation Contract Hash",
+      "type": "string"
+    },
+    "independent_trade_count": {
+      "minimum": 0,
+      "title": "Independent Trade Count",
+      "type": "integer"
+    },
+    "manifest_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Manifest Hash",
+      "type": "string"
+    },
+    "portfolio_comparison_contract_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Portfolio Comparison Contract Hash",
+      "type": "string"
+    },
+    "private_file_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Private File Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "private_oos_dataset_manifest_v2",
+      "default": "private_oos_dataset_manifest_v2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_data_manifest_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Source Data Manifest Hash",
+      "type": "string"
+    },
+    "trusted_producer_version": {
+      "const": "trusted_candidate_evaluation_v2",
+      "title": "Trusted Producer Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "candidate_artifact_hash",
+    "evaluation_contract_hash",
+    "portfolio_comparison_contract_hash",
+    "source_data_manifest_hash",
+    "candidate_replay_hash",
+    "trusted_producer_version",
+    "common_session_count",
+    "independent_trade_count",
+    "private_file_hash",
+    "dataset_hash",
+    "manifest_hash"
+  ],
+  "title": "PrivateOosDatasetManifestV2",
+  "type": "object"
+}

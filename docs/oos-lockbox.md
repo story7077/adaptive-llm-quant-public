@@ -109,6 +109,22 @@ automatic statistical-significance claim.
 Logs, UI payloads, research bundles, and public artifacts must follow the same
 restriction.
 
+### Whole-portfolio V2
+
+The V2 protocol preserves V1 and changes the measured object from a matched
+return difference to two complete, predeclared portfolios.
+`PortfolioComparisonContractV1` must exist before budget reservation and binds
+the Champion/Candidate manifests, sleeve integration, Candidate risk budget,
+starting NAV, common-session policy, market/execution/cost manifests, risk-free
+series, stationary bootstrap, and 1x/2x/3x cost stresses.
+
+The V2 private producer applies the fixed integration policy to hidden
+point-in-time Candidate outputs. It may not choose or optimize a Candidate
+weight from OOS. The worker computes each portfolio Sharpe separately and
+returns their difference and paired bootstrap interval. The result remains
+aggregate-only: raw returns, session keys, dates, trades, and bootstrap samples
+are forbidden.
+
 ## Default decision contract
 
 The production contract requires at least 126 common sessions and applies the

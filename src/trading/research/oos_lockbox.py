@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -20,6 +21,14 @@ from trading.research.contracts import (
     OosVerdict,
     OosWorkerRequestV1,
     OosWorkerResponseV1,
+)
+from trading.research.oos_v2 import (
+    OosLockboxResultV2,
+    OosWorkerRequestV2,
+    OosWorkerResponseV2,
+)
+from trading.research.portfolio_delta_sharpe import (
+    PortfolioComparisonContractV1,
 )
 
 
@@ -139,6 +148,65 @@ class OosProcessEvaluationConfig:
             raise ValueError("OOS experiment budgets must be positive")
 
 
+@dataclass(frozen=True, slots=True)
+class OosProcessEvaluationConfigV2:
+    dataset_id: str
+    dataset_manifest_hash: str
+    data_available_cutoff: datetime
+    expected_source_data_manifest_hash: str
+    expected_candidate_replay_hash: str
+    portfolio_comparison_contract: PortfolioComparisonContractV1
+    minimum_common_sessions: int
+    minimum_independent_trades: int
+    minimum_delta_sharpe_lcb: float
+    minimum_worst_cost_delta_sharpe_lcb: float
+    request_ttl_seconds: int
+    worker_timeout_seconds: int
+    maximum_submissions: int
+    maximum_oos_uses: int
+
+    def __post_init__(self) -> None:
+        require_aware_utc(self.data_available_cutoff)
+        for name, value in (
+            ("dataset_manifest_hash", self.dataset_manifest_hash),
+            (
+                "expected_source_data_manifest_hash",
+                self.expected_source_data_manifest_hash,
+            ),
+            (
+                "expected_candidate_replay_hash",
+                self.expected_candidate_replay_hash,
+            ),
+        ):
+            if (
+                len(value) != 64
+                or value.lower() != value
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in value
+                )
+            ):
+                raise ValueError(f"{name} must be a lowercase SHA-256 hash")
+        if self.minimum_common_sessions < 2:
+            raise ValueError("portfolio OOS requires at least two common sessions")
+        if (
+            self.minimum_independent_trades < 0
+            or self.request_ttl_seconds <= 0
+            or self.worker_timeout_seconds <= 0
+            or self.maximum_submissions <= 0
+            or self.maximum_oos_uses <= 0
+        ):
+            raise ValueError("portfolio OOS numeric parameters are invalid")
+        if not all(
+            math.isfinite(value)
+            for value in (
+                self.minimum_delta_sharpe_lcb,
+                self.minimum_worst_cost_delta_sharpe_lcb,
+            )
+        ):
+            raise ValueError("portfolio OOS thresholds must be finite")
+
+
 class OosProcessClient:
     """Invokes the trusted lockbox worker without exposing its private rows."""
 
@@ -195,6 +263,40 @@ class OosProcessClient:
         _require_response_binding(request, response)
         return response
 
+    def evaluate_v2(self, request: OosWorkerRequestV2) -> OosWorkerResponseV2:
+        if require_aware_utc(self._clock()) >= request.expires_at:
+            raise OosLockboxError("OOS_WORKER_REQUEST_EXPIRED")
+        environment = _minimal_worker_environment(self._private_root)
+        try:
+            completed = subprocess.run(
+                [
+                    str(self._python_executable),
+                    "-I",
+                    "-m",
+                    self._worker_module,
+                ],
+                input=request.model_dump_json(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                cwd=tempfile.gettempdir(),
+                env=environment,
+                text=True,
+                encoding="utf-8",
+                errors="strict",
+                timeout=self._timeout_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+            raise OosLockboxError("OOS_WORKER_UNAVAILABLE") from exc
+        if completed.returncode != 0 or len(completed.stdout) > 1_048_576:
+            raise OosLockboxError("OOS_WORKER_FAILED")
+        try:
+            response = OosWorkerResponseV2.model_validate_json(completed.stdout)
+        except ValidationError as exc:
+            raise OosLockboxError("OOS_WORKER_RESPONSE_INVALID") from exc
+        _require_response_binding_v2(request, response)
+        return response
+
 
 class PersistentOosBudgetAdapter:
     def __init__(
@@ -238,6 +340,13 @@ class _ProductionBackend:
     budget: PersistentOosBudgetAdapter
     client: OosProcessClient
     config: OosProcessEvaluationConfig
+
+
+@dataclass(frozen=True, slots=True)
+class _ProductionBackendV2:
+    budget: PersistentOosBudgetAdapter
+    client: OosProcessClient
+    config: OosProcessEvaluationConfigV2
 
 
 class OosLockboxService:
@@ -435,6 +544,128 @@ class OosLockboxService:
         return result
 
 
+class OosLockboxServiceV2:
+    """Production-only portfolio-level OOS boundary."""
+
+    def __init__(self, backend: _ProductionBackendV2) -> None:
+        self._backend = backend
+
+    @classmethod
+    def production(
+        cls,
+        *,
+        repository: OosReservationRepository,
+        private_root: Path,
+        config: OosProcessEvaluationConfigV2,
+        python_executable: Path | None = None,
+        timeout_seconds: float | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> OosLockboxServiceV2:
+        return cls(
+            _ProductionBackendV2(
+                budget=PersistentOosBudgetAdapter(
+                    repository,
+                    maximum_submissions=config.maximum_submissions,
+                    maximum_oos_uses=config.maximum_oos_uses,
+                ),
+                client=OosProcessClient(
+                    private_root=private_root,
+                    python_executable=python_executable,
+                    timeout_seconds=(
+                        config.worker_timeout_seconds
+                        if timeout_seconds is None
+                        else timeout_seconds
+                    ),
+                    clock=clock,
+                ),
+                config=config,
+            )
+        )
+
+    def evaluate(
+        self,
+        request: OosEvaluationRequest,
+        *,
+        evaluated_at: datetime,
+    ) -> OosLockboxResultV2:
+        timestamp = require_aware_utc(evaluated_at)
+        config = self._backend.config
+        if (
+            request.candidate_artifact_hash
+            != config.portfolio_comparison_contract.candidate_artifact_hash
+        ):
+            raise OosLockboxError("OOS_PORTFOLIO_CONTRACT_BINDING_MISMATCH")
+        expires_at = timestamp + timedelta(seconds=config.request_ttl_seconds)
+        reservation = self._backend.budget.reserve(
+            request,
+            created_at=timestamp,
+            expires_at=expires_at,
+        )
+        worker_payload = {
+            "schema_version": "oos_worker_request_v2",
+            "request_id": stable_id(
+                "oos-worker-request-v2",
+                reservation.reservation_id,
+                reservation.reservation_hash,
+                config.dataset_manifest_hash,
+                config.portfolio_comparison_contract.contract_hash,
+            ),
+            "challenger_id": request.challenger_id,
+            "experiment_family": request.experiment_family,
+            "submission_number": request.submission_number,
+            "candidate_artifact_hash": request.candidate_artifact_hash,
+            "evaluation_contract_hash": request.evaluation_contract_hash,
+            "reservation_id": reservation.reservation_id,
+            "reservation_hash": reservation.reservation_hash,
+            "oos_budget_ordinal": reservation.oos_budget_ordinal,
+            "dataset_id": config.dataset_id,
+            "dataset_manifest_hash": config.dataset_manifest_hash,
+            "expected_source_data_manifest_hash": (
+                config.expected_source_data_manifest_hash
+            ),
+            "expected_candidate_replay_hash": (
+                config.expected_candidate_replay_hash
+            ),
+            "expected_trusted_producer_version": (
+                "trusted_candidate_evaluation_v2"
+            ),
+            "portfolio_comparison_contract": (
+                config.portfolio_comparison_contract
+            ),
+            "data_available_cutoff": config.data_available_cutoff,
+            "minimum_common_sessions": config.minimum_common_sessions,
+            "minimum_independent_trades": config.minimum_independent_trades,
+            "minimum_delta_sharpe_lcb": config.minimum_delta_sharpe_lcb,
+            "minimum_worst_cost_delta_sharpe_lcb": (
+                config.minimum_worst_cost_delta_sharpe_lcb
+            ),
+            "evaluated_at": reservation.created_at,
+            "expires_at": reservation.expires_at,
+        }
+        worker_request = OosWorkerRequestV2.model_validate(
+            {
+                **worker_payload,
+                "request_hash": canonical_hash(worker_payload),
+            }
+        )
+        response = self._backend.client.evaluate_v2(worker_request)
+        result = response.result
+        if (
+            result.budget_consumed != reservation.oos_budget_ordinal
+            or result.challenger_id != request.challenger_id
+            or result.experiment_family != request.experiment_family
+            or result.submission_number != request.submission_number
+            or result.candidate_artifact_hash
+            != request.candidate_artifact_hash
+            or result.evaluation_contract_hash
+            != request.evaluation_contract_hash
+            or result.portfolio_comparison_contract_hash
+            != config.portfolio_comparison_contract.contract_hash
+        ):
+            raise OosLockboxError("OOS_WORKER_RESULT_BINDING_MISMATCH")
+        return result
+
+
 def _minimal_worker_environment(private_root: Path) -> dict[str, str]:
     environment = {
         "PYTHONIOENCODING": "utf-8",
@@ -451,6 +682,19 @@ def _minimal_worker_environment(private_root: Path) -> dict[str, str]:
 def _require_response_binding(
     request: OosWorkerRequestV1,
     response: OosWorkerResponseV1,
+) -> None:
+    if (
+        response.request_id != request.request_id
+        or response.request_hash != request.request_hash
+        or response.reservation_id != request.reservation_id
+        or response.reservation_hash != request.reservation_hash
+    ):
+        raise OosLockboxError("OOS_WORKER_RESPONSE_BINDING_MISMATCH")
+
+
+def _require_response_binding_v2(
+    request: OosWorkerRequestV2,
+    response: OosWorkerResponseV2,
 ) -> None:
     if (
         response.request_id != request.request_id
