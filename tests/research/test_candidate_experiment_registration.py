@@ -13,6 +13,7 @@ from trading.research.candidate_artifact import (
 )
 from trading.research.candidate_experiment import (
     CandidateExperimentRegistrationError,
+    _canonical_provenance,
     select_forward_maturity_sessions,
     verify_candidate_test_manifest,
 )
@@ -226,3 +227,18 @@ def test_maturity_rejects_partial_and_insufficient_calendar() -> None:
             decision_at=NOW,
             horizon_sessions=2,
         )
+
+
+def test_source_provenance_is_sorted_by_time_before_hash() -> None:
+    earlier = NOW - timedelta(hours=2)
+    later = NOW - timedelta(hours=1)
+
+    hashes, available_at = _canonical_provenance(
+        (
+            ("0" * 64, later),
+            ("f" * 64, earlier),
+        )
+    )
+
+    assert hashes == ("f" * 64, "0" * 64)
+    assert available_at == (earlier, later)

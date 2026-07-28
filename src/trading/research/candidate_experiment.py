@@ -473,7 +473,12 @@ def _canonical_provenance(
         current = earliest_by_hash.get(artifact_hash)
         if current is None or available < current:
             earliest_by_hash[artifact_hash] = available
-    ordered = tuple(sorted(earliest_by_hash.items()))
+    ordered = tuple(
+        sorted(
+            earliest_by_hash.items(),
+            key=lambda item: (item[1], item[0]),
+        )
+    )
     return (
         tuple(artifact_hash for artifact_hash, _ in ordered),
         tuple(available_at for _, available_at in ordered),
