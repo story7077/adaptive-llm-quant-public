@@ -51,6 +51,7 @@ from trading.domain.time import SystemClock
 from trading.execution.alpaca_paper import AlpacaPaperTradingClient
 from trading.persistence.db import create_database_engine, make_session_factory
 from trading.persistence.factorial import FactorialPaperExperimentRepository
+from trading.persistence.meta_controller import MetaControllerRepository
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.research import (
     ResearchPersistenceError,
@@ -160,6 +161,7 @@ def create_app(
     )
     service = ControlPlaneService(session_factory)
     research_repository = ResearchRepository(session_factory)
+    meta_controller_repository = MetaControllerRepository(session_factory)
     research_lifecycle = ResearchLifecycleService(
         repository=research_repository
     )
@@ -652,6 +654,7 @@ def create_app(
             research_config=research_config,
         )
         persisted_status = research_repository.status()
+        meta_controller_status = meta_controller_repository.status()
         return {
             **persisted_status,
             "recursive_improvement": recursive_improvement_status(
@@ -659,6 +662,7 @@ def create_app(
                 experiment_outcome_ledger=(
                     persisted_status["experiment_outcome_ledger"]
                 ),
+                meta_controller_ledger=meta_controller_status,
             ),
             "research_plane_version": (
                 research_config.config.algorithm_version

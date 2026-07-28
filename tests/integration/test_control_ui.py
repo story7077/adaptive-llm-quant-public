@@ -93,7 +93,7 @@ def test_operator_ui_selects_provider_and_processes_json(
             "mutation_policy"
         ] == "VERSIONED_CHALLENGER_ONLY"
         recursive = research_status.json()["recursive_improvement"]
-        assert recursive["status"] == "DISABLED_AUDIT_ONLY_PR1"
+        assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR2"
         assert recursive["enabled"] is False
         assert recursive["audit_only"] is True
         assert recursive["candidate_patch_policy"] == {

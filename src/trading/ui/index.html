@@ -1611,7 +1611,7 @@
       const outcomeLedger = recursive.experiment_outcome_ledger ||
         data.experiment_outcome_ledger || {};
       const patchPolicy = recursive.candidate_patch_policy || {};
-      $("researchRecursiveState").textContent = `${recursive.status || "DISABLED_AUDIT_ONLY_PR1"} · enabled=${recursive.enabled === true}`;
+      $("researchRecursiveState").textContent = `${recursive.status || "DISABLED_RESEARCH_ONLY_PR2"} · enabled=${recursive.enabled === true}`;
       $("researchRecursiveContract").textContent = `${recursive.contract_version || "—"} · ${recursive.implementation_scope || "—"}`;
       $("researchRecursivePolicy").textContent = patchPolicy.version || "—";
       $("researchRecursiveActions").textContent = formatNumber(outcomeLedger.action_count ?? 0);
@@ -1623,7 +1623,7 @@
         config_manifest_hash: recursive.config_manifest_hash || null,
         audit_only: recursive.audit_only,
         automatic_outcome_maintenance_enabled: recursive.automatic_outcome_maintenance_enabled,
-        meta_controller: recursive.meta_controller || { status: "UNIMPLEMENTED" },
+        meta_controller: recursive.meta_controller || { status: "IMPLEMENTED_DISABLED" },
         portfolio_delta_sharpe: recursive.portfolio_delta_sharpe || { status: "UNIMPLEMENTED" },
         chronological_meta_oos: recursive.chronological_meta_oos || { status: "UNIMPLEMENTED" },
         automatic_promotion_enabled: recursive.automatic_promotion_enabled,

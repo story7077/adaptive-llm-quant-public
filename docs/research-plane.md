@@ -85,7 +85,8 @@ arm and reported by both status endpoints.
 
 ## Cycle inputs
 
-`ResearchRequestV1` contains only bounded, explicit inputs:
+Legacy cycles use `ResearchRequestV1`. Recursive cycles use
+`ResearchRequestV2`; both contain only bounded, explicit inputs:
 
 - Champion manifest and active Challenger manifests;
 - strategy performance and failure-case summaries;
@@ -145,13 +146,14 @@ switching away and then back to the same kind cannot revive it.
 For `WEBGPT_SOL_PRO`, `research commander-run` executes the hash-bound request through
 headed Chrome, local CDP, AGBrowse, and a fresh ChatGPT GPT-5.6 Sol Pro / xhigh
 conversation. It has no API fallback. The selection is checked before transmission
-and after completion, and the validated `ResearchDecisionV1` is atomically written to
+and after completion, and the validated `ResearchDecisionV1` or
+`ResearchDecisionV2` is atomically written to
 the prepared cycle's `output/research_decision.json`. See
 [WebGPT and AGBrowse research](webgpt-agbrowse-research.md).
 
 ## Commander decisions
 
-`ResearchDecisionV1` supports:
+`ResearchDecisionV1` and `ResearchDecisionV2` support:
 
 - `NO_RESEARCH_CHANGE`
 - `PROPOSE_NEW_STRATEGY`
@@ -161,7 +163,10 @@ the prepared cycle's `output/research_decision.json`. See
 - `RETIRE_STRATEGY`
 - `REQUEST_MORE_EVIDENCE`
 
-A proposal decision must contain exactly one valid `AlgorithmProposalV1`.
+A legacy proposal decision must contain exactly one valid
+`AlgorithmProposalV1`. A recursive proposal decision must contain exactly one
+valid `AlgorithmProposalV2` bound to a funded action in the immutable
+`ResearchActionPlanV1`.
 `REQUEST_MORE_EVIDENCE` must name the missing evidence. Other decisions cannot
 smuggle a proposal or evidence request through optional fields.
 
@@ -172,13 +177,14 @@ Model confidence is stored for audit but cannot drive promotion or capital.
 Commander and Builder are independent invocations. The Builder receives:
 
 - the accepted structured proposal;
-- current request bindings;
+- a minimal immutable request-binding receipt;
 - a clean source snapshot;
 - output schemas and constraints;
 - the public repository instructions.
 
-It does not receive the Commander conversation. Candidate output is inspected
-before registration. A patch is rejected when it:
+It does not receive the full recursive request, research memory, action plan,
+evidence bundle, Commander output, or any Scout/Commander conversation.
+Candidate output is inspected before registration. A patch is rejected when it:
 
 - changes the parent Champion in place;
 - touches a forbidden or non-allowlisted path;

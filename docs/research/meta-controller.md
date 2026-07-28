@@ -1,99 +1,180 @@
-# Meta-Controller Extension Contract
+# Deterministic Meta Controller V1
 
-> **UNIMPLEMENTED — planned follow-up PR 2**
+> **Implemented, disabled by default.**
 >
-> This document is a design boundary, not production behavior. There is no
-> meta-controller module, trained policy, scheduler consumer, Commander
-> integration, or automatic research-action selection in the current
-> repository. `recursive_improvement.enabled=false`.
+> The trusted host can build and persist deterministic research-action plans,
+> but `recursive_improvement.enabled=false`. No scheduler automatically invokes
+> the controller. It cannot create code, choose securities, allocate capital,
+> promote a Challenger, or route an order.
 
-## Intended responsibility
+## Responsibility
 
-A future meta-controller may rank or select a small set of research action
-types from a point-in-time `ResearchMemorySnapshotV1` and the current
-hash-bound research request. Its output must remain a research recommendation:
-it may lead to a new versioned proposal, but it may not edit the Champion,
-change trusted judges, promote a Challenger, allocate live capital, or create a
-broker order.
+The Research Commander creates economic hypotheses and the Candidate Builder
+implements an approved proposal. `MetaControllerV1` does one narrower job: it
+ranks typed research actions and divides a pre-existing submission budget
+using only an immutable point-in-time `ResearchMemorySnapshotV1`.
 
-The controller is separate from:
+The controller is a pure, replayable hierarchical contextual UCB calculation.
+It is not an LLM and does not receive raw OOS observations or raw daily return
+series.
 
-- the Web Scout, which gathers evidence;
-- the Research Commander, which writes the economic hypothesis and proposal;
-- the Candidate Builder, which implements an approved proposal;
-- falsification, OOS, shadow, and promotion judges;
-- the Operational Trading Plane.
+The context key is:
 
-## Reserved configuration
+```text
+(regime_cluster_id,
+ failure_cluster_id,
+ portfolio_exposure_cluster_id,
+ primary_action_kind)
+```
 
-The Phase 0 configuration reserves, but does not execute, this policy contract:
+Sparse observations back off in this fixed order:
 
-| Field | Checked-in value |
+```text
+(regime, failure, exposure, action)
+(regime, failure, action)
+(failure, action)
+(regime, action)
+(action)
+global
+```
+
+## Trusted training view
+
+`MetaControllerRepository.build_training_view()` resolves the exact event
+hashes recorded in a persisted memory snapshot and verifies every event chain
+again. It includes only records that:
+
+- were available at or before the snapshot cutoff;
+- have information role `LEARNING_FORWARD`;
+- use a typed action other than `UNKNOWN_LEGACY`;
+- contain either a technical result or an eligible matured economic result.
+
+`PROMOTION_OOS`, `META_AUDIT`, future, unmatured, corrected-away, invalid, and
+legacy records cannot become economic reward samples. A technical build or
+test failure remains a technical observation; it is never converted into a
+fabricated negative Sharpe.
+
+## Reward and score
+
+For each eligible matured economic observation:
+
+```python
+reward = clip(
+    portfolio_delta_sharpe_lcb
+    - turnover_penalty_weight
+      * max(0, turnover_delta / turnover_scale)
+    - drawdown_penalty_weight
+      * max(0, drawdown_delta / drawdown_scale)
+    - cost_penalty_weight
+      * max(0, cost_delta_bps / cost_scale_bps)
+    - complexity_penalty_weight
+      * max(0, complexity_delta / complexity_scale),
+    -reward_clip,
+    reward_clip,
+)
+```
+
+At the selected contextual bucket:
+
+```python
+shrunk_mean = (
+    prior_strength * parent_or_global_mean
+    + sum_matured_rewards
+) / (prior_strength + matured_count)
+
+exploration_bonus = max(
+    exploration_floor,
+    exploration_coefficient * sqrt(
+        log(1 + total_matured_outcomes)
+        / (prior_strength + matured_count)
+    ),
+)
+
+technical_penalty = technical_failure_weight * (
+    technical_failure_count / max(1, total_attempt_count)
+)
+
+score = shrunk_mean + exploration_bonus - technical_penalty
+```
+
+No random sampling is used. Rankings sort by descending score and then the
+canonical `ResearchActionKind` value. Identical snapshot, context, config, and
+budget inputs therefore produce the same plan hash.
+
+The checked-in numbers are infrastructure defaults, not calibrated evidence of
+profitability:
+
+| Parameter | Value |
 | --- | ---: |
-| `policy_version` | `hierarchical-contextual-ucb-v1` |
-| `maximum_actions_per_cycle` | 3 |
-| `prior_strength` | 4.0 |
-| `exploration_coefficient` | 0.25 |
-| `technical_failure_weight` | 0.25 |
-| `reward_clip` | 1.0 |
-| turnover penalty weight / scale | 0.05 / 1.0 |
-| drawdown penalty weight / scale | 0.10 / 0.05 |
-| cost penalty weight / scale | 0.05 / 10 bps |
-| complexity penalty weight / scale | 0.05 / 1.0 |
+| policy version | `hierarchical-contextual-ucb-v1` |
+| maximum funded actions | 3 |
+| prior strength | 4.0 |
+| exploration coefficient / floor | 0.25 / 0.01 |
+| technical failure weight | 0.25 |
+| reward clip | 1.0 |
+| turnover weight / scale | 0.05 / 1.0 |
+| drawdown weight / scale | 0.10 / 0.05 |
+| cost weight / scale | 0.05 / 10 bps |
+| complexity weight / scale | 0.05 / 1.0 |
 
-These values are configuration placeholders bound into the research manifest.
-Their presence does not mean that a contextual-bandit score, reward update, or
-policy state currently exists.
+## Immutable action plan
 
-## Required future input contract
+`ResearchActionPlanV1` binds:
 
-PR 2 must bind every decision to at least:
+- the cycle, policy, config, memory snapshot, training view, and context hashes;
+- every action score component, sample count, reason code, and allocated
+  submission budget;
+- maximum actions, total submissions, generation time, idempotency key, and
+  canonical plan hash.
 
-- policy and schema versions;
-- exact `ResearchMemorySnapshotV1` ID and hash;
-- request, cycle, config, source, Champion, and available-data-catalog hashes;
-- `as_of` and `data_available_cutoff`;
-- experiment-family submission and OOS budgets;
-- available typed action kinds and any action-level constraints;
-- a deterministic seed if randomized exploration is used.
+Migration `0015_meta_controller_v1` stores plans and accepted
+`AlgorithmProposalV2` records in append-only tables with SQLite and PostgreSQL
+UPDATE/DELETE guards. One cycle has at most one plan. Reusing an ID or
+idempotency key with different bytes fails closed.
 
-Only records permitted by the information firewall may influence policy state.
-`PROMOTION_OOS`, `META_AUDIT`, unmatured economics, corrected-away records, and
-legacy `UNKNOWN_LEGACY` observations must not become reward samples.
+The plan may select only action kinds and submission counts. It has no fields
+for symbols, formulas, parameters, position weights, OOS thresholds, Champion
+designation, or broker actions.
 
-## Required future output contract
+## ResearchRequestV2
 
-The result must be an immutable, hash-bound recommendation containing:
+V1 request and decision replay remains unchanged. A new V2 request embeds the
+exact immutable memory snapshot and action plan. The trusted host loads both by
+ID from persistence and derives the performance, failure, and regime summaries;
+there is no caller argument through which a forged summary can be injected.
 
-- selected typed action kinds, never more than the configured maximum;
-- the context and memory hashes used;
-- policy version and deterministic seed;
-- score components and uncertainty sufficient for replay;
-- explicit no-action and insufficient-evidence outcomes;
-- an expiry and idempotency key.
+An `AlgorithmProposalV2.primary_action_kind` must be one of the funded plan
+actions. `NO_RESEARCH_CHANGE` and `REQUEST_MORE_EVIDENCE` remain valid, so a
+plan never forces a candidate into existence.
 
-The output must not contain order quantities, target weights, broker actions,
-promotion decisions, or changes to protected code. A Research Commander must
-still produce the economic rationale and a valid `AlgorithmProposalV2`.
+Both Commander implementations use the same canonical schemas and hash
+manifest under `contracts/research-v2/`. Snapshot text is observation data, not
+an instruction. The isolated Builder receives only the approved structured
+proposal, sanitized request binding, constraints, and clean source snapshot;
+it does not receive the full Research Memory or Commander transcript.
 
-## Acceptance conditions for PR 2
+## Operator command
 
-PR 2 is not complete until tests demonstrate:
+The command defaults to dry-run:
 
-- identical versioned inputs produce an identical decision and policy update;
-- later events cannot change a past decision;
-- protected information roles never enter training or reward;
-- technical failures and economic rewards remain distinct;
-- censored and corrected events are handled without rewriting history;
-- exploration is bounded by the configured action count and experiment budget;
-- missing, invalid, or insufficient memory yields no action;
-- policy state is append-only, replayable, and independently hash-verified;
-- the controller cannot touch risk, execution, ledger, broker, promotion, or
-  real-routing paths.
+```powershell
+uv run python -m trading.cli research meta-policy build `
+  --snapshot-id <IMMUTABLE_SNAPSHOT_ID> `
+  --research-cycle-id <NEW_CYCLE_ID> `
+  --regime-cluster-id <REGIME> `
+  --failure-cluster-id <FAILURE> `
+  --portfolio-exposure-cluster-id <EXPOSURE> `
+  --maximum-total-submissions 3 `
+  --idempotency-key <UNIQUE_KEY>
+```
 
-## Current non-capabilities
+Add `--commit` to append the plan. `research status` reports the plan count and
+continues to display `automatic_execution_enabled=false`,
+`automatic_promotion_enabled=false`, and `real_order_routing=false`.
 
-No score, posterior, hierarchy, contextual feature vector, penalty formula,
-online update, or production policy state is implemented. The action and memory
-statistics in PR 1 are data contracts only. They must not be described as an
-adaptive controller until a later PR implements and validates this contract.
+## Current limitation
+
+The controller has not demonstrated useful research selection on real
+chronological outer-audit data. PR2 validates determinism, PIT exclusion,
+contextual backoff, exploration, and isolation only. Portfolio-level
+delta-Sharpe evaluation and chronological meta-OOS are separate gates.

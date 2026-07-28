@@ -142,7 +142,7 @@ def test_recursive_improvement_is_disabled_and_bound_to_patch_policy_v2() -> Non
             "snapshot_count": 0,
         },
     )
-    assert status["status"] == "DISABLED_AUDIT_ONLY_PR1"
+    assert status["status"] == "DISABLED_RESEARCH_ONLY_PR2"
     assert status["enabled"] is False
     assert status["audit_only"] is True
     assert status["candidate_patch_policy"] == {

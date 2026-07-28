@@ -1,12 +1,12 @@
 # Recursive Improvement
 
-> **Implementation status: Phase 0 and PR 1 only**
+> **Implementation status: Phase 0, PR 1, and PR 2**
 >
 > `recursive_improvement.enabled=false` is enforced by the versioned research
 > configuration. The repository currently provides contracts, an immutable
-> experiment-outcome ledger, deterministic memory materialization, and
-> operator-facing CLI/status surfaces. It does not run a production
-> meta-controller, optimize a research portfolio, perform chronological
+> experiment-outcome ledger, deterministic memory materialization, a
+> deterministic Meta Controller, and V2 Commander contracts. Automatic
+> invocation remains disabled. It does not optimize a research portfolio, perform chronological
 > meta-OOS evaluation, promote a Challenger automatically, or route a real
 > order.
 
@@ -30,7 +30,8 @@ ledger are observations under declared contracts, not performance claims.
 | PR 1 experiment action/outcome ledger | Implemented |
 | PR 1 deterministic research-memory snapshot | Implemented |
 | PR 1 manual CLI and typed scheduler work contracts | Implemented but disabled for automatic recursive maintenance |
-| PR 2 meta-controller | **UNIMPLEMENTED** |
+| PR 2 deterministic Meta Controller | Implemented; manual/dry-run by default |
+| PR 2 ResearchRequest/Decision V2 | Implemented alongside unchanged V1 |
 | PR 3 portfolio delta-Sharpe judge | **UNIMPLEMENTED** |
 | PR 4 chronological meta-OOS | **UNIMPLEMENTED** |
 
@@ -82,9 +83,9 @@ the earlier contract.
 - a declared complexity delta;
 - a binding to `candidate_patch_policy_v2`.
 
-The schema is exposed by `research schema`. It is not yet a production
-meta-controller output path and does not authorize code, promotion, or trading
-by itself.
+The schema is exposed by `research schema`. A V2 proposal can now be accepted
+only through a `ResearchRequestV2` bound to a funded immutable action plan. It
+still does not authorize promotion, capital, or trading by itself.
 
 ## PR 1 outcome-learning flow
 
@@ -147,8 +148,8 @@ it does not call a model or execute the work itself.
 
 Because `recursive_improvement.enabled=false`, normal schedule planning does not
 create the two recursive-maintenance work items. The repository has no
-production consumer that calculates economic outcomes or invokes a
-meta-controller.
+automatic production consumer that calculates economic outcomes or invokes the
+Meta Controller. Operators may build a deterministic action plan explicitly.
 
 Operators and tests can inspect or exercise the PR 1 substrate manually:
 
@@ -160,12 +161,20 @@ uv run python -m trading.cli research memory materialize `
   --as-of <UTC_TIMESTAMP> `
   --data-available-cutoff <UTC_TIMESTAMP> `
   --created-at <UTC_TIMESTAMP>
+uv run python -m trading.cli research meta-policy build `
+  --snapshot-id <IMMUTABLE_SNAPSHOT_ID> `
+  --research-cycle-id <NEW_CYCLE_ID> `
+  --regime-cluster-id <REGIME> `
+  --failure-cluster-id <FAILURE> `
+  --portfolio-exposure-cluster-id <EXPOSURE> `
+  --maximum-total-submissions 3 `
+  --idempotency-key <UNIQUE_KEY>
 uv run python -m trading.cli research status
 uv run python -m trading.cli research schema
 ```
 
 Mutation commands default to dry-run. `--commit` is required to append an
-outcome or persist a memory snapshot. The outcome input must already have been
+outcome, persist a memory snapshot, or persist an action plan. The outcome input must already have been
 validated by a trusted host process; the CLI does not manufacture performance
 measurements.
 
@@ -182,14 +191,30 @@ PR 1 does not reinterpret historical records:
 - V2 is a separate contract for new recursive experiments; it does not mutate
   a stored V1 proposal or patch judgment.
 
+## PR 2 deterministic research policy
+
+The trusted `MetaControllerV1` builds a controller-only training view from the
+exact event hashes in one immutable memory snapshot. It filters out protected
+information roles, separates technical failures from economic rewards, applies
+the versioned hierarchical contextual UCB formula, and emits one immutable
+`ResearchActionPlanV1`. No random sampling is used.
+
+`build_research_request_v2()` accepts snapshot and plan IDs rather than
+caller-supplied performance/failure/regime summaries. It derives those
+summaries from verified persistence and binds the V2 request and decision to
+both hashes. Public and Commander repositories carry byte-identical schemas
+and a common hash manifest.
+
+See [Deterministic Meta Controller](meta-controller.md).
+
 ## Follow-up extension contracts
 
-- [Meta-controller](meta-controller.md): **UNIMPLEMENTED**, planned follow-up
-  policy for selecting research actions.
+- [Meta-controller](meta-controller.md): implemented but disabled for automatic
+  scheduling.
 - [Portfolio delta Sharpe](portfolio-delta-sharpe.md): **UNIMPLEMENTED**,
   planned trusted incremental-portfolio evaluation.
 - [Chronological meta-OOS](chronological-meta-oos.md): **UNIMPLEMENTED**,
   planned outer chronological audit of the adaptive policy.
 
-None of these extension documents describes a currently executable production
-feature.
+The PR3 and PR4 documents remain design contracts until their stacked changes
+land. None of the current recursive components claims real-world alpha.

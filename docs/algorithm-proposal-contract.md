@@ -2,9 +2,11 @@
 
 ## Purpose
 
-`ResearchRequestV1`, `ResearchDecisionV1`, and `AlgorithmProposalV1` form the
-common contract for both supported Research Commanders. The contract makes a
-research proposal reproducible and falsifiable before any code is built.
+`ResearchRequestV1`, `ResearchDecisionV1`, and `AlgorithmProposalV1` remain the
+legacy common contract for both supported Research Commanders.
+`ResearchRequestV2`, `ResearchDecisionV2`, and `AlgorithmProposalV2` extend that
+contract for recursive research. Both versions make a proposal reproducible and
+falsifiable before any code is built.
 
 Natural-language discussion is not an executable proposal. Only a schema-valid,
 hash-bound decision may enter the Candidate Builder.
@@ -29,6 +31,25 @@ payload hash must equal `context_manifest_hash`.
 The exact append-only Commander selection record is part of that hash. A request
 created under one selection ID and version stays stale after any later selection
 change, even if the operator eventually selects the same Commander kind again.
+
+## Recursive `ResearchRequestV2`
+
+V2 does not accept caller-authored performance, failure-cluster, or regime
+summaries. The trusted host loads one immutable
+`ResearchMemorySnapshotV1` and one persisted `ResearchActionPlanV1`, verifies
+their hashes and point-in-time cutoffs, and embeds those exact typed objects in
+the request. The plan must belong to the same research cycle, must be created
+from the embedded memory snapshot, and must not exceed the request's experiment
+budget.
+
+The memory snapshot contains aggregate outcome statistics only. It excludes
+raw returns, OOS samples, locked dates, and model transcripts. Free-form text in
+memory records is untrusted data, not an instruction channel.
+
+The deterministic Meta Controller ranks canonical action kinds and funds a
+bounded subset. A V2 Commander may propose only a funded action kind, return
+`NO_RESEARCH_CHANGE`, or request more bounded evidence. It cannot change the
+plan, submission budget, posterior state, or action bounds.
 
 ## `ResearchDecisionV1`
 
@@ -134,6 +155,35 @@ or “find a better model” are insufficient.
 `raw_confidence` is preserved for calibration research only. It cannot select
 capital, bypass a test, alter OOS budget, or affect promotion.
 
+## `ResearchDecisionV2` and `AlgorithmProposalV2`
+
+V2 preserves the V1 decision vocabulary and request bindings, and adds:
+
+- the exact `research_memory_snapshot_id`;
+- the exact `research_action_plan_id`;
+- the funded `primary_action_id` and `primary_action_kind`;
+- canonical failure tags from the planned context;
+- a bounded predicted portfolio delta-Sharpe interval.
+
+For proposal decisions, `primary_action_id` must identify a funded plan entry,
+and the proposal's action kind must match that entry. The predicted lower,
+central, and upper delta-Sharpe values must be ordered and remain inside the
+plan entry's host-computed bounds. These predictions are audit metadata; they
+cannot pass OOS, allocate capital, or promote a Challenger.
+
+V2 proposals automatically use `candidate_patch_policy_v2`. The policy permits
+new versioned files only under Challenger implementation, Challenger
+configuration, Candidate test, and Challenger documentation namespaces. It
+cannot modify the Meta Controller, memory ledger, OOS worker, promotion judge,
+risk, execution, ledger, persistence, migrations, security, broker code, or
+GitHub workflows.
+
+The Candidate Builder receives a sanitized builder request containing only the
+immutable request-binding receipt, approved proposal, patch-policy binding,
+clean-source manifest, constraints, output schemas, and public instructions.
+It does not receive the full research request, memory snapshot, action plan,
+evidence bundle, Commander output, or any conversation transcript.
+
 ## Versioning guidance
 
 Use semantic intent:
@@ -189,7 +239,7 @@ This example is intentionally incomplete and contains no trading recommendation:
 
 Production schema fields, hashes, times, data catalog, evidence references, and
 tests are still mandatory; use `trading.cli research schema` to obtain the
-authoritative JSON schemas.
+authoritative V1 and V2 JSON schemas.
 
 ## Rejection conditions
 

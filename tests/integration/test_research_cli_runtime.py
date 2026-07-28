@@ -760,6 +760,9 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
     assert "experiment_outcome_maturation_input_v1" in schema
     assert "experiment_outcome_event_v1" in schema
     assert "research_memory_snapshot_v1" in schema
+    assert "research_request_v2" in schema
+    assert "research_decision_v2" in schema
+    assert "research_action_plan_v1" in schema
     assert schema["automatic_promotion_enabled"] is False
     assert schema["real_order_routing"] is False
 

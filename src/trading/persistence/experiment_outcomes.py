@@ -361,6 +361,71 @@ class ExperimentOutcomeRepository:
             row = session.get(ResearchMemorySnapshotRow, snapshot_id)
             return None if row is None else self._snapshot_from_row(row)
 
+    def memory_snapshot_with_verified_events(
+        self,
+        snapshot_id: str,
+    ) -> tuple[
+        ResearchMemorySnapshotV1,
+        tuple[ExperimentOutcomeEventV1, ...],
+    ]:
+        """Resolve an immutable snapshot to its exact verified event prefix."""
+
+        with self._session_factory() as session:
+            row = session.get(ResearchMemorySnapshotRow, snapshot_id)
+            if row is None:
+                raise ExperimentOutcomePersistenceError(
+                    "unknown research memory snapshot"
+                )
+            snapshot = self._snapshot_from_row(row)
+            action_rows = tuple(
+                session.scalars(
+                    select(ResearchExperimentActionRow).order_by(
+                        ResearchExperimentActionRow.experiment_id
+                    )
+                )
+            )
+            actions = {
+                action_row.experiment_id: self._action_from_row(action_row)
+                for action_row in action_rows
+            }
+            event_rows = tuple(
+                session.scalars(
+                    select(ResearchExperimentOutcomeEventRow)
+                    .where(
+                        ResearchExperimentOutcomeEventRow.created_at
+                        <= snapshot.as_of
+                    )
+                    .order_by(
+                        ResearchExperimentOutcomeEventRow.experiment_id,
+                        ResearchExperimentOutcomeEventRow.event_sequence,
+                    )
+                )
+            )
+            verified = self._verified_event_rows(
+                actions=actions,
+                rows=event_rows,
+            )
+            by_hash = {event.event_hash: event for event in verified}
+            if any(
+                event_hash not in by_hash
+                for event_hash in snapshot.included_event_hashes
+            ):
+                raise ExperimentOutcomePersistenceError(
+                    "research memory snapshot references an unknown event"
+                )
+            events = tuple(
+                by_hash[event_hash]
+                for event_hash in snapshot.included_event_hashes
+            )
+            if any(
+                event.available_at > snapshot.data_available_cutoff
+                for event in events
+            ):
+                raise ExperimentOutcomePersistenceError(
+                    "research memory snapshot contains future event data"
+                )
+            return snapshot, events
+
     def status(self) -> dict[str, Any]:
         with self._session_factory() as session:
             action_count = session.scalar(
