@@ -61,6 +61,10 @@ from trading.persistence.db import (
 from trading.persistence.experiment_outcomes import (
     ExperimentOutcomePersistenceError,
 )
+from trading.persistence.meta_controller import (
+    MetaControllerPersistenceError,
+    MetaControllerRepository,
+)
 from trading.persistence.models import NavSnapshotRow, RunRow, ShadowArmRow
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
@@ -73,6 +77,7 @@ from trading.research.config import (
     FACTORIAL_CONFIG_FILE,
     RESEARCH_CONFIG_FILE,
     load_research_config,
+    meta_controller_parameters,
     recursive_improvement_status,
 )
 from trading.research.contracts import (
@@ -84,6 +89,7 @@ from trading.research.experiment_outcomes import (
     AlgorithmProposalV2,
     ExperimentOutcomeEventV1,
     ExperimentOutcomeMaturationInputV1,
+    ResearchActionKind,
     ResearchExperimentActionV1,
     ResearchMemorySnapshotV1,
 )
@@ -92,6 +98,7 @@ from trading.research.file_runtime import (
     ResearchPlaneFileRuntime,
     atomic_write_json,
     load_json_model,
+    load_research_request,
     local_artifact_label,
     resolve_local_output,
     write_cycle_decision,
@@ -101,11 +108,19 @@ from trading.research.lifecycle import (
     ResearchLifecycleError,
     ResearchLifecycleService,
 )
+from trading.research.meta_controller import (
+    ResearchActionPlanV1,
+    build_research_context,
+)
 from trading.research.promotion_evidence import (
     ChampionDesignationV1,
     PromotionEvidenceV1,
     TrustedPromotionEvaluationV1,
     TrustedShadowPerformanceSummaryV1,
+)
+from trading.research.v2_contracts import (
+    ResearchDecisionV2,
+    ResearchRequestV2,
 )
 from trading.research.webgpt_commander import (
     WebGptActiveResearchCommander,
@@ -163,6 +178,7 @@ webgpt_app = typer.Typer(no_args_is_help=True)
 research_app = typer.Typer(no_args_is_help=True)
 research_outcome_app = typer.Typer(no_args_is_help=True)
 research_memory_app = typer.Typer(no_args_is_help=True)
+research_meta_policy_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
@@ -180,8 +196,9 @@ app.add_typer(paper_app, name="paper")
 app.add_typer(research_app, name="research")
 research_app.add_typer(research_outcome_app, name="outcome")
 research_app.add_typer(research_memory_app, name="memory")
+research_app.add_typer(research_meta_policy_app, name="meta-policy")
 
-EXPECTED_DATABASE_REVISION = "0014_experiment_outcome_ledger"
+EXPECTED_DATABASE_REVISION = "0015_meta_controller_v1"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -786,6 +803,7 @@ def research_status() -> None:
     factory = make_session_factory(engine)
     research_config = load_research_config(settings.config_dir)
     persisted_status = ResearchRepository(factory).status()
+    meta_controller_status = MetaControllerRepository(factory).status()
     payload = {
         **persisted_status,
         "recursive_improvement": recursive_improvement_status(
@@ -793,6 +811,7 @@ def research_status() -> None:
             experiment_outcome_ledger=(
                 persisted_status["experiment_outcome_ledger"]
             ),
+            meta_controller_ledger=meta_controller_status,
         ),
         "scheduler": ResearchSchedulerService(
             repository=ResearchSchedulerRepository(factory),
@@ -919,6 +938,101 @@ def research_memory_materialize(
             "real_order_routing": False,
         }
     except (ExperimentOutcomePersistenceError, ValueError) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_meta_policy_app.command("build")
+def research_meta_policy_build(
+    snapshot_id: Annotated[
+        str,
+        typer.Option("--snapshot-id", min=1, max=160),
+    ],
+    research_cycle_id: Annotated[
+        str,
+        typer.Option("--research-cycle-id", min=1, max=160),
+    ],
+    regime_cluster_id: Annotated[
+        str,
+        typer.Option("--regime-cluster-id", min=1, max=160),
+    ],
+    failure_cluster_id: Annotated[
+        str,
+        typer.Option("--failure-cluster-id", min=1, max=160),
+    ],
+    portfolio_exposure_cluster_id: Annotated[
+        str,
+        typer.Option("--portfolio-exposure-cluster-id", min=1, max=160),
+    ],
+    maximum_total_submissions: Annotated[
+        int,
+        typer.Option("--maximum-total-submissions", min=1),
+    ],
+    idempotency_key: Annotated[
+        str,
+        typer.Option("--idempotency-key", min=1, max=160),
+    ],
+    actions: Annotated[
+        str,
+        typer.Option(
+            "--actions",
+            help="Comma-separated ResearchActionKind values; defaults to all typed actions.",
+        ),
+    ] = "",
+    generated_at: Annotated[
+        str | None,
+        typer.Option("--generated-at"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Build a deterministic action ranking from one immutable memory snapshot."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    config = load_research_config(settings.config_dir)
+    selected_actions = _parse_research_action_kinds(actions)
+    context = build_research_context(
+        regime_cluster_id=regime_cluster_id,
+        failure_cluster_id=failure_cluster_id,
+        portfolio_exposure_cluster_id=portfolio_exposure_cluster_id,
+    )
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = MetaControllerRepository(make_session_factory(engine))
+        plan, persisted = repository.build_plan(
+            research_cycle_id=research_cycle_id,
+            snapshot_id=snapshot_id,
+            context=context,
+            parameters=meta_controller_parameters(config),
+            config_hash=config.manifest_hash,
+            available_action_kinds=selected_actions,
+            maximum_total_submissions=maximum_total_submissions,
+            idempotency_key=idempotency_key,
+            generated_at=_research_timestamp(
+                generated_at,
+                "--generated-at",
+            ),
+            persist=not dry_run,
+        )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "plan": plan.model_dump(mode="json"),
+            "persisted": persisted,
+            "dry_run": dry_run,
+            "automatic_execution_enabled": False,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except (
+        ExperimentOutcomePersistenceError,
+        MetaControllerPersistenceError,
+        ValueError,
+    ) as exc:
         raise typer.BadParameter(_safe_research_error(exc)) from None
     finally:
         engine.dispose()
@@ -1191,6 +1305,11 @@ def research_schema() -> None:
         {
             "request": ResearchRequestV1.model_json_schema(),
             "decision": ResearchDecisionV1.model_json_schema(),
+            "research_request_v2": ResearchRequestV2.model_json_schema(),
+            "research_decision_v2": ResearchDecisionV2.model_json_schema(),
+            "research_action_plan_v1": (
+                ResearchActionPlanV1.model_json_schema()
+            ),
             "candidate_artifact": (CandidateArtifactBundleV1.model_json_schema()),
             "algorithm_proposal_v2": AlgorithmProposalV2.model_json_schema(),
             "experiment_outcome_event_v1": (
@@ -1318,7 +1437,7 @@ def research_commander_run(
         )
     engine = create_database_engine(settings.database_url)
     try:
-        request = load_json_model(request_file, ResearchRequestV1)
+        request = load_research_request(request_file)
         config = WebGptScoutConfig.from_env()
         artifact_root = resolve_local_output(
             config.artifact_root,
@@ -2238,6 +2357,32 @@ def _research_timestamp(value: str | None, option_name: str) -> datetime:
         raise typer.BadParameter(
             f"{option_name} must be an ISO-8601 timestamp with a UTC offset"
         ) from exc
+
+
+def _parse_research_action_kinds(
+    value: str,
+) -> tuple[ResearchActionKind, ...]:
+    raw = tuple(item.strip() for item in value.split(",") if item.strip())
+    if not raw:
+        return tuple(
+            action
+            for action in ResearchActionKind
+            if action is not ResearchActionKind.UNKNOWN_LEGACY
+        )
+    try:
+        actions = tuple(ResearchActionKind(item) for item in raw)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            "--actions contains an unknown ResearchActionKind"
+        ) from exc
+    if (
+        ResearchActionKind.UNKNOWN_LEGACY in actions
+        or len(set(actions)) != len(actions)
+    ):
+        raise typer.BadParameter(
+            "--actions must contain unique typed non-legacy actions"
+        )
+    return actions
 
 
 def _require_research_paper_only(settings: Settings) -> None:

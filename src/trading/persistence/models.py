@@ -1555,6 +1555,49 @@ class ResearchMemorySnapshotRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ResearchActionPlanRow(Base):
+    __tablename__ = "research_action_plans"
+    __table_args__ = (
+        UniqueConstraint(
+            "research_cycle_id",
+            name="uq_research_action_plan_cycle",
+        ),
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_research_action_plan_idempotency",
+        ),
+    )
+
+    action_plan_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    policy_version: Mapped[str] = mapped_column(String(160))
+    research_memory_snapshot_hash: Mapped[str] = mapped_column(String(64))
+    training_view_hash: Mapped[str] = mapped_column(String(64))
+    context_hash: Mapped[str] = mapped_column(String(64))
+    config_hash: Mapped[str] = mapped_column(String(64))
+    plan_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AlgorithmProposalV2Row(Base):
+    __tablename__ = "algorithm_proposals_v2"
+
+    proposal_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    hypothesis_id: Mapped[str] = mapped_column(String(160))
+    parent_strategy_id: Mapped[str] = mapped_column(String(160))
+    parent_strategy_version: Mapped[str] = mapped_column(String(80))
+    proposed_strategy_id: Mapped[str] = mapped_column(String(160))
+    proposed_strategy_version: Mapped[str] = mapped_column(String(80))
+    primary_action_kind: Mapped[str] = mapped_column(String(50))
+    action_plan_hash: Mapped[str] = mapped_column(String(64))
+    proposal_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ChallengerEventRow(Base):
     __tablename__ = "challenger_events"
     __table_args__ = (
@@ -1939,6 +1982,8 @@ APPEND_ONLY_MODEL_TYPES = (
     ResearchExperimentActionRow,
     ResearchExperimentOutcomeEventRow,
     ResearchMemorySnapshotRow,
+    ResearchActionPlanRow,
+    AlgorithmProposalV2Row,
     ChallengerEventRow,
     ExperimentBudgetEventRow,
     OosBudgetReservationRow,

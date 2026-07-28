@@ -17,21 +17,18 @@ from trading.persistence.db import (
     upgrade_database,
 )
 
-REVISION = "0014_experiment_outcome_ledger"
-TABLES = (
-    "research_experiment_actions",
-    "research_experiment_outcome_events",
-    "research_memory_snapshots",
-)
+REVISION = "0015_meta_controller_v1"
+DOWN_REVISION = "0014_experiment_outcome_ledger"
+TABLES = ("research_action_plans", "algorithm_proposals_v2")
 
 
-def test_outcome_ledger_migration_downgrade_and_reupgrade(
+def test_meta_controller_migration_downgrade_and_reupgrade(
     tmp_path: Path,
 ) -> None:
     database_url = (
-        f"sqlite+pysqlite:///{(tmp_path / 'outcome-ledger.db').as_posix()}"
+        f"sqlite+pysqlite:///{(tmp_path / 'meta-controller.db').as_posix()}"
     )
-    upgrade_database(database_url, REVISION)
+    upgrade_database(database_url)
     engine = create_database_engine(database_url)
     assert current_revision(engine) == REVISION
     assert set(TABLES).issubset(inspect(engine).get_table_names())
@@ -39,21 +36,26 @@ def test_outcome_ledger_migration_downgrade_and_reupgrade(
         connection.execute(
             text(
                 """
-                INSERT INTO research_experiment_actions (
-                    action_id, experiment_id, research_cycle_id, proposal_id,
-                    challenger_id, information_role, primary_action_kind,
-                    maturity_due_at, meta_training_permitted,
-                    idempotency_key, action_hash, payload_json, created_at
+                INSERT INTO research_action_plans (
+                    action_plan_id, research_cycle_id, policy_version,
+                    research_memory_snapshot_hash, training_view_hash,
+                    context_hash, config_hash, plan_hash, idempotency_key,
+                    payload_json, generated_at
                 ) VALUES (
-                    'migration-action', 'migration-experiment',
-                    'migration-cycle', 'migration-proposal',
-                    'migration-challenger', 'DISCOVERY', 'ADD_FEATURE',
-                    '2026-07-28 00:00:00', false, 'migration-idempotency',
-                    :action_hash, '{}', '2026-07-28 00:00:00'
+                    'plan-migration', 'cycle-migration', 'policy-v1',
+                    :snapshot_hash, :view_hash, :context_hash, :config_hash,
+                    :plan_hash, 'plan-migration-idempotency', '{}',
+                    '2026-07-28 00:00:00'
                 )
                 """
             ),
-            {"action_hash": "a" * 64},
+            {
+                "snapshot_hash": "a" * 64,
+                "view_hash": "b" * 64,
+                "context_hash": "c" * 64,
+                "config_hash": "d" * 64,
+                "plan_hash": "e" * 64,
+            },
         )
     with (
         engine.connect() as connection,
@@ -62,25 +64,26 @@ def test_outcome_ledger_migration_downgrade_and_reupgrade(
     ):
         connection.execute(
             text(
-                "UPDATE research_experiment_actions "
-                "SET primary_action_kind='REMOVE_FEATURE'"
+                "UPDATE research_action_plans "
+                "SET policy_version='mutated'"
             )
         )
     engine.dispose()
 
-    downgrade_database(database_url, "0013_candidate_artifact_registry")
+    downgrade_database(database_url, DOWN_REVISION)
     downgraded = create_database_engine(database_url)
+    assert current_revision(downgraded) == DOWN_REVISION
     assert not set(TABLES).intersection(inspect(downgraded).get_table_names())
     downgraded.dispose()
 
-    upgrade_database(database_url, REVISION)
+    upgrade_database(database_url)
     upgraded = create_database_engine(database_url)
     assert current_revision(upgraded) == REVISION
     assert set(TABLES).issubset(inspect(upgraded).get_table_names())
     upgraded.dispose()
 
 
-def test_outcome_ledger_postgresql_offline_ddl_is_append_only() -> None:
+def test_meta_controller_postgresql_offline_ddl_is_append_only() -> None:
     config = alembic_config(
         "postgresql+psycopg://placeholder:placeholder@localhost/placeholder"
     )
@@ -88,16 +91,12 @@ def test_outcome_ledger_postgresql_offline_ddl_is_append_only() -> None:
     with contextlib.redirect_stdout(output):
         command.upgrade(
             config,
-            "0013_candidate_artifact_registry:0014_experiment_outcome_ledger",
+            f"{DOWN_REVISION}:{REVISION}",
             sql=True,
         )
     sql = output.getvalue()
     for table in TABLES:
         assert f"CREATE TABLE {table}" in sql
         assert f"trg_{table}_append_only" in sql
-    assert "uq_research_experiment_outcome_sequence" in sql
-    assert "uq_research_experiment_outcome_idempotency" in sql
-    assert "OUTCOME_MATURATION" in sql
-    assert "RESEARCH_MEMORY_MATERIALIZATION" in sql
-    assert "RESEARCH_OUTCOME_MATURATION_V1" in sql
-    assert "RESEARCH_MEMORY_MATERIALIZATION_V1" in sql
+    assert "uq_research_action_plan_cycle" in sql
+    assert "uq_research_action_plan_idempotency" in sql

@@ -226,6 +226,7 @@ recursive_improvement:
     maximum_actions_per_cycle: 3
     prior_strength: 4.0
     exploration_coefficient: 0.25
+    exploration_floor: 0.01
     technical_failure_weight: 0.25
     reward_clip: 1.0
     turnover_penalty_weight: 0.05

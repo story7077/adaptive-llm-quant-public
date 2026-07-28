@@ -7,6 +7,8 @@ from trading.research.contracts import (
     AvailableDataCatalogV1,
     ResearchRequestV1,
 )
+from trading.research.experiment_outcomes import AlgorithmProposalV2
+from trading.research.v2_contracts import ResearchRequestV2
 
 
 class ProposalValidationError(ValueError):
@@ -14,11 +16,11 @@ class ProposalValidationError(ValueError):
 
 
 def validate_proposal_against_catalog(
-    proposal: AlgorithmProposalV1,
+    proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
     *,
     catalog: AvailableDataCatalogV1,
     evidence_source_ids: Collection[str],
-    request: ResearchRequestV1 | None = None,
+    request: ResearchRequestV1 | ResearchRequestV2 | None = None,
 ) -> None:
     catalog_by_symbol = {item.symbol: item for item in catalog.instruments}
     missing = sorted(set(proposal.target_universe) - set(catalog_by_symbol))
@@ -55,7 +57,7 @@ def validate_proposal_against_catalog(
 
 
 def require_shadow_execution_support(
-    proposal: AlgorithmProposalV1,
+    proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
     *,
     catalog: AvailableDataCatalogV1,
 ) -> None:
@@ -73,8 +75,8 @@ def require_shadow_execution_support(
 
 
 def _validate_proposal_against_request(
-    proposal: AlgorithmProposalV1,
-    request: ResearchRequestV1,
+    proposal: AlgorithmProposalV1 | AlgorithmProposalV2,
+    request: ResearchRequestV1 | ResearchRequestV2,
 ) -> None:
     champion_strategy_id = request.champion_manifest.get("strategy_id")
     if (

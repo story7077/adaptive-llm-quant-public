@@ -47,10 +47,12 @@ uv run pyright
 real routing or automatic promotion is invalid.
 
 Recursive improvement is also disabled in the checked-in contract:
-`recursive_improvement.enabled=false`. The current branch implements the Phase
-0/PR 1 experiment-outcome ledger and memory substrate only. It does not run a
-meta-controller, portfolio delta-Sharpe judge, chronological meta-OOS, automatic
-promotion, or real order routing.
+`recursive_improvement.enabled=false`. The current branch implements Phase 0
+through PR 2: the experiment-outcome ledger, immutable memory, deterministic
+Meta Controller, and V2 Commander contracts. It does not automatically invoke
+the controller and does not yet run the portfolio delta-Sharpe judge or
+chronological meta-OOS. Automatic promotion and real order routing remain
+unavailable.
 
 ## Synthetic smoke test
 
@@ -128,6 +130,29 @@ Operators can inspect due experiments:
 uv run python -m trading.cli research outcome mature `
   --as-of 2026-07-28T00:00:00Z
 ```
+
+### Deterministic Meta Controller (PR 2)
+
+Migration `0015_meta_controller_v1` adds append-only action plans and accepted
+V2 proposals. First persist a point-in-time memory snapshot, then build a plan.
+The command is dry-run unless `--commit` is supplied:
+
+```powershell
+uv run python -m trading.cli research meta-policy build `
+  --snapshot-id <IMMUTABLE_SNAPSHOT_ID> `
+  --research-cycle-id <NEW_CYCLE_ID> `
+  --regime-cluster-id <REGIME> `
+  --failure-cluster-id <FAILURE> `
+  --portfolio-exposure-cluster-id <EXPOSURE> `
+  --maximum-total-submissions 3 `
+  --idempotency-key <UNIQUE_KEY>
+```
+
+The controller reads only the verified event prefix bound to the snapshot.
+`PROMOTION_OOS`, `META_AUDIT`, future, unmatured, invalid, and legacy events do
+not become reward samples. A committed plan authorizes only action kinds and
+submission counts; it does not execute a Commander, Builder, promotion, or
+trade. Inspect `recursive_improvement.meta_controller` in `research status`.
 
 Validate a trusted host-produced outcome without writing:
 

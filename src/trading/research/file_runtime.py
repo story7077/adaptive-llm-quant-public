@@ -26,6 +26,10 @@ from trading.research.contracts import (
 )
 from trading.research.evidence import ResearchEvidenceBundleV1
 from trading.research.host import SAFE_COMPONENT, ResearchPlaneHost
+from trading.research.v2_contracts import (
+    ResearchDecisionV2,
+    ResearchRequestV2,
+)
 
 MAX_JSON_BYTES = 16 * 1024 * 1024
 REPOSITORY_LOCAL_OUTPUT_ROOTS = frozenset({".local", "artifacts", "runs"})
@@ -149,8 +153,8 @@ def local_artifact_label(path: Path, *, repository_root: Path) -> str:
 def write_cycle_decision(
     *,
     bundle_root: Path,
-    request: ResearchRequestV1,
-    decision: ResearchDecisionV1,
+    request: ResearchRequestV1 | ResearchRequestV2,
+    decision: ResearchDecisionV1 | ResearchDecisionV2,
     current_selection: CommanderSelectionV1,
 ) -> tuple[Path, bool]:
     if not SAFE_COMPONENT.fullmatch(request.research_cycle_id):
@@ -158,7 +162,7 @@ def write_cycle_decision(
     cycle_root = bundle_root.resolve() / request.research_cycle_id
     stored_request_path = cycle_root / "request" / "research_request.json"
     try:
-        stored_request = load_json_model(stored_request_path, ResearchRequestV1)
+        stored_request = load_research_request(stored_request_path)
     except (OSError, ResearchFileRuntimeError) as exc:
         raise ResearchFileRuntimeError(
             "prepared cycle request artifact is unavailable"
@@ -166,11 +170,22 @@ def write_cycle_decision(
     if canonical_hash(stored_request) != canonical_hash(request):
         raise ResearchFileRuntimeError("stored Research request hash mismatch")
     try:
-        decision.assert_bound_to(
-            request,
-            received_at=decision.created_at,
-            current_selection=current_selection,
-        )
+        if isinstance(request, ResearchRequestV2):
+            if not isinstance(decision, ResearchDecisionV2):
+                raise ValueError("ResearchRequestV2 requires ResearchDecisionV2")
+            decision.assert_bound_to_v2(
+                request,
+                received_at=decision.created_at,
+                current_selection=current_selection,
+            )
+        else:
+            if not isinstance(decision, ResearchDecisionV1):
+                raise ValueError("ResearchRequestV1 requires ResearchDecisionV1")
+            decision.assert_bound_to(
+                request,
+                received_at=decision.created_at,
+                current_selection=current_selection,
+            )
     except ValueError as exc:
         raise ResearchFileRuntimeError(
             "validated Commander decision no longer matches the active cycle"
@@ -193,15 +208,18 @@ class ResearchPlaneFileRuntime:
             bundle_root=bundle_root,
         )
 
-    def prepare_cycle(self, request_file: Path) -> tuple[ResearchRequestV1, Path]:
-        request = load_json_model(request_file, ResearchRequestV1)
+    def prepare_cycle(
+        self,
+        request_file: Path,
+    ) -> tuple[ResearchRequestV1 | ResearchRequestV2, Path]:
+        request = load_research_request(request_file)
         cycle_root = self._host.prepare_cycle(request)
         expected = cycle_root / "request" / "research_request.json"
         if not expected.is_file():
             raise ResearchFileRuntimeError(
                 "cycle was persisted but its immutable request artifact is unavailable"
             )
-        stored = load_json_model(expected, ResearchRequestV1)
+        stored = load_research_request(expected)
         if canonical_hash(stored) != canonical_hash(request):
             raise ResearchFileRuntimeError("stored Research request hash mismatch")
         return request, cycle_root
@@ -213,7 +231,7 @@ class ResearchPlaneFileRuntime:
         evidence_file: Path,
         imported_at: datetime,
     ) -> tuple[ResearchEvidenceBundleV1, bool]:
-        request = load_json_model(request_file, ResearchRequestV1)
+        request = load_research_request(request_file)
         evidence = load_json_model(evidence_file, ResearchEvidenceBundleV1)
         _require_evidence_binding(request, evidence)
         timestamp = require_aware_utc(imported_at)
@@ -235,9 +253,16 @@ class ResearchPlaneFileRuntime:
         catalog_file: Path,
         evidence_file: Path,
         received_at: datetime,
-    ) -> tuple[ResearchDecisionV1, str | None]:
-        request = load_json_model(request_file, ResearchRequestV1)
-        decision = load_json_model(decision_file, ResearchDecisionV1)
+    ) -> tuple[ResearchDecisionV1 | ResearchDecisionV2, str | None]:
+        request = load_research_request(request_file)
+        decision = load_research_decision(decision_file)
+        if isinstance(request, ResearchRequestV2) != isinstance(
+            decision,
+            ResearchDecisionV2,
+        ):
+            raise ResearchFileRuntimeError(
+                "Research request and decision schema versions differ"
+            )
         catalog = load_json_model(catalog_file, AvailableDataCatalogV1)
         evidence = load_json_model(evidence_file, ResearchEvidenceBundleV1)
         _require_catalog_binding(request, catalog)
@@ -251,13 +276,24 @@ class ResearchPlaneFileRuntime:
             evidence,
             created_at=timestamp,
         )
-        proposal_id = self._host.accept_decision(
-            decision,
-            request=request,
-            catalog=catalog,
-            evidence_bundle=evidence,
-            received_at=timestamp,
-        )
+        if isinstance(request, ResearchRequestV2):
+            assert isinstance(decision, ResearchDecisionV2)
+            proposal_id = self._host.accept_decision_v2(
+                decision,
+                request=request,
+                catalog=catalog,
+                evidence_bundle=evidence,
+                received_at=timestamp,
+            )
+        else:
+            assert isinstance(decision, ResearchDecisionV1)
+            proposal_id = self._host.accept_decision(
+                decision,
+                request=request,
+                catalog=catalog,
+                evidence_bundle=evidence,
+                received_at=timestamp,
+            )
         return decision, proposal_id
 
     def register_challenger(
@@ -303,7 +339,7 @@ class ResearchPlaneFileRuntime:
 
 
 def _require_catalog_binding(
-    request: ResearchRequestV1,
+    request: ResearchRequestV1 | ResearchRequestV2,
     catalog: AvailableDataCatalogV1,
 ) -> None:
     request_catalog = AvailableDataCatalogV1.model_validate(
@@ -316,7 +352,7 @@ def _require_catalog_binding(
 
 
 def _require_evidence_binding(
-    request: ResearchRequestV1,
+    request: ResearchRequestV1 | ResearchRequestV2,
     evidence: ResearchEvidenceBundleV1,
 ) -> None:
     if evidence.research_cycle_id != request.research_cycle_id:
@@ -382,3 +418,27 @@ def _json_value(value: object) -> object:
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
     return value
+
+
+def load_research_request(
+    path: Path,
+) -> ResearchRequestV1 | ResearchRequestV2:
+    payload = load_json_object(path)
+    schema_version = payload.get("schema_version")
+    if schema_version == "research_request_v2":
+        return ResearchRequestV2.model_validate(payload)
+    if schema_version == "research_request_v1":
+        return ResearchRequestV1.model_validate(payload)
+    raise ResearchFileRuntimeError("unsupported Research request schema")
+
+
+def load_research_decision(
+    path: Path,
+) -> ResearchDecisionV1 | ResearchDecisionV2:
+    payload = load_json_object(path)
+    schema_version = payload.get("schema_version")
+    if schema_version == "research_decision_v2":
+        return ResearchDecisionV2.model_validate(payload)
+    if schema_version == "research_decision_v1":
+        return ResearchDecisionV1.model_validate(payload)
+    raise ResearchFileRuntimeError("unsupported Research decision schema")

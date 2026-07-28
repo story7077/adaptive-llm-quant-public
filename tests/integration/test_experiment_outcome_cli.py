@@ -153,12 +153,44 @@ def test_outcome_and_memory_cli_support_dry_run_and_commit(
     )
     assert memory_commit.exit_code == 0, memory_commit.output
     assert '"persisted": true' in memory_commit.stdout.lower()
+    snapshot_id = json.loads(memory_commit.stdout)["snapshot"]["snapshot_id"]
+
+    meta_arguments = [
+        "research",
+        "meta-policy",
+        "build",
+        "--snapshot-id",
+        snapshot_id,
+        "--research-cycle-id",
+        "cli-meta-cycle",
+        "--regime-cluster-id",
+        "regime-neutral",
+        "--failure-cluster-id",
+        "failure-build",
+        "--portfolio-exposure-cluster-id",
+        "exposure-balanced",
+        "--maximum-total-submissions",
+        "2",
+        "--idempotency-key",
+        "cli-meta-plan",
+        "--generated-at",
+        NOW.isoformat(),
+    ]
+    meta_dry = runner.invoke(app, meta_arguments)
+    assert meta_dry.exit_code == 0, meta_dry.output
+    assert json.loads(meta_dry.stdout)["persisted"] is False
+    meta_commit = runner.invoke(app, [*meta_arguments, "--commit"])
+    assert meta_commit.exit_code == 0, meta_commit.output
+    meta_payload = json.loads(meta_commit.stdout)
+    assert meta_payload["persisted"] is True
+    assert meta_payload["automatic_promotion_enabled"] is False
+    assert meta_payload["real_order_routing"] is False
 
     status = runner.invoke(app, ["research", "status"])
     assert status.exit_code == 0, status.output
     payload = json.loads(status.stdout)
     recursive = payload["recursive_improvement"]
-    assert recursive["status"] == "DISABLED_AUDIT_ONLY_PR1"
+    assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR2"
     assert recursive["enabled"] is False
     assert recursive["candidate_patch_policy"]["version"] == (
         "candidate_patch_policy_v2"
@@ -166,6 +198,8 @@ def test_outcome_and_memory_cli_support_dry_run_and_commit(
     assert recursive["experiment_outcome_ledger"] == (
         payload["experiment_outcome_ledger"]
     )
+    assert recursive["meta_controller"]["action_plan_count"] == 1
+    assert recursive["meta_controller"]["automatic_execution_enabled"] is False
     assert recursive["experiment_outcome_ledger"][
         "effective_unsuperseded_event_count"
     ] == 1

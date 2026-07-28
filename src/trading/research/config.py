@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         CandidateExecutionSecurityV1,
         CandidateProcessLimitsV1,
     )
+    from trading.research.meta_controller import MetaControllerParametersV1
     from trading.research.oos_lockbox import OosProcessEvaluationConfig
     from trading.research.shadow_runtime import ShadowPaperParametersV1
 
@@ -211,6 +212,7 @@ class RecursiveMetaControllerConfig(DomainModel):
     maximum_actions_per_cycle: int = Field(gt=0)
     prior_strength: float = Field(gt=0)
     exploration_coefficient: float = Field(ge=0)
+    exploration_floor: float = Field(ge=0)
     technical_failure_weight: float = Field(ge=0)
     reward_clip: float = Field(gt=0)
     turnover_penalty_weight: float = Field(ge=0)
@@ -349,14 +351,15 @@ def recursive_improvement_status(
     bundle: ResearchConfigBundle,
     *,
     experiment_outcome_ledger: dict[str, object],
+    meta_controller_ledger: dict[str, object] | None = None,
 ) -> dict[str, object]:
     recursive = bundle.config.recursive_improvement
     return {
         "schema_version": "recursive_improvement_status_v1",
-        "status": "DISABLED_AUDIT_ONLY_PR1",
+        "status": "DISABLED_RESEARCH_ONLY_PR2",
         "enabled": recursive.enabled,
         "audit_only": True,
-        "implementation_scope": "PHASE_0_PR_1",
+        "implementation_scope": "PHASE_0_PR_1_PR_2",
         "contract_version": recursive.contract_version,
         "config_manifest_hash": bundle.manifest_hash,
         "candidate_patch_policy": {
@@ -366,10 +369,9 @@ def recursive_improvement_status(
         "automatic_outcome_maintenance_enabled": recursive.enabled,
         "experiment_outcome_ledger": dict(experiment_outcome_ledger),
         "meta_controller": {
-            "status": "UNIMPLEMENTED",
-            "reserved_policy_version": (
-                recursive.meta_controller.policy_version
-            ),
+            "status": "IMPLEMENTED_DISABLED",
+            "policy_version": recursive.meta_controller.policy_version,
+            **dict(meta_controller_ledger or {}),
         },
         "portfolio_delta_sharpe": {"status": "UNIMPLEMENTED"},
         "chronological_meta_oos": {
@@ -381,6 +383,22 @@ def recursive_improvement_status(
         ),
         "real_order_routing": bundle.config.safety.real_order_routing,
     }
+
+
+def meta_controller_parameters(
+    bundle: ResearchConfigBundle,
+) -> MetaControllerParametersV1:
+    """Build the immutable domain parameters without importing config in math."""
+
+    from trading.research.meta_controller import (
+        MetaControllerParametersV1,
+    )
+
+    configured = bundle.config.recursive_improvement.meta_controller
+    return MetaControllerParametersV1(
+        schema_version="meta_controller_parameters_v1",
+        **configured.model_dump(mode="python"),
+    )
 
 
 def oos_process_evaluation_config(

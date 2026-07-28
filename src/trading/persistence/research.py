@@ -13,6 +13,7 @@ from trading.domain.hashing import canonical_data, canonical_hash, stable_id
 from trading.domain.time import require_aware_utc
 from trading.persistence.models import (
     AlgorithmProposalRow,
+    AlgorithmProposalV2Row,
     ChallengerEventRow,
     ChallengerManifestRow,
     DomainEventRow,
@@ -49,11 +50,17 @@ from trading.research.contracts import (
     ResearchDecisionV1,
     ResearchRequestV1,
 )
+from trading.research.experiment_outcomes import AlgorithmProposalV2
+from trading.research.v2_contracts import (
+    ResearchDecisionV2,
+    ResearchRequestV2,
+)
 
 if TYPE_CHECKING:
     from trading.persistence.experiment_outcomes import (
         ExperimentOutcomeRepository,
     )
+    from trading.persistence.meta_controller import MetaControllerRepository
     from trading.research.oos_lockbox import OosEvaluationRequest
 from trading.research.evidence import ResearchEvidenceBundleV1
 from trading.research.promotion import REQUIRED_PROMOTION_CRITERIA
@@ -144,6 +151,15 @@ class ResearchRepository:
 
         return ExperimentOutcomeRepository(self._session_factory)
 
+    def meta_controller(self) -> MetaControllerRepository:
+        """Return the trusted deterministic research-policy repository."""
+
+        from trading.persistence.meta_controller import (
+            MetaControllerRepository,
+        )
+
+        return MetaControllerRepository(self._session_factory)
+
     def select_commander(
         self,
         commander: ResearchCommanderKind,
@@ -218,7 +234,45 @@ class ResearchRepository:
             self._validate_stored_proposal(proposal, row)
             return proposal
 
-    def create_cycle(self, request: ResearchRequestV1) -> bool:
+    def get_proposal_v2(
+        self,
+        proposal_id: str,
+    ) -> AlgorithmProposalV2 | None:
+        with self._session_factory() as session:
+            row = session.get(AlgorithmProposalV2Row, proposal_id)
+            if row is None:
+                return None
+            try:
+                proposal = AlgorithmProposalV2.model_validate(
+                    row.payload_json
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "stored AlgorithmProposalV2 payload is invalid"
+                ) from exc
+            if (
+                proposal.proposal_id != row.proposal_id
+                or proposal.hypothesis_id != row.hypothesis_id
+                or proposal.parent_strategy_id != row.parent_strategy_id
+                or proposal.parent_strategy_version
+                != row.parent_strategy_version
+                or proposal.proposed_strategy_id
+                != row.proposed_strategy_id
+                or proposal.proposed_strategy_version
+                != row.proposed_strategy_version
+                or proposal.primary_action_kind.value
+                != row.primary_action_kind
+                or proposal.proposal_hash != row.proposal_hash
+            ):
+                raise ResearchPersistenceError(
+                    "stored AlgorithmProposalV2 binding is invalid"
+                )
+            return proposal
+
+    def create_cycle(
+        self,
+        request: ResearchRequestV1 | ResearchRequestV2,
+    ) -> bool:
         with self._session_factory.begin() as session:
             existing = session.scalar(
                 select(ResearchCycleRow).where(ResearchCycleRow.request_id == request.request_id)
@@ -336,6 +390,90 @@ class ResearchRepository:
                     proposed_strategy_version=proposal.proposed_strategy_version,
                     proposal_hash=proposal.proposal_hash,
                     evidence_manifest_hash=canonical_hash(sorted(proposal.evidence_source_ids)),
+                    payload_json=model_payload(proposal),
+                    created_at=received,
+                )
+            )
+            return proposal.proposal_id
+
+    def accept_decision_v2(
+        self,
+        decision: ResearchDecisionV2,
+        *,
+        received_at: datetime,
+    ) -> str | None:
+        received = require_aware_utc(received_at)
+        with self._session_factory.begin() as session:
+            cycle = session.get(ResearchCycleRow, decision.research_cycle_id)
+            if cycle is None:
+                raise ResearchPersistenceError("unknown research cycle")
+            try:
+                request = ResearchRequestV2.model_validate(cycle.payload_json)
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "stored research cycle is not ResearchRequestV2"
+                ) from exc
+            selection_row = session.scalar(
+                select(ResearchCommanderSelectionRow)
+                .order_by(desc(ResearchCommanderSelectionRow.version))
+                .limit(1)
+            )
+            if selection_row is None:
+                raise ResearchPersistenceError("no Research Commander selected")
+            selection = CommanderSelectionV1.model_validate(
+                selection_row.payload_json
+            )
+            try:
+                decision.assert_bound_to_v2(
+                    request,
+                    received_at=received,
+                    current_selection=selection,
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(str(exc)) from exc
+            self._add_cycle_event(
+                session,
+                cycle_id=cycle.research_cycle_id,
+                event_type="DECISION_V2_ACCEPTED",
+                actor_role="RESEARCH_COMMANDER",
+                artifact_hash=decision.output_hash,
+                idempotency_key=f"decision-v2:{decision.output_hash}",
+                payload=model_payload(decision),
+                created_at=received,
+            )
+            if decision.proposal is None:
+                return None
+            proposal = decision.proposal
+            existing = session.get(
+                AlgorithmProposalV2Row,
+                proposal.proposal_id,
+            )
+            if existing is not None:
+                if existing.proposal_hash != proposal.proposal_hash:
+                    raise ResearchPersistenceError(
+                        "AlgorithmProposalV2 ID hash conflict"
+                    )
+                return proposal.proposal_id
+            session.add(
+                AlgorithmProposalV2Row(
+                    proposal_id=proposal.proposal_id,
+                    research_cycle_id=cycle.research_cycle_id,
+                    hypothesis_id=proposal.hypothesis_id,
+                    parent_strategy_id=proposal.parent_strategy_id,
+                    parent_strategy_version=(
+                        proposal.parent_strategy_version
+                    ),
+                    proposed_strategy_id=proposal.proposed_strategy_id,
+                    proposed_strategy_version=(
+                        proposal.proposed_strategy_version
+                    ),
+                    primary_action_kind=(
+                        proposal.primary_action_kind.value
+                    ),
+                    action_plan_hash=(
+                        decision.research_action_plan_hash
+                    ),
+                    proposal_hash=proposal.proposal_hash,
                     payload_json=model_payload(proposal),
                     created_at=received,
                 )
