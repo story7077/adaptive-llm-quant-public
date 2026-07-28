@@ -1461,6 +1461,100 @@ class ResearchCandidateArtifactRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class ResearchExperimentActionRow(Base):
+    __tablename__ = "research_experiment_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "experiment_id",
+            name="uq_research_experiment_action_experiment",
+        ),
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_research_experiment_action_idempotency",
+        ),
+    )
+
+    action_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String(160))
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    proposal_id: Mapped[str] = mapped_column(String(160))
+    challenger_id: Mapped[str] = mapped_column(String(160))
+    information_role: Mapped[str] = mapped_column(String(40))
+    primary_action_kind: Mapped[str] = mapped_column(String(50))
+    maturity_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    meta_training_permitted: Mapped[bool] = mapped_column(Boolean)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    action_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ResearchExperimentOutcomeEventRow(Base):
+    __tablename__ = "research_experiment_outcome_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "experiment_id",
+            "event_sequence",
+            name="uq_research_experiment_outcome_sequence",
+        ),
+        UniqueConstraint(
+            "experiment_id",
+            "idempotency_key",
+            name="uq_research_experiment_outcome_idempotency",
+        ),
+        CheckConstraint(
+            "event_sequence >= 1",
+            name="ck_research_experiment_outcome_sequence",
+        ),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    action_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_experiment_actions.action_id",
+            ondelete="RESTRICT",
+        )
+    )
+    experiment_id: Mapped[str] = mapped_column(String(160))
+    research_cycle_id: Mapped[str] = mapped_column(String(160))
+    proposal_id: Mapped[str] = mapped_column(String(160))
+    challenger_id: Mapped[str] = mapped_column(String(160))
+    information_role: Mapped[str] = mapped_column(String(40))
+    primary_action_kind: Mapped[str] = mapped_column(String(50))
+    event_kind: Mapped[str] = mapped_column(String(60))
+    experiment_stage: Mapped[str] = mapped_column(String(40))
+    event_sequence: Mapped[int] = mapped_column(Integer)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    maturity_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    maturity_status: Mapped[str] = mapped_column(String(30))
+    eligible_for_meta_training: Mapped[bool] = mapped_column(Boolean)
+    previous_event_hash: Mapped[str | None] = mapped_column(String(64))
+    supersedes_event_id: Mapped[str | None] = mapped_column(
+        ForeignKey(
+            "research_experiment_outcome_events.event_id",
+            ondelete="RESTRICT",
+        )
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    maturation_input_hash: Mapped[str] = mapped_column(String(64))
+    event_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ResearchMemorySnapshotRow(Base):
+    __tablename__ = "research_memory_snapshots"
+
+    snapshot_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data_available_cutoff: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    snapshot_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ChallengerEventRow(Base):
     __tablename__ = "challenger_events"
     __table_args__ = (
@@ -1842,6 +1936,9 @@ APPEND_ONLY_MODEL_TYPES = (
     AlgorithmProposalRow,
     ChallengerManifestRow,
     ResearchCandidateArtifactRow,
+    ResearchExperimentActionRow,
+    ResearchExperimentOutcomeEventRow,
+    ResearchMemorySnapshotRow,
     ChallengerEventRow,
     ExperimentBudgetEventRow,
     OosBudgetReservationRow,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import tempfile
@@ -57,6 +58,9 @@ from trading.persistence.db import (
     make_session_factory,
     upgrade_database,
 )
+from trading.persistence.experiment_outcomes import (
+    ExperimentOutcomePersistenceError,
+)
 from trading.persistence.models import NavSnapshotRow, RunRow, ShadowArmRow
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
@@ -69,11 +73,19 @@ from trading.research.config import (
     FACTORIAL_CONFIG_FILE,
     RESEARCH_CONFIG_FILE,
     load_research_config,
+    recursive_improvement_status,
 )
 from trading.research.contracts import (
     ResearchCommanderKind,
     ResearchDecisionV1,
     ResearchRequestV1,
+)
+from trading.research.experiment_outcomes import (
+    AlgorithmProposalV2,
+    ExperimentOutcomeEventV1,
+    ExperimentOutcomeMaturationInputV1,
+    ResearchExperimentActionV1,
+    ResearchMemorySnapshotV1,
 )
 from trading.research.file_runtime import (
     ResearchFileRuntimeError,
@@ -149,6 +161,8 @@ market_app = typer.Typer(no_args_is_help=True)
 paper_app = typer.Typer(no_args_is_help=True)
 webgpt_app = typer.Typer(no_args_is_help=True)
 research_app = typer.Typer(no_args_is_help=True)
+research_outcome_app = typer.Typer(no_args_is_help=True)
+research_memory_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
@@ -164,8 +178,10 @@ app.add_typer(ui_app, name="ui")
 app.add_typer(market_app, name="market")
 app.add_typer(paper_app, name="paper")
 app.add_typer(research_app, name="research")
+research_app.add_typer(research_outcome_app, name="outcome")
+research_app.add_typer(research_memory_app, name="memory")
 
-EXPECTED_DATABASE_REVISION = "0013_candidate_artifact_registry"
+EXPECTED_DATABASE_REVISION = "0014_experiment_outcome_ledger"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -187,6 +203,23 @@ def _paper_algorithm_version(value: str) -> str:
             f"algorithm version must be one of {SUPPORTED_PAPER_ALGORITHM_VERSIONS}"
         )
     return selected
+
+
+def _require_loopback_host(value: str) -> str:
+    host = value.strip()
+    if host.lower() == "localhost":
+        return host
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            "operator UI host must be a loopback IP address or localhost"
+        ) from exc
+    if not address.is_loopback:
+        raise typer.BadParameter(
+            "operator UI host must remain loopback-only"
+        )
+    return host
 
 
 @app.command("doctor")
@@ -752,8 +785,15 @@ def research_status() -> None:
     _require_research_paper_only(settings)
     factory = make_session_factory(engine)
     research_config = load_research_config(settings.config_dir)
+    persisted_status = ResearchRepository(factory).status()
     payload = {
-        **ResearchRepository(factory).status(),
+        **persisted_status,
+        "recursive_improvement": recursive_improvement_status(
+            research_config,
+            experiment_outcome_ledger=(
+                persisted_status["experiment_outcome_ledger"]
+            ),
+        ),
         "scheduler": ResearchSchedulerService(
             repository=ResearchSchedulerRepository(factory),
             config=research_config,
@@ -762,6 +802,127 @@ def research_status() -> None:
     }
     engine.dispose()
     _emit(payload)
+
+
+@research_outcome_app.command("mature")
+def research_outcome_mature(
+    input_file: Annotated[
+        Path | None,
+        typer.Option("--input", exists=True, dir_okay=False),
+    ] = None,
+    as_of: Annotated[
+        str | None,
+        typer.Option("--as-of"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """List due outcomes or append one host-validated maturity event."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = ResearchRepository(
+            make_session_factory(engine)
+        ).experiment_outcomes()
+        if input_file is None:
+            instant = _research_timestamp(as_of, "--as-of")
+            due = repository.due_experiments(as_of=instant)
+            result = {
+                "mode": "READ_ONLY_DUE_OUTCOMES",
+                "as_of": instant.isoformat().replace("+00:00", "Z"),
+                "due_experiment_ids": [
+                    item.experiment_id for item in due
+                ],
+                "due_action_hashes": [item.action_hash for item in due],
+                "dry_run": True,
+                "real_order_routing": False,
+            }
+        else:
+            maturation = load_json_model(
+                input_file,
+                ExperimentOutcomeMaturationInputV1,
+            )
+            if dry_run:
+                event, already_exists = repository.prepare_outcome(maturation)
+                created = False
+            else:
+                event, created = repository.append_outcome(maturation)
+                already_exists = not created
+            result = {
+                "mode": "DRY_RUN" if dry_run else "COMMIT",
+                "event": event.model_dump(mode="json"),
+                "created": created,
+                "already_exists": already_exists,
+                "dry_run": dry_run,
+                "real_order_routing": False,
+            }
+    except (ExperimentOutcomePersistenceError, ValueError) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_memory_app.command("materialize")
+def research_memory_materialize(
+    as_of: Annotated[
+        str | None,
+        typer.Option("--as-of"),
+    ] = None,
+    data_available_cutoff: Annotated[
+        str | None,
+        typer.Option("--data-available-cutoff"),
+    ] = None,
+    created_at: Annotated[
+        str | None,
+        typer.Option("--created-at"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Materialize a point-in-time snapshot from the trusted outcome ledger."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    instant = _research_timestamp(as_of, "--as-of")
+    cutoff = (
+        instant
+        if data_available_cutoff is None
+        else _research_timestamp(
+            data_available_cutoff,
+            "--data-available-cutoff",
+        )
+    )
+    created = _research_timestamp(created_at, "--created-at")
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = ResearchRepository(
+            make_session_factory(engine)
+        ).experiment_outcomes()
+        snapshot, persisted = repository.materialize_memory(
+            as_of=instant,
+            data_available_cutoff=cutoff,
+            created_at=created,
+            persist=not dry_run,
+        )
+        result = {
+            "mode": "DRY_RUN" if dry_run else "COMMIT",
+            "snapshot": snapshot.model_dump(mode="json"),
+            "persisted": persisted,
+            "dry_run": dry_run,
+            "real_order_routing": False,
+        }
+    except (ExperimentOutcomePersistenceError, ValueError) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
 
 
 @research_app.command("schedule-plan")
@@ -1031,6 +1192,19 @@ def research_schema() -> None:
             "request": ResearchRequestV1.model_json_schema(),
             "decision": ResearchDecisionV1.model_json_schema(),
             "candidate_artifact": (CandidateArtifactBundleV1.model_json_schema()),
+            "algorithm_proposal_v2": AlgorithmProposalV2.model_json_schema(),
+            "experiment_outcome_event_v1": (
+                ExperimentOutcomeEventV1.model_json_schema()
+            ),
+            "experiment_outcome_maturation_input_v1": (
+                ExperimentOutcomeMaturationInputV1.model_json_schema()
+            ),
+            "research_experiment_action_v1": (
+                ResearchExperimentActionV1.model_json_schema()
+            ),
+            "research_memory_snapshot_v1": (
+                ResearchMemorySnapshotV1.model_json_schema()
+            ),
             "trusted_shadow_summary": (TrustedShadowPerformanceSummaryV1.model_json_schema()),
             "promotion_evidence": PromotionEvidenceV1.model_json_schema(),
             "trusted_promotion_evaluation": (TrustedPromotionEvaluationV1.model_json_schema()),
@@ -1501,6 +1675,7 @@ def ui_serve(
         help="Explicit paper algorithm shown by the operator UI.",
     ),
 ) -> None:
+    host = _require_loopback_host(host)
     import uvicorn
 
     from trading.ui.app import create_app
@@ -1770,6 +1945,7 @@ def paper_serve(
         ),
     ),
 ) -> None:
+    host = _require_loopback_host(host)
     import uvicorn
 
     from trading.ui.app import create_app

@@ -18,6 +18,8 @@ from trading.research.evaluation_contracts import (
 from trading.research.falsification import MANDATORY_FALSIFICATION_TESTS
 from trading.research.promotion_evidence import PromotionEvaluationContractV1
 from trading.research.sandbox_contract import (
+    CANDIDATE_PATCH_POLICY_V2,
+    CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH,
     DEFAULT_ALLOWED_PREFIXES,
     DEFAULT_FORBIDDEN_EXACT,
     DEFAULT_FORBIDDEN_PREFIXES,
@@ -197,6 +199,60 @@ class ResearchFalsificationConfig(DomainModel):
     evaluation_contract: FalsificationEvaluationContractV1
 
 
+class RecursiveOutcomeLedgerConfig(DomainModel):
+    learning_forward_horizon_sessions: int = Field(gt=0)
+    reject_unmatured_outcomes: Literal[True]
+    exclude_promotion_oos_from_training: Literal[True]
+    exclude_meta_audit_from_training: Literal[True]
+
+
+class RecursiveMetaControllerConfig(DomainModel):
+    policy_version: str = Field(min_length=1)
+    maximum_actions_per_cycle: int = Field(gt=0)
+    prior_strength: float = Field(gt=0)
+    exploration_coefficient: float = Field(ge=0)
+    technical_failure_weight: float = Field(ge=0)
+    reward_clip: float = Field(gt=0)
+    turnover_penalty_weight: float = Field(ge=0)
+    turnover_scale: float = Field(gt=0)
+    drawdown_penalty_weight: float = Field(ge=0)
+    drawdown_scale: float = Field(gt=0)
+    cost_penalty_weight: float = Field(ge=0)
+    cost_scale_bps: float = Field(gt=0)
+    complexity_penalty_weight: float = Field(ge=0)
+    complexity_scale: float = Field(gt=0)
+
+
+class RecursivePortfolioSharpeConfig(DomainModel):
+    annualization_sessions: int = Field(gt=0)
+    minimum_common_sessions: int = Field(gt=0)
+    minimum_independent_trades: int = Field(gt=0)
+    bootstrap_samples: int = Field(gt=0)
+    bootstrap_block_length: int = Field(gt=0)
+    lower_quantile: float = Field(gt=0, lt=0.5)
+    variance_epsilon: float = Field(gt=0)
+    minimum_delta_sharpe_lcb: float
+    minimum_worst_cost_delta_sharpe_lcb: float
+    cost_stress_multipliers: tuple[float, ...] = Field(min_length=1)
+
+
+class RecursiveMetaOosConfig(DomainModel):
+    enabled: Literal[False]
+    require_outer_audit_reservation: Literal[True]
+    prohibit_best_seed_selection: Literal[True]
+
+
+class RecursiveImprovementConfig(DomainModel):
+    enabled: Literal[False]
+    contract_version: Literal["recursive-improvement-v1"]
+    candidate_patch_policy_version: Literal["candidate_patch_policy_v2"]
+    candidate_patch_policy_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    outcome_ledger: RecursiveOutcomeLedgerConfig
+    meta_controller: RecursiveMetaControllerConfig
+    portfolio_sharpe: RecursivePortfolioSharpeConfig
+    meta_oos: RecursiveMetaOosConfig
+
+
 class FactorialArmConfig(DomainModel):
     deterministic_loss_guard: bool
     operational_risk_commander: bool
@@ -244,6 +300,7 @@ class ResearchPlaneConfig(DomainModel):
     candidate_patch: CandidatePatchConfig
     candidate_execution: CandidateExecutionConfig
     falsification: ResearchFalsificationConfig
+    recursive_improvement: RecursiveImprovementConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +343,44 @@ def load_research_config(config_dir: Path) -> ResearchConfigBundle:
         path=path,
         factorial_path=factorial_path,
     )
+
+
+def recursive_improvement_status(
+    bundle: ResearchConfigBundle,
+    *,
+    experiment_outcome_ledger: dict[str, object],
+) -> dict[str, object]:
+    recursive = bundle.config.recursive_improvement
+    return {
+        "schema_version": "recursive_improvement_status_v1",
+        "status": "DISABLED_AUDIT_ONLY_PR1",
+        "enabled": recursive.enabled,
+        "audit_only": True,
+        "implementation_scope": "PHASE_0_PR_1",
+        "contract_version": recursive.contract_version,
+        "config_manifest_hash": bundle.manifest_hash,
+        "candidate_patch_policy": {
+            "version": recursive.candidate_patch_policy_version,
+            "contract_hash": recursive.candidate_patch_policy_hash,
+        },
+        "automatic_outcome_maintenance_enabled": recursive.enabled,
+        "experiment_outcome_ledger": dict(experiment_outcome_ledger),
+        "meta_controller": {
+            "status": "UNIMPLEMENTED",
+            "reserved_policy_version": (
+                recursive.meta_controller.policy_version
+            ),
+        },
+        "portfolio_delta_sharpe": {"status": "UNIMPLEMENTED"},
+        "chronological_meta_oos": {
+            "status": "UNIMPLEMENTED",
+            "enabled": recursive.meta_oos.enabled,
+        },
+        "automatic_promotion_enabled": (
+            bundle.config.promotion.automatic_promotion_enabled
+        ),
+        "real_order_routing": bundle.config.safety.real_order_routing,
+    }
 
 
 def oos_process_evaluation_config(
@@ -421,6 +516,14 @@ def _validate_invariants(config: ResearchPlaneConfig) -> None:
         raise ValueError("candidate forbidden prefix contract changed")
     if tuple(config.candidate_patch.forbidden_exact) != DEFAULT_FORBIDDEN_EXACT:
         raise ValueError("candidate forbidden exact-path contract changed")
+    recursive = config.recursive_improvement
+    if (
+        recursive.candidate_patch_policy_version
+        != CANDIDATE_PATCH_POLICY_V2
+        or recursive.candidate_patch_policy_hash
+        != CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH
+    ):
+        raise ValueError("recursive Candidate patch policy binding changed")
     candidate_execution = config.candidate_execution
     if (
         candidate_execution.isolation_kind

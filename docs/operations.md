@@ -46,6 +46,12 @@ uv run pyright
 `doctor` must show broker production gates disabled. A configuration that enables
 real routing or automatic promotion is invalid.
 
+Recursive improvement is also disabled in the checked-in contract:
+`recursive_improvement.enabled=false`. The current branch implements the Phase
+0/PR 1 experiment-outcome ledger and memory substrate only. It does not run a
+meta-controller, portfolio delta-Sharpe judge, chronological meta-OOS, automatic
+promotion, or real order routing.
+
 ## Synthetic smoke test
 
 The public fixtures contain no real account state:
@@ -96,6 +102,62 @@ fences. A reclaimed or expired worker cannot append a receipt or outcome.
 Failures and retries are append-only events; raw exception detail and credentials
 are never persisted. Inspect `scheduler` in `research status` or the Research UI
 before operating the downstream aggregation/deep-research consumer.
+
+### Recursive outcome ledger (Phase 0 and PR 1)
+
+Migration `0014_experiment_outcome_ledger` adds immutable experiment actions,
+per-experiment outcome-event hash chains, and point-in-time research-memory
+snapshots. The feature remains disabled; normal scheduler planning therefore
+does not create recursive-maintenance work.
+
+The scheduler contract reserves this order for a later enabled implementation:
+
+```text
+DAILY_AGGREGATION
+→ OUTCOME_MATURATION
+→ RESEARCH_MEMORY_MATERIALIZATION
+```
+
+Each successor waits for the predecessor's append-only `SUCCEEDED` event. A
+dispatch receipt does not execute maturation or memory materialization, and no
+production consumer for those targets exists in PR 1.
+
+Operators can inspect due experiments:
+
+```powershell
+uv run python -m trading.cli research outcome mature `
+  --as-of 2026-07-28T00:00:00Z
+```
+
+Validate a trusted host-produced outcome without writing:
+
+```powershell
+uv run python -m trading.cli research outcome mature `
+  --input .local/research/outcome.json
+```
+
+Append only after reviewing the dry-run output:
+
+```powershell
+uv run python -m trading.cli research outcome mature `
+  --input .local/research/outcome.json `
+  --commit
+```
+
+Materialize memory with explicit point-in-time bounds:
+
+```powershell
+uv run python -m trading.cli research memory materialize `
+  --as-of 2026-07-28T00:00:00Z `
+  --data-available-cutoff 2026-07-28T00:00:00Z `
+  --created-at 2026-07-28T00:00:00Z
+```
+
+This command also defaults to dry-run; add `--commit` to persist the immutable
+snapshot. The CLI does not calculate economic outcomes, register actions
+automatically, feed memory to a model, promote a Challenger, or create orders.
+See [Recursive improvement](research/recursive-improvement.md) and
+[Experiment outcome ledger](research/experiment-outcome-ledger.md).
 
 Select exactly one Research Commander with optimistic version checking:
 
@@ -177,6 +239,10 @@ Start the loopback UI:
 ```powershell
 uv run python -m trading.cli ui serve --host 127.0.0.1 --port 8765
 ```
+
+Both UI serve commands reject non-loopback hosts. They are local operator
+surfaces and must not be exposed through a custom ASGI runner or reverse proxy
+without a separately reviewed authentication boundary.
 
 The Research tab reports:
 

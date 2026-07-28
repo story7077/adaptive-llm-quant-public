@@ -10,7 +10,11 @@ from trading.research.config import (
     candidate_process_limits,
     load_research_config,
     oos_process_evaluation_config,
+    recursive_improvement_status,
     shadow_paper_parameters,
+)
+from trading.research.sandbox_contract import (
+    CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH,
 )
 
 
@@ -113,3 +117,38 @@ def test_candidate_execution_limits_and_isolation_are_versioned() -> None:
         update={"candidate_execution": changed_execution}
     )
     assert canonical_hash(changed_config) != canonical_hash(bundle.config)
+
+
+def test_recursive_improvement_is_disabled_and_bound_to_patch_policy_v2() -> None:
+    config_dir = Path(__file__).resolve().parents[2] / "config"
+    bundle = load_research_config(config_dir)
+    recursive = bundle.config.recursive_improvement
+
+    assert recursive.enabled is False
+    assert recursive.meta_oos.enabled is False
+    assert recursive.candidate_patch_policy_version == "candidate_patch_policy_v2"
+    assert (
+        recursive.candidate_patch_policy_hash
+        == CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH
+    )
+    assert recursive.outcome_ledger.learning_forward_horizon_sessions == 63
+    status = recursive_improvement_status(
+        bundle,
+        experiment_outcome_ledger={
+            "action_count": 0,
+            "event_count": 0,
+            "effective_unsuperseded_event_count": 0,
+            "effective_eligible_learning_forward_event_count": 0,
+            "snapshot_count": 0,
+        },
+    )
+    assert status["status"] == "DISABLED_AUDIT_ONLY_PR1"
+    assert status["enabled"] is False
+    assert status["audit_only"] is True
+    assert status["candidate_patch_policy"] == {
+        "version": "candidate_patch_policy_v2",
+        "contract_hash": CANDIDATE_PATCH_POLICY_V2_CONTRACT_HASH,
+    }
+    assert status["automatic_outcome_maintenance_enabled"] is False
+    assert status["automatic_promotion_enabled"] is False
+    assert status["real_order_routing"] is False

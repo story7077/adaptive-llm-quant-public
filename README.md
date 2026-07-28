@@ -10,6 +10,10 @@ particular ticker, sector, or trading style.
 > - This is a research and paper-trading system. It does not guarantee profit.
 > - Real broker routing is unavailable and `real_order_routing=false` is enforced.
 > - AI cannot edit, replace, promote, or trade through the current Champion.
+> - Recursive improvement is audit infrastructure only:
+>   `recursive_improvement.enabled=false`. Phase 0 and PR 1 provide the
+>   outcome ledger and memory contracts; the meta-controller, portfolio
+>   delta-Sharpe judge, and chronological meta-OOS are not implemented.
 > - Every public account, position, balance, order, and result is synthetic.
 > - WebGPT/AGBrowse and Codex execution require separate user-managed local
 >   environments; browser state, credentials, and private datasets are not bundled.
@@ -110,8 +114,11 @@ Challenger research.
 
 - The Champion is immutable in place.
 - Every change creates a new semantic strategy version.
-- Candidate patches are limited to research, feature, strategy, calibration,
-  experiment, test, configuration, and research-document paths.
+- Historical V1 Candidate artifacts retain their original patch contract.
+  New recursive V2 Candidates are limited to dedicated `challengers/`
+  strategy, feature, calibration, experiment, strategy-config, candidate-test,
+  and Challenger-document namespaces, and every V2 change must add a new file
+  rather than modify, delete, rename, or copy an existing file.
 - Risk, execution, ledger, broker, persistence schema, migrations, credentials,
   and the release-security workflow are outside Builder authority.
 - Mandatory falsification failure prevents OOS or shadow admission.
@@ -240,6 +247,11 @@ Any release-scan failure blocks publication.
 - [Operations](docs/operations.md)
 - [Legacy forward paper operations](docs/forward-paper-operations.md)
 - [Q1 mathematical core](docs/q1-math-core.md)
+- [Recursive improvement status and contracts](docs/research/recursive-improvement.md)
+- [Experiment outcome ledger](docs/research/experiment-outcome-ledger.md)
+- [Meta-controller extension contract — unimplemented](docs/research/meta-controller.md)
+- [Portfolio delta-Sharpe extension contract — unimplemented](docs/research/portfolio-delta-sharpe.md)
+- [Chronological meta-OOS extension contract — unimplemented](docs/research/chronological-meta-oos.md)
 
 ## License and responsibility
 

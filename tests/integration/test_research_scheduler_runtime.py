@@ -19,12 +19,14 @@ from trading.persistence.research_scheduler import (
     ResearchScheduleEventRow,
     ResearchScheduleFenceError,
     ResearchSchedulerRepository,
+    ResearchScheduleWorkItemRow,
 )
 from trading.research.config import load_research_config
 from trading.research.scheduler import (
     ResearchScheduleEventType,
     ResearchScheduleWorkKind,
     ResearchWorkLeaseV1,
+    build_due_schedule_plans,
 )
 from trading.runtime.research_scheduler import ResearchSchedulerService
 
@@ -167,6 +169,175 @@ def test_failed_execution_is_append_only_and_retry_safe(
         "DISPATCHED",
         "SUCCEEDED",
     )
+
+
+def test_outcome_and_memory_work_wait_for_predecessor_success(
+    sqlite_database,
+    repository_root: Path,
+) -> None:
+    _, _, factory = sqlite_database
+    _seed_calendar(factory)
+    repository = ResearchSchedulerRepository(factory)
+    config = _config(repository_root)
+    sessions, evidence, consumed = repository.planning_inputs(
+        as_of=PLAN_AS_OF,
+        calendar_version=config.config.schedule.market_calendar_version,
+    )
+    plans = build_due_schedule_plans(
+        schedule=config.config.schedule,
+        config_manifest_hash=config.manifest_hash,
+        as_of=PLAN_AS_OF,
+        market_sessions=sessions,
+        evidence=evidence,
+        consumed_evidence_hashes=consumed,
+        include_outcome_maintenance=True,
+    )
+    assert repository.store_plans(plans, created_at=PLAN_AS_OF) == 3
+
+    daily_lease = repository.claim_next(
+        lease_owner="daily-worker",
+        lease_seconds=900,
+        maximum_attempts=3,
+    )
+    assert daily_lease is not None
+    assert daily_lease.work_kind is ResearchScheduleWorkKind.DAILY_AGGREGATION
+    daily_receipt = repository.commit_dispatch(lease=daily_lease)
+    assert (
+        repository.claim_next(
+            lease_owner="blocked-worker",
+            lease_seconds=900,
+            maximum_attempts=3,
+        )
+        is None
+    )
+    repository.record_execution_outcome(
+        receipt_id=daily_receipt.receipt_id,
+        succeeded=True,
+        reason_code=None,
+        maximum_attempts=3,
+    )
+
+    outcome_lease = repository.claim_next(
+        lease_owner="outcome-worker",
+        lease_seconds=900,
+        maximum_attempts=3,
+    )
+    assert outcome_lease is not None
+    assert outcome_lease.work_kind is ResearchScheduleWorkKind.OUTCOME_MATURATION
+    outcome_receipt = repository.commit_dispatch(lease=outcome_lease)
+    assert (
+        repository.claim_next(
+            lease_owner="still-blocked-worker",
+            lease_seconds=900,
+            maximum_attempts=3,
+        )
+        is None
+    )
+    repository.record_execution_outcome(
+        receipt_id=outcome_receipt.receipt_id,
+        succeeded=True,
+        reason_code=None,
+        maximum_attempts=3,
+    )
+
+    memory_lease = repository.claim_next(
+        lease_owner="memory-worker",
+        lease_seconds=900,
+        maximum_attempts=3,
+    )
+    assert memory_lease is not None
+    assert (
+        memory_lease.work_kind
+        is ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION
+    )
+
+
+def test_blocked_maintenance_backlog_cannot_starve_later_daily_work(
+    sqlite_database,
+    repository_root: Path,
+) -> None:
+    _, _, factory = sqlite_database
+    _seed_calendar(factory)
+    repository = ResearchSchedulerRepository(factory)
+    config = _config(repository_root)
+    sessions, evidence, consumed = repository.planning_inputs(
+        as_of=PLAN_AS_OF,
+        calendar_version=config.config.schedule.market_calendar_version,
+    )
+    daily_plan = build_due_schedule_plans(
+        schedule=config.config.schedule,
+        config_manifest_hash=config.manifest_hash,
+        as_of=PLAN_AS_OF,
+        market_sessions=sessions,
+        evidence=evidence,
+        consumed_evidence_hashes=consumed,
+    )[0]
+    assert repository.store_plans(
+        (daily_plan,),
+        created_at=PLAN_AS_OF,
+    ) == 1
+
+    with factory.begin() as session:
+        pending_events: list[ResearchScheduleEventRow] = []
+        for index in range(100):
+            work_item_id = f"blocked-outcome-{index:03d}"
+            plan_hash = canonical_hash(
+                {"kind": "blocked-outcome", "index": index}
+            )
+            session.add(
+                ResearchScheduleWorkItemRow(
+                    work_item_id=work_item_id,
+                    schema_version="research_schedule_plan_v1",
+                    work_kind=(
+                        ResearchScheduleWorkKind.OUTCOME_MATURATION.value
+                    ),
+                    idempotency_key=f"blocked-work-{index:03d}",
+                    schedule_version=daily_plan.schedule_version,
+                    scheduled_for=PAST_CLOSE,
+                    data_available_cutoff=PAST_CLOSE,
+                    calendar_session_id=daily_plan.calendar_session_id,
+                    trigger_manifest_hash="c" * 64,
+                    config_manifest_hash=daily_plan.config_manifest_hash,
+                    plan_hash=plan_hash,
+                    real_order_routing=False,
+                    payload_json={"synthetic_blocked_row": index},
+                    created_at=PAST_CLOSE,
+                )
+            )
+            pending_events.append(
+                ResearchScheduleEventRow(
+                    event_id=f"blocked-event-{index:03d}",
+                    work_item_id=work_item_id,
+                    sequence=1,
+                    event_type=ResearchScheduleEventType.PLANNED.value,
+                    attempt_number=0,
+                    retryable=True,
+                    lease_owner=None,
+                    lease_token=None,
+                    lease_expires_at=None,
+                    receipt_id=None,
+                    idempotency_key=f"blocked-event-key-{index:03d}",
+                    event_hash=canonical_hash(
+                        {"kind": "blocked-event", "index": index}
+                    ),
+                    config_manifest_hash=daily_plan.config_manifest_hash,
+                    real_order_routing=False,
+                    payload_json={"synthetic_blocked_event": index},
+                    created_at=PAST_CLOSE,
+                )
+            )
+        session.flush()
+        session.add_all(pending_events)
+
+    lease = repository.claim_next(
+        lease_owner="non-starved-worker",
+        lease_seconds=900,
+        maximum_attempts=3,
+    )
+
+    assert lease is not None
+    assert lease.work_item_id == daily_plan.work_item_id
+    assert lease.work_kind is ResearchScheduleWorkKind.DAILY_AGGREGATION
 
 
 def test_expired_lease_is_reclaimed_and_stale_worker_cannot_commit(

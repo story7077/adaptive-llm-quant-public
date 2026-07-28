@@ -49,6 +49,7 @@ def _plans(
     sessions: tuple[VersionedResearchMarketSession, ...] = (),
     evidence: tuple[ResearchEvidenceMarker, ...] = (),
     consumed: frozenset[str] = frozenset(),
+    include_outcome_maintenance: bool = False,
 ):
     return build_due_schedule_plans(
         schedule=_schedule(),
@@ -57,6 +58,7 @@ def _plans(
         market_sessions=sessions,
         evidence=evidence,
         consumed_evidence_hashes=consumed,
+        include_outcome_maintenance=include_outcome_maintenance,
     )
 
 
@@ -202,4 +204,34 @@ def test_later_calendar_revision_does_not_change_an_already_bound_plan_identity(
 
     assert tuple(item.plan_hash for item in before) == tuple(
         item.plan_hash for item in with_late_record
+    )
+
+
+def test_recursive_maintenance_plans_follow_daily_aggregation_order() -> None:
+    session = _session(
+        identity="maintenance-session",
+        session_date=date(2026, 7, 27),
+        open_at=datetime(2026, 7, 27, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 27, 20, 0, tzinfo=UTC),
+    )
+    plans = _plans(
+        as_of=datetime(2026, 7, 28, 0, 0, tzinfo=UTC),
+        sessions=(session,),
+        include_outcome_maintenance=True,
+    )
+    daily_chain = tuple(
+        item.work_kind
+        for item in plans
+        if item.calendar_session_id == session.calendar_session_id
+        and item.work_kind
+        in {
+            ResearchScheduleWorkKind.DAILY_AGGREGATION,
+            ResearchScheduleWorkKind.OUTCOME_MATURATION,
+            ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION,
+        }
+    )
+    assert daily_chain == (
+        ResearchScheduleWorkKind.DAILY_AGGREGATION,
+        ResearchScheduleWorkKind.OUTCOME_MATURATION,
+        ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION,
     )

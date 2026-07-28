@@ -444,16 +444,74 @@ def scan_worktree(root: Path) -> list[Violation]:
 
     if (root / ".git").exists():
         try:
-            output = _run_git(
+            index_output = _run_git(
                 root,
-                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                ["ls-files", "-z", "--stage"],
+                binary=True,
+            )
+            untracked_output = _run_git(
+                root,
+                ["ls-files", "-z", "--others", "--exclude-standard"],
+                binary=True,
+            )
+            modified_output = _run_git(
+                root,
+                ["diff", "--name-only", "-z", "--no-ext-diff"],
                 binary=True,
             )
         except RuntimeError:
             return [Violation("WORKTREE_INDEX_UNREADABLE", ".git")]
-        if not isinstance(output, bytes):
+        if not isinstance(index_output, bytes) or not isinstance(
+            untracked_output, bytes
+        ) or not isinstance(modified_output, bytes):
             return [Violation("WORKTREE_INDEX_UNREADABLE", ".git")]
-        for raw_path in sorted(set(output.split(b"\x00"))):
+
+        for raw_path in sorted(set(modified_output.split(b"\x00"))):
+            if not raw_path:
+                continue
+            try:
+                relative = raw_path.decode("utf-8")
+            except UnicodeDecodeError:
+                violations.append(Violation("NON_UTF8_PATH", ".git/index"))
+                continue
+            violations.append(
+                Violation(
+                    "WORKTREE_INDEX_MISMATCH",
+                    _normal_path(relative),
+                )
+            )
+
+        for raw_entry in sorted(set(index_output.split(b"\x00"))):
+            if not raw_entry:
+                continue
+            try:
+                metadata, raw_path = raw_entry.split(b"\t", maxsplit=1)
+                mode, object_id, stage = metadata.decode("ascii").split()
+                relative = raw_path.decode("utf-8")
+            except (ValueError, UnicodeDecodeError):
+                violations.append(Violation("INVALID_GIT_INDEX_ENTRY", ".git/index"))
+                continue
+            normalized = _normal_path(relative)
+            if stage != "0":
+                violations.append(Violation("UNMERGED_GIT_INDEX_ENTRY", normalized))
+                continue
+            if mode == "120000":
+                violations.append(Violation("SYMLINK", normalized))
+                continue
+            if mode == "160000":
+                violations.append(Violation("GIT_INDEX_SUBMODULE", normalized))
+                continue
+            try:
+                data = _run_git(root, ["cat-file", "blob", object_id], binary=True)
+            except RuntimeError:
+                violations.append(Violation("WORKTREE_INDEX_UNREADABLE", normalized))
+                continue
+            if not isinstance(data, bytes):
+                violations.append(Violation("WORKTREE_INDEX_UNREADABLE", normalized))
+                continue
+            violations.extend(_scan_bytes(normalized, data))
+
+        for raw_path in sorted(set(untracked_output.split(b"\x00"))):
             if not raw_path:
                 continue
             try:

@@ -57,7 +57,11 @@ from trading.persistence.research import (
     ResearchRepository,
 )
 from trading.persistence.research_scheduler import ResearchSchedulerRepository
-from trading.research.config import ResearchConfigBundle, load_research_config
+from trading.research.config import (
+    ResearchConfigBundle,
+    load_research_config,
+    recursive_improvement_status,
+)
 from trading.research.contracts import ResearchCommanderKind
 from trading.research.lifecycle import (
     ResearchLifecycleError,
@@ -650,6 +654,12 @@ def create_app(
         persisted_status = research_repository.status()
         return {
             **persisted_status,
+            "recursive_improvement": recursive_improvement_status(
+                research_config,
+                experiment_outcome_ledger=(
+                    persisted_status["experiment_outcome_ledger"]
+                ),
+            ),
             "research_plane_version": (
                 research_config.config.algorithm_version
             ),
