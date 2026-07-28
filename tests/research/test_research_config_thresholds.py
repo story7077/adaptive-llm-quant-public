@@ -92,6 +92,9 @@ def test_candidate_execution_limits_and_isolation_are_versioned() -> None:
     assert limits.maximum_stderr_bytes == 8192
     assert limits.maximum_memory_bytes == 268435456
     assert limits.maximum_processes == 4
+    assert bundle.config.candidate_execution.host_process_timeout_seconds == 30
+    assert bundle.config.candidate_execution.maximum_host_stdout_bytes == 131072
+    assert bundle.config.candidate_execution.maximum_host_stderr_bytes == 8192
 
     security = candidate_execution_security(
         bundle,

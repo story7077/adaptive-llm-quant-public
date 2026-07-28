@@ -272,6 +272,7 @@ def evaluate_candidate_twice(
     *,
     dataset: CandidateEvaluationDatasetV1,
     executor: CandidateExecutor,
+    replay_executor: CandidateExecutor | None = None,
     evaluation_contract: FalsificationEvaluationContractV1,
     trace_id: str,
     config_hash: str,
@@ -283,6 +284,7 @@ def evaluate_candidate_twice(
     execution = execute_candidate_dataset_twice(
         dataset=dataset,
         executor=executor,
+        replay_executor=replay_executor,
         config_hash=config_hash,
         code_hash=code_hash,
         created_at=created_at,
@@ -310,6 +312,7 @@ def execute_candidate_dataset_twice(
     *,
     dataset: CandidateEvaluationDatasetV1,
     executor: CandidateExecutor,
+    replay_executor: CandidateExecutor | None = None,
     config_hash: str,
     code_hash: str,
     created_at: datetime,
@@ -317,7 +320,7 @@ def execute_candidate_dataset_twice(
     """Return deterministic candidate outputs without exposing future outcomes."""
 
     first = _execute_dataset(dataset, executor)
-    second = _execute_dataset(dataset, executor)
+    second = _execute_dataset(dataset, replay_executor or executor)
     first_hash = _execution_hash(dataset, first)
     second_hash = _execution_hash(dataset, second)
     replay = DeterministicReplayArtifactV1(

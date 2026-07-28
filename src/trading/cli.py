@@ -76,12 +76,17 @@ from trading.persistence.research_scheduler import ResearchSchedulerRepository
 from trading.replay.engine import replay_full
 from trading.replay.q1 import replay_q1_run
 from trading.replay.verifier import verify_ledger_arm, verify_run
+from trading.research.candidate_abi import CandidateDecisionRequestV1
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
 from trading.research.chronological_meta_oos import (
     ChronologicalMetaOosPlanV1,
     ChronologicalMetaOosResultV1,
     MetaOosError,
     verify_chronological_meta_oos_result,
+)
+from trading.research.commander_candidate import (
+    CommanderCandidateError,
+    connect_candidate_runtime,
 )
 from trading.research.config import (
     FACTORIAL_CONFIG_FILE,
@@ -1391,6 +1396,84 @@ def research_candidate_artifact_register(
             "status": result.status.value,
             "candidate_artifact_hash": result.artifact_hash,
             "real_order_routing": False,
+        }
+    )
+
+
+@research_app.command("candidate-execute")
+def research_candidate_execute(
+    request_file: Annotated[
+        Path,
+        typer.Option("--request", exists=True, dir_okay=False),
+    ],
+    commander_root: Annotated[
+        Path,
+        typer.Option("--commander-root", exists=True, file_okay=False),
+    ],
+    commander_run: Annotated[
+        Path,
+        typer.Option("--commander-run", exists=True, file_okay=False),
+    ],
+) -> None:
+    """Run both isolated lanes without advancing any Challenger lifecycle gate."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        request = load_json_model(request_file, CandidateDecisionRequestV1)
+        repository = ResearchRepository(make_session_factory(engine))
+        bundle = repository.candidate_artifact(request.challenger_id)
+        if bundle is None:
+            raise CommanderCandidateError(
+                "COMMANDER_CANDIDATE_ARTIFACT_NOT_REGISTERED"
+            )
+        if request.candidate_artifact_hash != bundle.bundle_hash:
+            raise CommanderCandidateError(
+                "COMMANDER_CANDIDATE_REQUEST_ARTIFACT_MISMATCH"
+            )
+        connection = connect_candidate_runtime(
+            bundle=bundle,
+            commander_root=commander_root,
+            run_root=commander_run,
+            research_config=load_research_config(settings.config_dir),
+        )
+        primary = connection.primary_executor.execute(request)
+        replay = connection.replay_executor.execute(request)
+        if primary.output_hash != replay.output_hash:
+            raise CommanderCandidateError(
+                "COMMANDER_CANDIDATE_NONDETERMINISTIC"
+            )
+    except (
+        CommanderCandidateError,
+        ResearchFileRuntimeError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(
+        {
+            "challenger_id": request.challenger_id,
+            "candidate_artifact_hash": request.candidate_artifact_hash,
+            "request_hash": request.request_hash,
+            "primary_response_hash": primary.output_hash,
+            "replay_response_hash": replay.output_hash,
+            "deterministic_match": True,
+            "targets": [
+                target.model_dump(mode="json") for target in primary.targets
+            ],
+            "isolation_kind": connection.attestation.isolation_kind,
+            "isolation_version": connection.attestation.isolation_version,
+            "network_access_permitted": False,
+            "credential_access_permitted": False,
+            "broker_access_permitted": False,
+            "filesystem_write_permitted": False,
+            "real_order_routing": False,
+            "evidence_recorded": False,
+            "challenger_status_advanced": False,
+            "shadow_started": False,
         }
     )
 
