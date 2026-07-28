@@ -1353,7 +1353,7 @@
     }
 
     function renderLiveMarket() {
-      const { source, filters, market, paper_input } = state.market;
+      const { source, filters, market, paper_input, history_refresh } = state.market;
       const connectionLabels = {
         CONNECTED: "연결됨",
         CONNECTING: "연결 중",
@@ -1400,7 +1400,15 @@
         $("chartRange").textContent = "저장된 1분봉이 없습니다.";
       }
       const paperState = paper_input.ready ? "PaperBroker 입력 가능" : `PaperBroker 대기: ${paper_input.reason}`;
-      $("candleNote").textContent = `${source.candle_note} · ${paperState}`;
+      const historyLabels = {
+        READY: `조정 일봉 갱신 ${formatDate(history_refresh?.last_success?.at)}`,
+        ERROR: `조정 일봉 갱신 오류: ${history_refresh?.last_error?.error_code || "UNKNOWN"}`,
+        PENDING: "조정 일봉 첫 갱신 대기",
+        AUTH_REQUIRED: "조정 일봉 인증 대기",
+        DISABLED: "조정 일봉 수집 중단"
+      };
+      const historyState = historyLabels[history_refresh?.status] || "조정 일봉 상태 확인 중";
+      $("candleNote").textContent = `${source.candle_note} · ${paperState} · ${historyState}`;
       renderCandles(market.candles);
     }
 
