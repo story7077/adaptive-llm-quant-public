@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from typer.testing import CliRunner
 
 from trading.cli import app
-from trading.domain.hashing import canonical_hash
+from trading.domain.hashing import canonical_hash, stable_id
 from trading.persistence.models import (
     FillRow,
     MarketCalendarSessionRow,
@@ -22,9 +22,17 @@ from trading.persistence.research_scheduler import (
     ResearchScheduleWorkItemRow,
 )
 from trading.research.config import load_research_config
+from trading.research.dispatch_execution import (
+    ResearchExecutionArtifactKind,
+    ResearchExecutionArtifactV1,
+    ResearchWorkExecutionResultV1,
+    build_execution_request,
+    build_execution_result,
+)
 from trading.research.scheduler import (
     ResearchScheduleEventType,
     ResearchScheduleWorkKind,
+    ResearchWorkExecutionLeaseV1,
     ResearchWorkLeaseV1,
     build_due_schedule_plans,
 )
@@ -82,6 +90,62 @@ def _service(factory, repository_root: Path):
     )
 
 
+def _claim_execution(
+    repository: ResearchSchedulerRepository,
+    *,
+    consumer_id: str,
+) -> ResearchWorkExecutionLeaseV1:
+    lease = repository.claim_execution(
+        consumer_id=consumer_id,
+        lease_seconds=900,
+        work_not_before=PAST_OPEN,
+    )
+    assert lease is not None
+    return lease
+
+
+def _maintenance_result(
+    repository: ResearchSchedulerRepository,
+    lease: ResearchWorkExecutionLeaseV1,
+) -> ResearchWorkExecutionResultV1:
+    plan, receipt = repository.execution_input(execution_lease=lease)
+    request = build_execution_request(
+        execution_lease=lease,
+        plan=plan,
+        receipt=receipt,
+        commander_selection=None,
+    )
+    artifact_kind = {
+        ResearchScheduleWorkKind.DAILY_AGGREGATION: (
+            ResearchExecutionArtifactKind.DAILY_AGGREGATION
+        ),
+        ResearchScheduleWorkKind.OUTCOME_MATURATION: (
+            ResearchExecutionArtifactKind.OUTCOME_MATURATION
+        ),
+        ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION: (
+            ResearchExecutionArtifactKind.RESEARCH_MEMORY_SNAPSHOT
+        ),
+    }[lease.work_kind]
+    return build_execution_result(
+        request=request,
+        artifacts=(
+            ResearchExecutionArtifactV1(
+                artifact_kind=artifact_kind,
+                content_hash=canonical_hash(
+                    {
+                        "execution_id": lease.execution_id,
+                        "artifact_kind": artifact_kind,
+                    }
+                ),
+                record_count=1,
+            ),
+        ),
+        invocations=(),
+        decision_kind=None,
+        completed_at=lease.acquired_at,
+    )
+
+
 def test_schedule_plan_and_dispatch_are_idempotent(
     sqlite_database,
     repository_root: Path,
@@ -111,17 +175,71 @@ def test_schedule_plan_and_dispatch_are_idempotent(
         ResearchScheduleEventType.LEASE_ACQUIRED.value,
         ResearchScheduleEventType.DISPATCHED.value,
     )
+    execution_lease = _claim_execution(
+        repository,
+        consumer_id="research-consumer-1",
+    )
+    assert (
+        repository.claim_execution(
+            consumer_id="research-consumer-2",
+            lease_seconds=900,
+            work_not_before=PAST_OPEN,
+        )
+        is None
+    )
+    execution_result = _maintenance_result(
+        repository,
+        execution_lease,
+    )
     assert repository.record_execution_outcome(
-        receipt_id=str(receipt["receipt_id"]),
+        execution_lease=execution_lease,
         succeeded=True,
         reason_code=None,
         maximum_attempts=3,
+        result=execution_result,
     )
     assert not repository.record_execution_outcome(
-        receipt_id=str(receipt["receipt_id"]),
+        execution_lease=execution_lease,
         succeeded=True,
         reason_code=None,
         maximum_attempts=3,
+        result=execution_result,
+    )
+
+
+def test_execution_cutover_leaves_older_receipt_unclaimed(
+    sqlite_database,
+    repository_root: Path,
+) -> None:
+    _, _, factory = sqlite_database
+    _seed_calendar(factory)
+    repository, service = _service(factory, repository_root)
+    service.plan(as_of=PLAN_AS_OF)
+    dispatched = service.dispatch_once(worker_id="cutover-dispatch-worker")
+    assert dispatched["dispatched"] is True
+    work_item_id = str(dispatched["receipt"]["work_item_id"])
+
+    assert (
+        repository.claim_execution(
+            consumer_id="post-cutover-consumer",
+            lease_seconds=900,
+            work_not_before=PLAN_AS_OF + timedelta(days=1),
+        )
+        is None
+    )
+    assert repository.event_history(work_item_id)[-1].event_type == (
+        ResearchScheduleEventType.DISPATCHED.value
+    )
+
+    claimed = repository.claim_execution(
+        consumer_id="matching-cutover-consumer",
+        lease_seconds=900,
+        work_not_before=PAST_OPEN,
+    )
+    assert claimed is not None
+    history = repository.event_history(work_item_id)
+    assert history[-1].payload_json["work_not_before"] == (
+        PAST_OPEN.isoformat()
     )
 
 
@@ -136,8 +254,13 @@ def test_failed_execution_is_append_only_and_retry_safe(
 
     first = service.dispatch_once(worker_id="scheduler-worker-a")
     first_receipt = first["receipt"]
+    first_execution_lease = _claim_execution(
+        repository,
+        consumer_id="research-consumer-a",
+    )
+    assert first_execution_lease.receipt_id == first_receipt["receipt_id"]
     assert repository.record_execution_outcome(
-        receipt_id=str(first_receipt["receipt_id"]),
+        execution_lease=first_execution_lease,
         succeeded=False,
         reason_code="SYNTHETIC_EXECUTION_FAILURE",
         maximum_attempts=3,
@@ -148,25 +271,37 @@ def test_failed_execution_is_append_only_and_retry_safe(
     assert retry_receipt["attempt_number"] == 2
     with pytest.raises(ResearchScheduleFenceError, match="stale"):
         repository.record_execution_outcome(
-            receipt_id=str(first_receipt["receipt_id"]),
+            execution_lease=first_execution_lease,
             succeeded=True,
             reason_code=None,
             maximum_attempts=3,
+            result=_maintenance_result(
+                repository,
+                first_execution_lease,
+            ),
         )
+    retry_execution_lease = _claim_execution(
+        repository,
+        consumer_id="research-consumer-b",
+    )
+    assert retry_execution_lease.receipt_id == retry_receipt["receipt_id"]
     assert repository.record_execution_outcome(
-        receipt_id=str(retry_receipt["receipt_id"]),
+        execution_lease=retry_execution_lease,
         succeeded=True,
         reason_code=None,
         maximum_attempts=3,
+        result=_maintenance_result(repository, retry_execution_lease),
     )
     history = repository.event_history(str(first_receipt["work_item_id"]))
     assert tuple(item.event_type for item in history) == (
         "PLANNED",
         "LEASE_ACQUIRED",
         "DISPATCHED",
+        "EXECUTION_LEASE_ACQUIRED",
         "FAILED",
         "LEASE_ACQUIRED",
         "DISPATCHED",
+        "EXECUTION_LEASE_ACQUIRED",
         "SUCCEEDED",
     )
 
@@ -210,11 +345,17 @@ def test_outcome_and_memory_work_wait_for_predecessor_success(
         )
         is None
     )
+    daily_execution_lease = _claim_execution(
+        repository,
+        consumer_id="daily-consumer",
+    )
+    assert daily_execution_lease.receipt_id == daily_receipt.receipt_id
     repository.record_execution_outcome(
-        receipt_id=daily_receipt.receipt_id,
+        execution_lease=daily_execution_lease,
         succeeded=True,
         reason_code=None,
         maximum_attempts=3,
+        result=_maintenance_result(repository, daily_execution_lease),
     )
 
     outcome_lease = repository.claim_next(
@@ -233,11 +374,17 @@ def test_outcome_and_memory_work_wait_for_predecessor_success(
         )
         is None
     )
+    outcome_execution_lease = _claim_execution(
+        repository,
+        consumer_id="outcome-consumer",
+    )
+    assert outcome_execution_lease.receipt_id == outcome_receipt.receipt_id
     repository.record_execution_outcome(
-        receipt_id=outcome_receipt.receipt_id,
+        execution_lease=outcome_execution_lease,
         succeeded=True,
         reason_code=None,
         maximum_attempts=3,
+        result=_maintenance_result(repository, outcome_execution_lease),
     )
 
     memory_lease = repository.claim_next(
@@ -402,6 +549,90 @@ def test_expired_lease_is_reclaimed_and_stale_worker_cannot_commit(
     assert receipt.attempt_number == 2
 
 
+def test_expired_execution_lease_is_reclaimed_and_stale_consumer_is_fenced(
+    sqlite_database,
+    repository_root: Path,
+) -> None:
+    _, _, factory = sqlite_database
+    _seed_calendar(factory)
+    repository, service = _service(factory, repository_root)
+    service.plan(as_of=PLAN_AS_OF)
+    dispatched = service.dispatch_once(worker_id="dispatch-worker")
+    receipt = dispatched["receipt"]
+    work_item_id = str(receipt["work_item_id"])
+    receipt_id = str(receipt["receipt_id"])
+    receipt_hash = str(receipt["receipt_hash"])
+    config_hash = _config(repository_root).manifest_hash
+    expired_at = datetime(2020, 7, 25, 3, 0, tzinfo=UTC)
+    stale_lease = ResearchWorkExecutionLeaseV1(
+        execution_id=stable_id(
+            "research-work-execution",
+            receipt_id,
+        ),
+        receipt_id=receipt_id,
+        receipt_hash=receipt_hash,
+        work_item_id=work_item_id,
+        work_kind=ResearchScheduleWorkKind.DAILY_AGGREGATION,
+        consumer_id="stale-consumer",
+        execution_token="stale-execution-token",
+        dispatch_attempt_number=1,
+        acquired_at=expired_at - timedelta(minutes=1),
+        lease_expires_at=expired_at,
+        config_manifest_hash=config_hash,
+        real_order_routing=False,
+    )
+    with factory.begin() as session:
+        session.add(
+            ResearchScheduleEventRow(
+                event_id="synthetic-expired-execution-lease",
+                work_item_id=work_item_id,
+                sequence=4,
+                event_type=(
+                    ResearchScheduleEventType
+                    .EXECUTION_LEASE_ACQUIRED.value
+                ),
+                attempt_number=1,
+                retryable=True,
+                lease_owner=stale_lease.consumer_id,
+                lease_token=stale_lease.execution_token,
+                lease_expires_at=stale_lease.lease_expires_at,
+                receipt_id=receipt_id,
+                idempotency_key="synthetic-expired-execution-lease",
+                event_hash="f" * 64,
+                config_manifest_hash=config_hash,
+                real_order_routing=False,
+                payload_json={
+                    "reason": "synthetic expired execution lease"
+                },
+                created_at=stale_lease.acquired_at,
+            )
+        )
+
+    replacement = _claim_execution(
+        repository,
+        consumer_id="replacement-consumer",
+    )
+    assert replacement.receipt_id == receipt_id
+    assert repository.event_history(work_item_id)[-1].event_type == (
+        ResearchScheduleEventType.EXECUTION_LEASE_RECLAIMED.value
+    )
+    with pytest.raises(ResearchScheduleFenceError, match="stale"):
+        repository.record_execution_outcome(
+            execution_lease=stale_lease,
+            succeeded=True,
+            reason_code=None,
+            maximum_attempts=3,
+            result=_maintenance_result(repository, replacement),
+        )
+    assert repository.record_execution_outcome(
+        execution_lease=replacement,
+        succeeded=True,
+        reason_code=None,
+        maximum_attempts=3,
+        result=_maintenance_result(repository, replacement),
+    )
+
+
 def test_scheduler_failure_does_not_touch_operational_plane_rows(
     sqlite_database,
     repository_root: Path,
@@ -505,6 +736,64 @@ def test_research_scheduler_cli_plans_dispatches_and_reports_status(
     )
     assert work.exit_code == 0, work.output
     assert '"dispatched": true' in work.stdout.lower()
+    executor = tmp_path / "cli-executor.py"
+    executor.write_text(
+        """
+import argparse
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from trading.research.dispatch_execution import (
+    ResearchExecutionArtifactKind,
+    ResearchExecutionArtifactV1,
+    ResearchWorkExecutionRequestV1,
+    build_execution_result,
+)
+parser = argparse.ArgumentParser()
+parser.add_argument("--request", type=Path, required=True)
+parser.add_argument("--result", type=Path, required=True)
+args = parser.parse_args()
+request = ResearchWorkExecutionRequestV1.model_validate(
+    json.loads(args.request.read_text(encoding="utf-8"))
+)
+result = build_execution_result(
+    request=request,
+    artifacts=(ResearchExecutionArtifactV1(
+        artifact_kind=ResearchExecutionArtifactKind.DAILY_AGGREGATION,
+        content_hash="a" * 64,
+        record_count=1,
+    ),),
+    invocations=(),
+    decision_kind=None,
+    completed_at=datetime.now(UTC),
+)
+args.result.parent.mkdir(parents=True, exist_ok=True)
+args.result.write_text(
+    json.dumps(result.model_dump(mode="json"), sort_keys=True),
+    encoding="utf-8",
+)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    consumed = runner.invoke(
+        app,
+        [
+            "research",
+            "schedule-consume",
+            "--executor",
+            str(executor),
+            "--artifact-root",
+            str(tmp_path / "dispatch-artifacts"),
+            "--timeout-seconds",
+            "30",
+            "--consumer-id",
+            "cli-consumer",
+            "--work-not-before",
+            "2020-07-24T00:00:00Z",
+        ],
+    )
+    assert consumed.exit_code == 0, consumed.output
+    assert '"consumed": true' in consumed.stdout.lower()
 
     status = runner.invoke(app, ["research", "status"])
     assert status.exit_code == 0, status.output

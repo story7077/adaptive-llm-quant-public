@@ -325,8 +325,8 @@ uv run python -m trading.cli research status
 ### Research scheduler
 
 Run the Research Plane scheduler in its own process or host-level service. It is
-independent of the regular-session Operational Trading Plane and never imports or
-calls a broker, WebGPT, or Codex:
+independent of the regular-session Operational Trading Plane. The scheduler
+itself never imports or calls a broker, WebGPT, or Codex:
 
 ```powershell
 uv run python -m trading.cli research schedule-plan
@@ -349,6 +349,42 @@ fences. A reclaimed or expired worker cannot append a receipt or outcome.
 Failures and retries are append-only events; raw exception detail and credentials
 are never persisted. Inspect `scheduler` in `research status` or the Research UI
 before operating the downstream aggregation/deep-research consumer.
+
+Run the separate execution consumer only with a trusted local launcher:
+
+```powershell
+$cutoverUtc = (Get-Date).ToUniversalTime().ToString("o")
+uv run python -m trading.cli research schedule-consume `
+  --executor .local/private-research-launcher.py `
+  --consumer-id research-consumer-01 `
+  --artifact-root .local/research/dispatch `
+  --work-not-before $cutoverUtc `
+  --run-forever
+```
+
+The public repository owns the hash-bound
+`ResearchWorkExecutionRequestV1`/`ResearchWorkExecutionResultV1` contract,
+append-only database-clock execution lease, renewal/reclaim fencing, and result
+commit. The private launcher owns user-specific WebGPT/AGBrowse and Codex
+configuration. It receives no execution lease token or inherited broker/API
+secret, and must write one UTF-8 JSON result to the requested local path.
+`--work-not-before` is a required deployment cutover: older receipts remain
+unchanged and visible in status, but no consumer may claim them. Persist the
+chosen UTC value in the local process supervisor so restart behavior is stable.
+
+Long model runs renew the same execution token. Reclaiming an expired lease
+fences the stale process, while an already completed, valid local result is
+adopted idempotently after restart. A successful deep-research result must attest
+fresh, distinct Scout and Commander contexts; a proposal additionally requires a
+separate Codex Builder context and Candidate artifacts. Context hashes already
+committed by an earlier successful cycle cannot be reused. The selected
+Commander is checked again immediately before the result commits.
+
+Launcher timeout, invalid JSON, wrong model route, context reuse, Commander
+selection drift, or missing artifacts fail closed. The failure is stored only as
+a bounded reason code and may be retried up to the versioned dispatch-attempt
+limit. Neither scheduler nor consumer can enable automatic promotion or real
+broker routing.
 
 ### Recursive outcome ledger and V2 Candidate discovery producer
 
@@ -402,7 +438,7 @@ shadow_started=false
 real_order_routing=false
 ```
 
-The scheduler contract reserves this order for a later enabled implementation:
+The scheduler and execution-consumer contracts enforce this order:
 
 ```text
 DAILY_AGGREGATION
@@ -411,8 +447,9 @@ DAILY_AGGREGATION
 ```
 
 Each successor waits for the predecessor's append-only `SUCCEEDED` event. A
-dispatch receipt does not execute maturation or memory materialization, and no
-production consumer for those targets exists in PR 1.
+dispatch receipt alone still performs no work. The execution consumer can now
+hand each target to the configured private launcher, but recursive maintenance
+remains dormant while `recursive_improvement.enabled=false`.
 
 Operators can inspect due experiments:
 
