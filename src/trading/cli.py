@@ -228,6 +228,7 @@ from trading.runtime.prospective_candidate import (
     ProspectiveCandidateCollector,
     ProspectiveCollectionResult,
     prospective_candidate_status,
+    resolve_prospective_challenger_id,
 )
 from trading.runtime.prospective_evaluation import (
     ProspectiveEvaluationRunResult,
@@ -1002,32 +1003,10 @@ def research_status() -> None:
         ProspectiveCandidateRepository(factory),
         config=prospective_config,
     )
-    prospective_latest = prospective_status.get("latest")
-    prospective_latest_payload = (
-        cast(dict[str, Any], prospective_latest)
-        if isinstance(prospective_latest, dict)
-        else {}
+    prospective_challenger_id = resolve_prospective_challenger_id(
+        prospective_status=prospective_status,
+        persisted_status=persisted_status,
     )
-    raw_prospective_challenger_id = (
-        prospective_latest_payload.get("challenger_id")
-    )
-    prospective_challenger_id = (
-        raw_prospective_challenger_id
-        if isinstance(raw_prospective_challenger_id, str)
-        else None
-    )
-    if prospective_challenger_id is None:
-        challengers = persisted_status.get("challengers")
-        latest_challenger = (
-            cast(dict[str, Any], challengers[0])
-            if isinstance(challengers, list)
-            and challengers
-            and isinstance(challengers[0], dict)
-            else {}
-        )
-        raw_latest_challenger = latest_challenger.get("challenger_id")
-        if isinstance(raw_latest_challenger, str):
-            prospective_challenger_id = raw_latest_challenger
     payload = {
         **persisted_status,
         "recursive_improvement": recursive_improvement_status(

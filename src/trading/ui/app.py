@@ -94,7 +94,10 @@ from trading.runtime.news import (
 )
 from trading.runtime.paper import PaperRuntimeError, PaperRuntimeService
 from trading.runtime.paper_worker import PaperRuntimeWorker
-from trading.runtime.prospective_candidate import prospective_candidate_status
+from trading.runtime.prospective_candidate import (
+    prospective_candidate_status,
+    resolve_prospective_challenger_id,
+)
 from trading.runtime.prospective_evaluation import (
     prospective_evaluation_status,
 )
@@ -746,34 +749,10 @@ def create_app(
             prospective_repository,
             config=prospective_config,
         )
-        latest = prospective_status.get("latest")
-        latest_payload = (
-            cast(dict[str, Any], latest)
-            if isinstance(latest, dict)
-            else {}
+        prospective_challenger_id = resolve_prospective_challenger_id(
+            prospective_status=prospective_status,
+            persisted_status=persisted_status,
         )
-        raw_latest_challenger_id = (
-            latest_payload.get("challenger_id")
-        )
-        latest_challenger_id = (
-            raw_latest_challenger_id
-            if isinstance(raw_latest_challenger_id, str)
-            else None
-        )
-        if latest_challenger_id is None:
-            challengers = persisted_status.get("challengers")
-            latest_challenger = (
-                cast(dict[str, Any], challengers[0])
-                if isinstance(challengers, list)
-                and challengers
-                and isinstance(challengers[0], dict)
-                else {}
-            )
-            raw_latest_challenger = latest_challenger.get(
-                "challenger_id"
-            )
-            if isinstance(raw_latest_challenger, str):
-                latest_challenger_id = raw_latest_challenger
         return {
             **persisted_status,
             "recursive_improvement": recursive_improvement_status(
@@ -811,13 +790,13 @@ def create_app(
             "prospective_outcomes": prospective_outcome_status(
                 prospective_outcome_repository,
                 config=prospective_outcome_config,
-                challenger_id=latest_challenger_id,
+                challenger_id=prospective_challenger_id,
             ),
             "prospective_evaluation": prospective_evaluation_status(
                 prospective_evaluation_repository,
                 config=prospective_evaluation_config,
                 research_repository=research_repository,
-                challenger_id=latest_challenger_id,
+                challenger_id=prospective_challenger_id,
             ),
             "shadow_runtime": ResearchShadowRuntimeRepository(
                 session_factory

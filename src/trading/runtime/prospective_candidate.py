@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from sqlalchemy import desc, exists, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -541,3 +543,59 @@ def prospective_candidate_status(
         "automatic_promotion_enabled": False,
         "real_order_routing": False,
     }
+
+
+def resolve_prospective_challenger_id(
+    *,
+    prospective_status: Mapping[str, object],
+    persisted_status: Mapping[str, object],
+) -> str | None:
+    raw_latest = prospective_status.get("latest")
+    if isinstance(raw_latest, Mapping):
+        latest = cast(Mapping[str, object], raw_latest)
+        latest_challenger_id = latest.get("challenger_id")
+        if isinstance(latest_challenger_id, str):
+            return latest_challenger_id
+
+    strategy_id = prospective_status.get("strategy_id")
+    strategy_version = prospective_status.get("strategy_version")
+    if not isinstance(strategy_id, str) or not isinstance(strategy_version, str):
+        return None
+
+    raw_artifacts = persisted_status.get("candidate_artifacts")
+    artifacts = (
+        cast(list[object], raw_artifacts)
+        if isinstance(raw_artifacts, list)
+        else []
+    )
+    artifact_challenger_ids: set[str] = set()
+    for raw_artifact in artifacts:
+        if not isinstance(raw_artifact, Mapping):
+            continue
+        artifact = cast(Mapping[str, object], raw_artifact)
+        challenger_id = artifact.get("challenger_id")
+        if isinstance(challenger_id, str):
+            artifact_challenger_ids.add(challenger_id)
+
+    raw_challengers = persisted_status.get("challengers")
+    challengers = (
+        cast(list[object], raw_challengers)
+        if isinstance(raw_challengers, list)
+        else []
+    )
+    matching_challenger_ids: set[str] = set()
+    for raw_challenger in challengers:
+        if not isinstance(raw_challenger, Mapping):
+            continue
+        challenger = cast(Mapping[str, object], raw_challenger)
+        challenger_id = challenger.get("challenger_id")
+        if (
+            challenger.get("strategy_id") == strategy_id
+            and challenger.get("strategy_version") == strategy_version
+            and isinstance(challenger_id, str)
+            and challenger_id in artifact_challenger_ids
+        ):
+            matching_challenger_ids.add(challenger_id)
+    if len(matching_challenger_ids) != 1:
+        return None
+    return next(iter(matching_challenger_ids))
