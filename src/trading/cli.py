@@ -41,6 +41,7 @@ from trading.domain.algorithm import (
 )
 from trading.domain.contracts import PolicyPatch
 from trading.domain.hashing import canonical_hash
+from trading.domain.q1 import Q1ArmId
 from trading.domain.time import SystemClock, require_aware_utc
 from trading.execution.alpaca_paper import AlpacaPaperTradingClient
 from trading.experiments.arms import ARM_IDS
@@ -283,6 +284,9 @@ from trading.settings import (
     load_config_bundle,
     load_q1_config_bundle,
 )
+
+LEDGER_ARM_IDS = frozenset((*ARM_IDS, *(arm.value for arm in Q1ArmId)))
+
 
 app = typer.Typer(no_args_is_help=True, help="Adaptive LLM quant Phase 0 operations.")
 config_app = typer.Typer(no_args_is_help=True)
@@ -739,12 +743,23 @@ def verify(
 
 
 @ledger_app.command("verify")
-def ledger_verify(arm: str = typer.Option(..., "--arm")) -> None:
-    if arm not in ARM_IDS:
+def ledger_verify(
+    arm: str = typer.Option(..., "--arm"),
+    run_id: str | None = typer.Option(None, "--run-id"),
+) -> None:
+    if arm not in LEDGER_ARM_IDS:
         raise typer.BadParameter(f"Unknown shadow arm: {arm}")
     _, _, engine = runtime()
-    report = verify_ledger_arm(make_session_factory(engine), arm)
-    engine.dispose()
+    try:
+        report = verify_ledger_arm(
+            make_session_factory(engine),
+            arm,
+            run_id=run_id,
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="--run-id") from error
+    finally:
+        engine.dispose()
     _emit(report)
     if not report["balanced"]:
         raise typer.Exit(1)
