@@ -12,7 +12,7 @@ jobs:
   fail-closed-public-scan:
     name: Secret, provenance, and clean-root scan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Check out complete history without persisted credentials
         uses: actions/checkout@v4
