@@ -489,6 +489,49 @@ DeltaSharpe lower bounds plus the worst-cost gate and all legacy risk,
 capacity, replay, and falsification gates. It can only produce eligibility;
 manual approval and explicit Champion designation remain separate.
 
+Once the first-N forward cohort has passed mandatory falsification and replay,
+the trusted host can operate the previously internal V2 lifecycle without
+exposing locked rows:
+
+```powershell
+$env:TRADING_OOS_PRIVATE_ROOT = "<PRIVATE_LOCKBOX_ROOT>"
+uv run python -m trading.cli research oos-v2 evaluate `
+  --plan .local/research/oos/oos-v2-shadow-plan.json
+uv run python -m trading.cli research oos-v2 evaluate `
+  --plan .local/research/oos/oos-v2-shadow-plan.json `
+  --commit
+```
+
+The first invocation is dry-run. Only a committed `PASS` creates the matched
+registrations and `SHADOW_PENDING`; it never starts execution. Activation is a
+second explicit gate:
+
+```powershell
+uv run python -m trading.cli research shadow-runtime activate `
+  --plan .local/research/shadow/activation.json
+uv run python -m trading.cli research shadow-runtime activate `
+  --plan .local/research/shadow/activation.json `
+  --commit
+```
+
+Matched cycles likewise preview by default and accept only exact target/quote
+contracts from a trusted producer:
+
+```powershell
+uv run python -m trading.cli research shadow-runtime cycle `
+  --input .local/research/shadow/matched-cycle.json
+uv run python -m trading.cli research shadow-runtime cycle `
+  --input .local/research/shadow/matched-cycle.json `
+  --commit
+uv run python -m trading.cli research shadow-runtime status
+uv run python -m trading.cli research shadow-runtime replay --run-id <RUN_ID>
+```
+
+This runtime is paper-only and independent per arm, but V1 uses same-cycle paper
+cash rather than T+1 unsettled receivables. The status and Research UI expose
+that limitation. No command accepts raw OOS returns, starts shadow on OOS
+failure, promotes a Challenger, or accesses a broker.
+
 ### Chronological Meta-OOS (PR 4)
 
 Migration `0017_chronological_meta_oos_v1` stores immutable plans, protected

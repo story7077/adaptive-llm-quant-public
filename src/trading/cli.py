@@ -86,6 +86,10 @@ from trading.persistence.prospective_outcomes import (
 )
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
 from trading.persistence.research_scheduler import ResearchSchedulerRepository
+from trading.persistence.research_shadow import (
+    ResearchShadowPersistenceError,
+    ResearchShadowRuntimeRepository,
+)
 from trading.replay.engine import replay_full
 from trading.replay.q1 import replay_q1_run
 from trading.replay.verifier import verify_ledger_arm, verify_run
@@ -120,6 +124,7 @@ from trading.research.config import (
     recursive_improvement_status,
 )
 from trading.research.contracts import (
+    ChallengerStatus,
     ResearchCommanderKind,
     ResearchDecisionV1,
     ResearchRequestV1,
@@ -151,6 +156,15 @@ from trading.research.lifecycle import (
 from trading.research.meta_controller import (
     ResearchActionPlanV1,
     build_research_context,
+)
+from trading.research.oos_lockbox import OosLockboxError
+from trading.research.oos_shadow_operations import (
+    MatchedShadowCycleCommitV1,
+    OosShadowOperationError,
+    OosV2ShadowPlanV1,
+    ShadowActivationPlanV1,
+    TrustedOosShadowOperations,
+    private_oos_root_from_environment,
 )
 from trading.research.promotion_evidence import (
     ChampionDesignationV1,
@@ -266,6 +280,8 @@ research_outcome_app = typer.Typer(no_args_is_help=True)
 research_memory_app = typer.Typer(no_args_is_help=True)
 research_meta_policy_app = typer.Typer(no_args_is_help=True)
 research_meta_oos_app = typer.Typer(no_args_is_help=True)
+research_oos_v2_app = typer.Typer(no_args_is_help=True)
+research_shadow_runtime_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
@@ -285,6 +301,11 @@ research_app.add_typer(research_outcome_app, name="outcome")
 research_app.add_typer(research_memory_app, name="memory")
 research_app.add_typer(research_meta_policy_app, name="meta-policy")
 research_app.add_typer(research_meta_oos_app, name="meta-oos")
+research_app.add_typer(research_oos_v2_app, name="oos-v2")
+research_app.add_typer(
+    research_shadow_runtime_app,
+    name="shadow-runtime",
+)
 
 EXPECTED_DATABASE_REVISION = "0020_candidate_evaluation_dataset_v2"
 app.add_typer(webgpt_app, name="webgpt")
@@ -1011,6 +1032,9 @@ def research_status() -> None:
             research_repository=research_repository,
             challenger_id=prospective_challenger_id,
         ),
+        "shadow_runtime": ResearchShadowRuntimeRepository(
+            factory
+        ).status(),
         "real_order_routing": False,
     }
     engine.dispose()
@@ -1470,6 +1494,313 @@ def research_meta_oos_verify(
         ResearchFileRuntimeError,
         ValueError,
     ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(payload)
+
+
+@research_oos_v2_app.command("evaluate")
+def research_oos_v2_evaluate(
+    plan_file: Annotated[
+        Path,
+        typer.Option("--plan", exists=True, dir_okay=False),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Preflight or run one aggregate-only locked OOS V2 evaluation."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        plan = load_json_model(plan_file, OosV2ShadowPlanV1)
+        service = TrustedOosShadowOperations(
+            make_session_factory(engine),
+            config=load_research_config(settings.config_dir),
+            private_root=private_oos_root_from_environment(),
+        )
+        preflight = service.preflight_oos_v2(plan)
+        if dry_run:
+            payload = {
+                "mode": "DRY_RUN",
+                "status": preflight.status,
+                "plan_id": plan.plan_id,
+                "plan_hash": plan.plan_hash,
+                "challenger_id": plan.challenger_id,
+                "challenger_status": (
+                    preflight.challenger_status.value
+                ),
+                "private_dataset_manifest_hash": (
+                    plan.private_dataset_manifest.manifest_hash
+                ),
+                "private_dataset_verified": (
+                    preflight.private_dataset_verified
+                ),
+                "common_session_count": (
+                    plan.private_dataset_manifest
+                    .common_session_count
+                ),
+                "independent_trade_count": (
+                    plan.private_dataset_manifest
+                    .independent_trade_count
+                ),
+                "existing_result": (
+                    None
+                    if preflight.existing_result is None
+                    else preflight.existing_result.model_dump(
+                        mode="json"
+                    )
+                ),
+                "raw_observations_exposed": False,
+                "shadow_started": False,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+        else:
+            completed = service.evaluate_oos_v2(plan)
+            result = completed.lifecycle.result
+            payload = {
+                "mode": "COMMIT",
+                "status": completed.lifecycle.status.value,
+                "created": completed.lifecycle.created,
+                "plan_id": plan.plan_id,
+                "plan_hash": completed.plan_hash,
+                "challenger_id": plan.challenger_id,
+                "private_dataset_verified": (
+                    completed.private_dataset_verified
+                ),
+                "result": result.model_dump(mode="json"),
+                "shadow_pending": (
+                    completed.lifecycle.status
+                    is ChallengerStatus.SHADOW_PENDING
+                ),
+                "shadow_started": False,
+                "raw_observations_exposed": False,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+    except (
+        OosLockboxError,
+        OosShadowOperationError,
+        ResearchFileRuntimeError,
+        ResearchLifecycleError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(payload)
+
+
+@research_shadow_runtime_app.command("activate")
+def research_shadow_runtime_activate(
+    plan_file: Annotated[
+        Path,
+        typer.Option("--plan", exists=True, dir_okay=False),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Explicitly start and initialize a passed matched shadow pair."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        plan = load_json_model(plan_file, ShadowActivationPlanV1)
+        service = TrustedOosShadowOperations(
+            make_session_factory(engine),
+            config=load_research_config(settings.config_dir),
+        )
+        preflight = service.preflight_shadow_activation(plan)
+        if dry_run:
+            payload = {
+                "mode": "DRY_RUN",
+                **preflight,
+                "runtime_initialized": False,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+        else:
+            result = service.activate_shadow(plan)
+            spec = result.initialization.spec
+            payload = {
+                "mode": "COMMIT",
+                "status": "SHADOW_RUNNING",
+                "activation_hash": result.activation_hash,
+                "lifecycle_event_created": (
+                    result.lifecycle_created
+                ),
+                "runtime_created": result.initialization.created,
+                "run_id": spec.run_id,
+                "shadow_pair_id": spec.shadow_pair_id,
+                "challenger_id": spec.challenger_id,
+                "runtime_version": spec.schema_version,
+                "spec_hash": spec.spec_hash,
+                "runtime_contract_hash": (
+                    spec.runtime_contract_hash
+                ),
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+    except (
+        OosShadowOperationError,
+        ResearchFileRuntimeError,
+        ResearchLifecycleError,
+        ResearchPersistenceError,
+        ResearchShadowPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(payload)
+
+
+@research_shadow_runtime_app.command("cycle")
+def research_shadow_runtime_cycle(
+    input_file: Annotated[
+        Path,
+        typer.Option("--input", exists=True, dir_okay=False),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Preview or append one artifact-bound matched paper cycle."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        cycle_input = load_json_model(
+            input_file,
+            MatchedShadowCycleCommitV1,
+        )
+        service = TrustedOosShadowOperations(
+            make_session_factory(engine),
+            config=load_research_config(settings.config_dir),
+        )
+        if dry_run:
+            cycle = service.preview_cycle(cycle_input)
+            payload = {
+                "mode": "DRY_RUN",
+                "status": "READY",
+                "input_id": cycle_input.input_id,
+                "input_hash": cycle_input.input_hash,
+                "run_id": cycle.run_id,
+                "cycle_result_hash": cycle.result_hash,
+                "champion_summary": (
+                    cycle.champion.daily_summary.model_dump(
+                        mode="json"
+                    )
+                ),
+                "challenger_summary": (
+                    cycle.challenger.daily_summary.model_dump(
+                        mode="json"
+                    )
+                ),
+                "committed": False,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+        else:
+            completed = service.commit_cycle(cycle_input)
+            cycle = completed.cycle
+            payload = {
+                "mode": "COMMIT",
+                "status": "MATCHED_PAPER_CYCLE_COMMITTED",
+                "input_id": cycle_input.input_id,
+                "input_hash": completed.input_hash,
+                "run_id": cycle.run_id,
+                "cycle_result_hash": cycle.result_hash,
+                "replay_hash": completed.replay_hash,
+                "champion_summary": (
+                    cycle.champion.daily_summary.model_dump(
+                        mode="json"
+                    )
+                ),
+                "challenger_summary": (
+                    cycle.challenger.daily_summary.model_dump(
+                        mode="json"
+                    )
+                ),
+                "committed": True,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+    except (
+        OosShadowOperationError,
+        ResearchFileRuntimeError,
+        ResearchShadowPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(payload)
+
+
+@research_shadow_runtime_app.command("status")
+def research_shadow_runtime_status(
+    run_id: Annotated[
+        str | None,
+        typer.Option("--run-id"),
+    ] = None,
+) -> None:
+    """Inspect the latest or selected independent matched shadow runtime."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        payload = ResearchShadowRuntimeRepository(
+            make_session_factory(engine)
+        ).status(run_id=run_id)
+    except ResearchShadowPersistenceError as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(payload)
+
+
+@research_shadow_runtime_app.command("replay")
+def research_shadow_runtime_replay(
+    run_id: Annotated[
+        str,
+        typer.Option("--run-id"),
+    ],
+) -> None:
+    """Recompute every persisted matched cycle without writing."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        repository = ResearchShadowRuntimeRepository(
+            make_session_factory(engine)
+        )
+        spec = repository.load_spec(run_id)
+        replay_hash = repository.deterministic_replay_hash(run_id)
+        payload = {
+            "verified": True,
+            "read_only": True,
+            "run_id": run_id,
+            "challenger_id": spec.challenger_id,
+            "spec_hash": spec.spec_hash,
+            "replay_hash": replay_hash,
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+    except ResearchShadowPersistenceError as exc:
         raise typer.BadParameter(_safe_research_error(exc)) from None
     finally:
         engine.dispose()
@@ -2365,6 +2696,15 @@ def research_schema() -> None:
             ),
             "prospective_evaluation_config_v1": (
                 ProspectiveEvaluationConfigV1.model_json_schema()
+            ),
+            "oos_v2_shadow_plan_v1": (
+                OosV2ShadowPlanV1.model_json_schema()
+            ),
+            "shadow_activation_plan_v1": (
+                ShadowActivationPlanV1.model_json_schema()
+            ),
+            "matched_shadow_cycle_commit_v1": (
+                MatchedShadowCycleCommitV1.model_json_schema()
             ),
             "algorithm_proposal_v2": AlgorithmProposalV2.model_json_schema(),
             "experiment_outcome_event_v1": (

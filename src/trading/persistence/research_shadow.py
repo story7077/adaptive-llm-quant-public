@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, cast
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from trading.domain.contracts import Fill, LedgerEntry, OrderIntent, model_payload
@@ -40,6 +40,7 @@ from trading.research.shadow_runtime import (
     ShadowArmCycleResultV1,
     ShadowArmRole,
     ShadowArmStateV1,
+    ShadowDailyArmSummaryV1,
     ShadowPairRuntimeSpecV1,
     ShadowPaperParametersV1,
     ShadowStrategyBindingV1,
@@ -299,6 +300,48 @@ class ResearchShadowRuntimeRepository:
             )
             return result
 
+    def preview_matched_cycle(
+        self,
+        *,
+        run_id: str,
+        champion_target: ShadowTargetDecisionV1,
+        challenger_target: ShadowTargetDecisionV1,
+        quote_bundle: MatchedQuoteBundleV1,
+    ) -> MatchedShadowCycleResultV1:
+        with self._session_factory() as session:
+            run = session.get(RunRow, run_id)
+            if run is None:
+                raise ResearchShadowPersistenceError(
+                    "unknown shadow run"
+                )
+            spec = _spec_from_run(run)
+            if run.experiment_version != SHADOW_RUNTIME_VERSION:
+                raise ResearchShadowPersistenceError(
+                    "run is not a Research shadow runtime"
+                )
+            self._require_lifecycle_shadow_start(
+                session,
+                challenger_id=spec.challenger_id,
+            )
+            champion_state = self._latest_state(
+                session,
+                run_id=run_id,
+                arm_id=spec.champion.arm_id,
+            )
+            challenger_state = self._latest_state(
+                session,
+                run_id=run_id,
+                arm_id=spec.challenger.arm_id,
+            )
+            return execute_matched_shadow_cycle(
+                spec=spec,
+                champion_state=champion_state,
+                challenger_state=challenger_state,
+                champion_target=champion_target,
+                challenger_target=challenger_target,
+                quote_bundle=quote_bundle,
+            )
+
     def deterministic_replay_hash(self, run_id: str) -> str:
         spec = self.load_spec(run_id)
         stored = self.cycle_results(run_id)
@@ -348,6 +391,136 @@ class ResearchShadowRuntimeRepository:
             results=results,
             replay_hash=replay_hash,
         )
+
+    def status(
+        self,
+        *,
+        run_id: str | None = None,
+    ) -> dict[str, object]:
+        with self._session_factory() as session:
+            run_count = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(RunRow)
+                    .where(
+                        RunRow.experiment_version
+                        == SHADOW_RUNTIME_VERSION
+                    )
+                )
+                or 0
+            )
+            if run_id is None:
+                run = session.scalar(
+                    select(RunRow)
+                    .where(
+                        RunRow.experiment_version
+                        == SHADOW_RUNTIME_VERSION
+                    )
+                    .order_by(
+                        desc(RunRow.started_at),
+                        desc(RunRow.run_id),
+                    )
+                    .limit(1)
+                )
+            else:
+                run = session.get(RunRow, run_id)
+                if (
+                    run is not None
+                    and run.experiment_version
+                    != SHADOW_RUNTIME_VERSION
+                ):
+                    raise ResearchShadowPersistenceError(
+                        "run is not a Research shadow runtime"
+                    )
+        if run is None:
+            if run_id is not None:
+                raise ResearchShadowPersistenceError(
+                    "unknown shadow run"
+                )
+            return {
+                "schema_version": "research_shadow_runtime_status_v1",
+                "status": "NOT_INITIALIZED",
+                "runtime_version": SHADOW_RUNTIME_VERSION,
+                "run_count": run_count,
+                "latest": None,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+
+        spec = _spec_from_run(run)
+        results = self.cycle_results(spec.run_id)
+        replay_hash = self.deterministic_replay_hash(spec.run_id)
+        if results:
+            champion_state = results[-1].champion.next_state
+            challenger_state = results[-1].challenger.next_state
+            champion_target = results[-1].champion.target
+            challenger_target = results[-1].challenger.target
+            champion_summary = results[-1].champion.daily_summary
+            challenger_summary = results[-1].challenger.daily_summary
+            summary = self.performance_summary(spec.run_id)
+            last_cycle = {
+                "as_of": results[-1].quote_bundle.as_of.isoformat(),
+                "result_hash": results[-1].result_hash,
+                "quote_bundle_hash": (
+                    results[-1].quote_bundle.bundle_hash
+                ),
+            }
+        else:
+            champion_state = build_initial_shadow_state(
+                spec=spec,
+                role=ShadowArmRole.CHAMPION,
+            )
+            challenger_state = build_initial_shadow_state(
+                spec=spec,
+                role=ShadowArmRole.CHALLENGER,
+            )
+            champion_target = None
+            challenger_target = None
+            champion_summary = None
+            challenger_summary = None
+            summary = None
+            last_cycle = None
+        return {
+            "schema_version": "research_shadow_runtime_status_v1",
+            "status": run.status,
+            "runtime_version": SHADOW_RUNTIME_VERSION,
+            "run_count": run_count,
+            "latest": {
+                "run_id": spec.run_id,
+                "challenger_id": spec.challenger_id,
+                "shadow_pair_id": spec.shadow_pair_id,
+                "spec_hash": spec.spec_hash,
+                "runtime_contract_hash": spec.runtime_contract_hash,
+                "code_version": spec.code_version,
+                "created_at": spec.created_at.isoformat(),
+                "cycle_count": len(results),
+                "last_cycle": last_cycle,
+                "replay_hash": replay_hash,
+                "champion": _arm_status(
+                    champion_state,
+                    target=champion_target,
+                    summary=champion_summary,
+                ),
+                "challenger": _arm_status(
+                    challenger_state,
+                    target=challenger_target,
+                    summary=challenger_summary,
+                ),
+                "performance_summary": (
+                    None
+                    if summary is None
+                    else summary.model_dump(mode="json")
+                ),
+                "settlement_model": (
+                    "SAME_CYCLE_PAPER_CASH_V1"
+                ),
+                "unsettled_receivables_supported": False,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            },
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
 
     def load_spec(self, run_id: str) -> ShadowPairRuntimeSpecV1:
         with self._session_factory() as session:
@@ -890,6 +1063,58 @@ def _same_runtime_binding(
         and not existing.real_order_routing
         and not requested.real_order_routing
     )
+
+
+def _arm_status(
+    state: ShadowArmStateV1,
+    *,
+    target: ShadowTargetDecisionV1 | None,
+    summary: ShadowDailyArmSummaryV1 | None,
+) -> dict[str, object]:
+    actual_weights = (
+        None
+        if summary is None
+        else {
+            **{
+                symbol: str(weight)
+                for symbol, weight in sorted(
+                    summary.exposures.items()
+                )
+            },
+            "USD_CASH": str(summary.cash_weight),
+        }
+    )
+    return {
+        "role": state.role.value,
+        "arm_id": state.arm_id,
+        "strategy_id": state.strategy_id,
+        "strategy_version": state.strategy_version,
+        "artifact_hash": state.artifact_hash,
+        "sequence": state.sequence,
+        "settled_cash_usd": str(state.cash_usd),
+        "unsettled_receivables_usd": "0",
+        "total_cash_usd": str(state.cash_usd),
+        "positions": {
+            symbol: str(quantity)
+            for symbol, quantity in sorted(
+                state.position_map().items()
+            )
+        },
+        "last_nav_usd": str(state.last_nav_usd),
+        "target_weights": (
+            None
+            if target is None
+            else {
+                symbol: str(weight)
+                for symbol, weight in target.weight_map().items()
+            }
+        ),
+        "actual_weights": actual_weights,
+        "pending_order_count": 0,
+        "state_hash": state.state_hash,
+        "as_of": state.as_of.isoformat(),
+        "real_order_routing": False,
+    }
 
 
 def _state_row(state: ShadowArmStateV1) -> ArmStateSnapshotRow:

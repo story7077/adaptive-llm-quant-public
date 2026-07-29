@@ -295,6 +295,29 @@ The status process was restarted from the merge commit only after the public
 push and pull-request workflows passed. The operational Q1 process remained
 pinned to its original code commit and was not restarted.
 
+### Dormant OOS V2 and independent-shadow handoff
+
+The public host now has an explicit dry-run-first path from a passed
+whole-portfolio OOS V2 result to `SHADOW_PENDING`, a separately authorized
+`SHADOW_RUNNING` transition, and an append-only matched Champion/Challenger
+paper runtime. The path verifies the immutable Challenger, Candidate artifact,
+mandatory falsification, deterministic replay, experiment budget, locked
+private manifest, predeclared portfolio comparison, matched execution contract,
+Champion portfolio manifest, and database time before accepting a mutation.
+
+This is an operational handoff, not a claim that the live Challenger reached
+the gate. For `challenger-c0bb5e7ebe50e442a6e39250`, the path has not been
+invoked: forward outcomes remain below `126/126`, there is no falsification
+pass or locked OOS result, and no independent shadow run exists. The status UI
+therefore correctly reports `NOT_INITIALIZED`.
+
+The matched shadow runtime has independent cash, positions, orders, fills,
+ledger, NAV, state, costs, and replay for both arms. Its current V1 settlement
+model uses same-cycle paper cash and exposes
+`unsettled_receivables_supported=false`; it must not be described as a
+production-broker buying-power model. Automatic promotion and real broker
+routing remain unavailable.
+
 ## Operational Q1 paper runtime
 
 The active synthetic run is `paper_q1_research_20260729_v5`.

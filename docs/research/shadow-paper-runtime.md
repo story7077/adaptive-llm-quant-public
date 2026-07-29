@@ -17,6 +17,49 @@ locked OOS gate may enter the matched runtime described below. Prospective
 observations cannot be relabeled as shadow performance and cannot advance the
 Challenger lifecycle.
 
+## Operator workflow
+
+An OOS V2 `PASS` leaves the Challenger at `SHADOW_PENDING`. Starting the runtime
+is a separate, explicit, dry-run-first operation:
+
+```powershell
+uv run python -m trading.cli research shadow-runtime activate `
+  --plan .local/research/shadow/activation.json
+uv run python -m trading.cli research shadow-runtime activate `
+  --plan .local/research/shadow/activation.json `
+  --commit
+```
+
+The activation plan binds the exact OOS result, registered shadow pair,
+submission, predeclared Champion portfolio manifest, runtime code version,
+expiry, and idempotency key. The commit writes the lifecycle start before
+initializing the independent paper runtime. If initialization is interrupted,
+repeating the identical plan repairs the missing runtime idempotently; a
+different key or Champion binding is rejected.
+
+A trusted target producer must create both artifact-bound target decisions and
+one common quote bundle. The CLI never accepts returns, P&L, fills, or broker
+instructions:
+
+```powershell
+uv run python -m trading.cli research shadow-runtime cycle `
+  --input .local/research/shadow/matched-cycle.json
+uv run python -m trading.cli research shadow-runtime cycle `
+  --input .local/research/shadow/matched-cycle.json `
+  --commit
+```
+
+The first command is a pure preview. Commit appends both arms in one database
+transaction. The same decision time is an idempotency fence: an exact retry
+returns the persisted cycle, while different targets or quotes fail closed.
+Inspect and replay without writing:
+
+```powershell
+uv run python -m trading.cli research shadow-runtime status
+uv run python -m trading.cli research shadow-runtime status --run-id <RUN_ID>
+uv run python -m trading.cli research shadow-runtime replay --run-id <RUN_ID>
+```
+
 ## Entry gate
 
 The durable adapter starts only after the Research database contains:
@@ -87,3 +130,19 @@ silent truncation or a migration owned by another workstream, this runtime
 rejects registered arm IDs longer than 30 characters. Normal generated arm IDs
 must remain within that limit until a reviewed schema migration widens the
 generic paper columns.
+
+## Current settlement constraint
+
+`research_shadow_runtime_v1` is conservative paper execution but not yet the Q1
+settlement engine. It models sale proceeds as same-cycle paper cash and therefore
+does not create T+1 unsettled receivables. Status exposes this without ambiguity:
+
+```text
+settlement_model=SAME_CYCLE_PAPER_CASH_V1
+unsettled_receivables_supported=false
+```
+
+Do not treat its buying-power path as production-broker realism. Matched
+Champion/Challenger attribution remains valid only when both arms use the same
+runtime contract. A future settlement-aware runtime must use a new versioned
+contract; it must not reinterpret or rewrite V1 cycles.

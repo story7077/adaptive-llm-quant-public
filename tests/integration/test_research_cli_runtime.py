@@ -770,6 +770,9 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
     assert "candidate_evaluation_dataset_v2" in schema
     assert "candidate_evaluation_source_manifest_v2" in schema
     assert "prospective_evaluation_config_v1" in schema
+    assert "oos_v2_shadow_plan_v1" in schema
+    assert "shadow_activation_plan_v1" in schema
+    assert "matched_shadow_cycle_commit_v1" in schema
     assert schema["automatic_promotion_enabled"] is False
     assert schema["real_order_routing"] is False
 
@@ -780,6 +783,8 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
         "promotion-evaluate",
         "promotion-approve",
         "champion-designate",
+        "oos-v2",
+        "shadow-runtime",
     ):
         assert command in help_result.output
 
