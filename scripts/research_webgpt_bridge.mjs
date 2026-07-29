@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 
 const EXPECTED_MODEL = 'GPT-5.6 Sol Pro';
 const EXPECTED_MODEL_BASE = 'GPT-5.6 Sol';
+const EXPECTED_MODEL_SLUG = 'gpt-5-6-thinking';
 const EXPECTED_ACCESS_TIER = 'Pro';
 const EXPECTED_REASONING = 'xhigh';
 const REASONING_LABELS = new Set(['xhigh', 'very high', '매우 높음']);
@@ -91,6 +92,16 @@ export function isProviderRateLimitText(value) {
         || text.includes('요청이 너무 많')
         || text.includes('일시적으로 제한')
     );
+}
+
+export function validateRateLimitedPostflightSignals(signals) {
+    const reasoningLabel = normalizeText(signals.reasoningLabel);
+    return {
+        modelVerified: signals.modelSlug === EXPECTED_MODEL_SLUG,
+        reasoningVerified: normalizeReasoning(reasoningLabel) !== null,
+        accessTierVerified: signals.accessTier === EXPECTED_ACCESS_TIER,
+        reasoningLabel,
+    };
 }
 
 export function conversationIdFromUrl(value) {
@@ -598,12 +609,16 @@ async function preflight(browser, values, browserSessionId) {
 }
 
 async function rejectProviderRateLimit(page) {
+    if (await providerRateLimitVisible(page)) {
+        throw new BridgeFailure('provider_temporarily_rate_limited');
+    }
+}
+
+async function providerRateLimitVisible(page) {
     const dialogs = await page.locator('[role="dialog"]')
         .allInnerTexts()
         .catch(() => []);
-    if (dialogs.some(isProviderRateLimitText)) {
-        throw new BridgeFailure('provider_temporarily_rate_limited');
-    }
+    return dialogs.some(isProviderRateLimitText);
 }
 
 async function activateWebSearch(page) {
@@ -1098,8 +1113,91 @@ async function inspectCompletion(page) {
     });
 }
 
+async function rateLimitedPostflightVerification(
+    browser,
+    values,
+    browserSessionId,
+) {
+    const expectedBrowserSessionId = requiredIdentifier(values, 'browser-session-id');
+    const requestId = requiredIdentifier(values, 'request-id');
+    const role = requiredRole(values);
+    const targetId = requiredIdentifier(values, 'target-id');
+    const conversationId = requiredIdentifier(values, 'conversation-id');
+    if (expectedBrowserSessionId !== browserSessionId) {
+        throw new BridgeFailure('browser_session_mismatch');
+    }
+    const page = await findPageByTargetId(browser, targetId);
+    await proveHeadedChrome(page);
+    if (
+        conversationIdFromUrl(page.url()) !== conversationId
+        || !(await pageContainsRequest(page, requestId))
+    ) {
+        throw new BridgeFailure('conversation_binding_mismatch');
+    }
+    if (!(await providerRateLimitVisible(page))) {
+        throw new BridgeFailure('provider_rate_limit_state_changed');
+    }
+    await verifyProAccessTier(page);
+    const reasoningLabels = await page.locator(INTELLIGENCE_TRIGGER)
+        .allInnerTexts()
+        .catch(() => []);
+    const assistantTurns = page.locator(ASSISTANT_TURN_SELECTOR);
+    const assistantCount = await assistantTurns.count().catch(() => 0);
+    const modelSlug = assistantCount > 0
+        ? await assistantTurns.nth(assistantCount - 1)
+            .getAttribute('data-message-model-slug')
+            .catch(() => null)
+        : null;
+    const validated = validateRateLimitedPostflightSignals({
+        modelSlug,
+        reasoningLabel: reasoningLabels.at(-1),
+        accessTier: EXPECTED_ACCESS_TIER,
+    });
+    if (!validated.modelVerified) throw new BridgeFailure('model_mismatch');
+    if (!validated.reasoningVerified) throw new BridgeFailure('reasoning_mismatch');
+    if (!validated.accessTierVerified) throw new BridgeFailure('access_tier_mismatch');
+    return {
+        ok: true,
+        status: 'verified',
+        headed: true,
+        cdp_connected: true,
+        model_family: EXPECTED_MODEL,
+        model_base: EXPECTED_MODEL_BASE,
+        access_tier: EXPECTED_ACCESS_TIER,
+        reasoning_profile: EXPECTED_REASONING,
+        reasoning_ui_label: validated.reasoningLabel,
+        ui_tuple_verified: true,
+        fallback_used: false,
+        browser_session_id: browserSessionId,
+        request_id: requestId,
+        role,
+        target_id: targetId,
+        conversation_id: conversationId,
+        ...(await collectConversationMetadata(browser)),
+        postflight_verification_source: (
+            'BOUND_ASSISTANT_MODEL_SLUG_AND_LOCKED_UI'
+        ),
+        provider_rate_limited_after_response: true,
+    };
+}
+
 async function postflight(browser, values, browserSessionId) {
-    const verified = await preflight(browser, values, browserSessionId);
+    let verified;
+    try {
+        verified = await preflight(browser, values, browserSessionId);
+    } catch (error) {
+        if (
+            !(error instanceof BridgeFailure)
+            || error.code !== 'provider_temporarily_rate_limited'
+        ) {
+            throw error;
+        }
+        verified = await rateLimitedPostflightVerification(
+            browser,
+            values,
+            browserSessionId,
+        );
+    }
     const page = await findPageByTargetId(browser, verified.target_id);
     const completion = await inspectCompletion(page);
     const activeBrowse = await inspectActiveBrowse(page, verified.request_id);

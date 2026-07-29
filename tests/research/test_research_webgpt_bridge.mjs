@@ -20,6 +20,7 @@ import {
     validateActiveBrowseSignals,
     validateCheckedSelections,
     validateCompletionSignals,
+    validateRateLimitedPostflightSignals,
 } from '../../scripts/research_webgpt_bridge.mjs';
 
 const TEST_CDP_BINDING = {
@@ -126,10 +127,26 @@ class FakeLocator {
     }
 
     async allInnerTexts() {
+        if (this.selector === '[role="dialog"]' && this.page.providerRateLimited) {
+            return ['요청이 너무 많습니다. 액세스가 일시적으로 제한되었습니다.'];
+        }
+        if (this.selector.includes('aria-haspopup="menu"')) {
+            return ['매우 높음'];
+        }
         if (this.selector === FAKE_USER_TURN_SELECTOR) {
             return [`bound request ${this.page.requestId}`];
         }
         return [];
+    }
+
+    async getAttribute(name) {
+        if (
+            this.selector === FAKE_ASSISTANT_TURN_SELECTOR
+            && name === 'data-message-model-slug'
+        ) {
+            return this.page.assistantModelSlug;
+        }
+        return null;
     }
 }
 
@@ -139,6 +156,8 @@ class FakePage {
         this.requestId = requestId;
         this.conversationId = conversationId;
         this.menuOpened = false;
+        this.providerRateLimited = false;
+        this.assistantModelSlug = 'gpt-5-6-thinking';
         this.responseActivityChecks = 1;
         this.keyboard = {
             press: async () => {
@@ -315,6 +334,27 @@ test('temporary provider limits are recognized without relaxing model checks', (
         true,
     );
     assert.equal(isProviderRateLimitText('GPT-5.6 Sol Pro'), false);
+    assert.deepEqual(
+        validateRateLimitedPostflightSignals({
+            modelSlug: 'gpt-5-6-thinking',
+            reasoningLabel: '매우 높음',
+            accessTier: 'Pro',
+        }),
+        {
+            modelVerified: true,
+            reasoningVerified: true,
+            accessTierVerified: true,
+            reasoningLabel: '매우 높음',
+        },
+    );
+    assert.equal(
+        validateRateLimitedPostflightSignals({
+            modelSlug: 'gpt-5-6-instant',
+            reasoningLabel: '매우 높음',
+            accessTier: 'Pro',
+        }).modelVerified,
+        false,
+    );
 });
 
 test('conversation URL parser rejects alternate origins and URL decorations', () => {
@@ -500,6 +540,41 @@ test('preflight, rebind, and postflight preserve exact transport bindings', asyn
     assert.equal(after.active_browse_evidence_count, 1);
     assert.equal(after.answer_sha256, assistant.answer_sha256);
     assert.equal(Number.isNaN(Date.parse(after.observed_at)), false);
+});
+
+test('postflight verifies a completed response when only the next request is limited', async () => {
+    const root = join(tmpdir(), 'unused-research-bridge-root');
+    const runtime = fakeChromium('request-001');
+    runtime.browser.contexts()[0].page.providerRateLimited = true;
+    runtime.browser.contexts()[0].page.responseActivityChecks = 0;
+    const values = {
+        ...bridgeValues(root),
+        'browser-session-id': 'browser-cdp-001',
+        'target-id': 'target-001',
+        'conversation-id': 'conversation-new',
+    };
+
+    const after = await runBridgeCommand('postflight', values, {
+        chromium: runtime.chromium,
+        cdpBinding: TEST_CDP_BINDING,
+    });
+    assert.equal(after.status, 'complete');
+    assert.equal(after.model_family, 'GPT-5.6 Sol Pro');
+    assert.equal(after.reasoning_profile, 'xhigh');
+    assert.equal(after.provider_rate_limited_after_response, true);
+    assert.equal(
+        after.postflight_verification_source,
+        'BOUND_ASSISTANT_MODEL_SLUG_AND_LOCKED_UI',
+    );
+
+    runtime.browser.contexts()[0].page.assistantModelSlug = 'gpt-5-6-instant';
+    await assert.rejects(
+        runBridgeCommand('postflight', values, {
+            chromium: runtime.chromium,
+            cdpBinding: TEST_CDP_BINDING,
+        }),
+        /model_mismatch/u,
+    );
 });
 
 test('rebind rejects a caller browser session echo that differs from CDP', async () => {
