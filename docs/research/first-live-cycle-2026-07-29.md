@@ -222,6 +222,52 @@ an independent shadow arm, promote the Challenger, access broker credentials,
 or create an order. Until 126 successful sessions exist, its only valid state
 is `WAITING_FOR_FORWARD_OUTCOMES`.
 
+### Evaluation V2 deployment handoff
+
+PR [`#17`](https://github.com/story7077/adaptive-llm-quant-public/pull/17)
+merged as
+`9d2dd8d0cadfc43c65b5847fdaf6ce4d668afa1d`. At
+`2026-07-29T03:04Z`, the active PostgreSQL database was upgraded forward-only
+from `0019_candidate_prospective_outcomes_v1` to
+`0020_candidate_evaluation_dataset_v2`. No operational-database downgrade was
+run.
+
+The active Q1 process remains pinned to
+`ad981ded63b14d90bb458c8db3759c00e8bcd819`; changing its checkout in place
+would make its run code identity disagree with the already-created v5 run.
+Three separate Research Plane monitors instead run from the merged `9d2dd8d`
+tree:
+
+- parent-bound Prospective Candidate target collection;
+- precommitted forward-outcome collection;
+- the dormant 126-session evaluation and falsification gate.
+
+The older research monitors were stopped only after all three replacements
+reported their running status with empty error logs. The Q1 process itself was
+not restarted and its HTTP status remained available.
+
+At `2026-07-29T03:11Z`, the authoritative merged-code CLI reported:
+
+- `WAITING_FOR_PARENT_DECISION`, with zero requests;
+- `ACCUMULATING_FORWARD_OUTCOMES`, with zero outcomes and zero terminal
+  failures;
+- `WAITING_FOR_FORWARD_OUTCOMES`, with `0/126` successful sessions;
+- 18 predeclared evaluation variants;
+- no evaluation dataset, trace, or Candidate runtime process;
+- no OOS or independent Challenger shadow;
+- automatic promotion disabled and `real_order_routing=false`.
+
+The existing Q1 status endpoint reported `PENDING_BOOTSTRAP`, no evaluation
+anchor, and the next `Q1_SETTLEMENT` cycle at `2026-07-29T13:30:00Z`. The first
+eligible strategic decision remains `2026-07-29T14:00:00Z` (10:00 ET). Nothing
+is backfilled before that decision.
+
+The existing UI process is deliberately not hot-reloaded across the code
+identity boundary. The merged CLI and monitor records are the current
+Evaluation V2 authority until a new versioned Q1 UI process is started.
+Machine-specific paths, process IDs, credentials, and local logs remain in
+gitignored local operational metadata and are not part of this public record.
+
 ## Operational Q1 paper runtime
 
 The active synthetic run is `paper_q1_research_20260729_v5`.
