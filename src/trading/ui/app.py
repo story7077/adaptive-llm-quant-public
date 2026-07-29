@@ -66,6 +66,9 @@ from trading.persistence.research import (
     ResearchRepository,
 )
 from trading.persistence.research_scheduler import ResearchSchedulerRepository
+from trading.persistence.research_shadow import (
+    ResearchShadowRuntimeRepository,
+)
 from trading.research.config import (
     ResearchConfigBundle,
     load_research_config,
@@ -816,6 +819,9 @@ def create_app(
                 research_repository=research_repository,
                 challenger_id=latest_challenger_id,
             ),
+            "shadow_runtime": ResearchShadowRuntimeRepository(
+                session_factory
+            ).status(),
             "operator_surface_mode": (
                 "STATUS_ONLY_READ_ONLY"
                 if status_only

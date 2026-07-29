@@ -714,6 +714,12 @@
           <pre id="researchOos">결과 없음</pre>
         </article>
         <article class="panel panel-pad">
+          <div class="eyebrow">Independent Shadow Runtime</div>
+          <h2 id="researchShadowState">NOT INITIALIZED</h2>
+          <p id="researchShadowReadiness">OOS PASS와 명시적 start 대기</p>
+          <pre id="researchShadowRuntime">독립 arm 없음</pre>
+        </article>
+        <article class="panel panel-pad">
           <div class="eyebrow">Promotion Eligibility</div>
           <pre id="researchPromotion">자동 승격 비활성</pre>
         </article>
@@ -1754,6 +1760,19 @@
         <td>${escapeHtml(item.experiment_family)}</td><td>${formatDate(item.created_at)}</td></tr>`).join("") :
         `<tr><td colspan="6" class="empty">등록된 Challenger가 없습니다.</td></tr>`;
       $("researchOos").textContent = JSON.stringify(data.oos_results || [], null, 2);
+      const shadowRuntime = data.shadow_runtime || {};
+      const latestShadow = shadowRuntime.latest || {};
+      $("researchShadowState").textContent = shadowRuntime.status || "NOT_INITIALIZED";
+      $("researchShadowReadiness").textContent = latestShadow.run_id
+        ? `${latestShadow.cycle_count || 0} matched cycles · ${latestShadow.run_id}`
+        : "OOS PASS와 명시적 start 대기";
+      $("researchShadowRuntime").textContent = JSON.stringify({
+        runtime_version: shadowRuntime.runtime_version || null,
+        run_count: shadowRuntime.run_count || 0,
+        latest: latestShadow.run_id ? latestShadow : null,
+        automatic_promotion_enabled: shadowRuntime.automatic_promotion_enabled,
+        real_order_routing: shadowRuntime.real_order_routing
+      }, null, 2);
       $("researchPromotion").textContent = JSON.stringify({
         automatic_promotion_enabled: data.automatic_promotion_enabled,
         real_order_routing: data.real_order_routing,

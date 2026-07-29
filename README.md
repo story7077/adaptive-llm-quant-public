@@ -27,6 +27,11 @@ particular ticker, sector, or trading style.
 >   assembles the predeclared stateful variants, runs isolated primary/replay
 >   Candidate lanes, records mandatory falsification once, and stops. It does
 >   not request OOS, start shadow, promote, or route an order.
+> - A separate operator-controlled bridge can verify and commit a locked,
+>   whole-portfolio OOS V2 request, explicitly activate the resulting matched
+>   Champion/Challenger pair, and append hash-bound paper cycles. Every mutation
+>   defaults to dry-run. The bridge remains dormant until the forward cohort and
+>   mandatory gates pass; it cannot auto-promote or route a broker order.
 > - A sealed V2 Candidate can enter the typed outcome ledger as a `DISCOVERY`
 >   action plus technical test result. This is chronological audit lineage
 >   only: it is never meta-training evidence and cannot advance falsification,
@@ -217,6 +222,8 @@ uv run python -m trading.cli research schema
 uv run python -m trading.cli research status
 uv run python -m trading.cli research select --commander CODEX_SOL_MAX
 uv run python -m trading.cli research meta-policy build --help
+uv run python -m trading.cli research oos-v2 --help
+uv run python -m trading.cli research shadow-runtime status
 ```
 
 The UI can be started on a loopback address:
@@ -288,6 +295,7 @@ Any release-scan failure blocks publication.
 - [Deterministic Meta Controller and research memory](docs/research/meta-controller.md)
 - [Portfolio-level delta-Sharpe V2](docs/research/portfolio-delta-sharpe.md)
 - [Chronological meta-OOS V1](docs/research/chronological-meta-oos.md)
+- [Matched Research shadow runtime](docs/research/shadow-paper-runtime.md)
 
 ## License and responsibility
 

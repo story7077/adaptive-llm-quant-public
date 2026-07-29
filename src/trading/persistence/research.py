@@ -819,6 +819,34 @@ class ResearchRepository:
             self._validate_stored_candidate_artifact(bundle, row)
             return bundle
 
+    def challenger_manifest(
+        self,
+        challenger_id: str,
+    ) -> ChallengerManifestV1:
+        with self._session_factory() as session:
+            row = session.get(ChallengerManifestRow, challenger_id)
+            if row is None:
+                raise ResearchPersistenceError("unknown Challenger")
+            try:
+                manifest = ChallengerManifestV1.model_validate(
+                    row.payload_json
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "stored Challenger manifest payload is invalid"
+                ) from exc
+            if (
+                manifest.challenger_id != row.challenger_id
+                or manifest.manifest_hash != row.manifest_hash
+                or manifest.strategy_id != row.strategy_id
+                or manifest.strategy_version != row.strategy_version
+                or manifest.experiment_family != row.experiment_family
+            ):
+                raise ResearchPersistenceError(
+                    "stored Challenger manifest columns do not match payload"
+                )
+            return manifest
+
     def candidate_experiment_context(
         self,
         challenger_id: str,
@@ -1907,6 +1935,23 @@ class ResearchRepository:
                 )
             )
             return tuple(row.payload_json for row in rows)
+
+    def shadow_start_event(
+        self,
+        challenger_id: str,
+    ) -> dict[str, Any] | None:
+        with self._session_factory() as session:
+            row = session.scalar(
+                select(ChallengerEventRow)
+                .where(
+                    ChallengerEventRow.challenger_id == challenger_id,
+                    ChallengerEventRow.reason_code
+                    == "EXPLICIT_SHADOW_START",
+                )
+                .order_by(desc(ChallengerEventRow.sequence))
+                .limit(1)
+            )
+            return None if row is None else row.payload_json
 
     def validate_shadow_pair(
         self,

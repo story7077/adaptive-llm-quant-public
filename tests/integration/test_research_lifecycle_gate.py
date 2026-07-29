@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -31,18 +33,23 @@ from trading.persistence.research import (
     ResearchPersistenceError,
     ResearchRepository,
 )
+from trading.persistence.research_shadow import (
+    ResearchShadowRuntimeRepository,
+)
 from trading.research.candidate_artifact import (
     CandidateArtifactBundleV1,
     CandidateRequestBindingV1,
     CandidateRuntimeV1,
     build_candidate_artifact_bundle,
 )
+from trading.research.config import load_research_config
 from trading.research.contracts import (
     AlgorithmProposalV1,
     ChallengerManifestV1,
     ChallengerStatus,
     CommanderSelectionV1,
     FalsificationStatus,
+    OosVerdict,
     PromotionDecisionV1,
     PromotionVerdict,
     ResearchCommanderKind,
@@ -64,6 +71,23 @@ from trading.research.oos_lockbox import (
     OosProcessEvaluationConfig,
     PrivateOosObservation,
 )
+from trading.research.oos_shadow_operations import (
+    MatchedShadowCycleCommitV1,
+    OosShadowOperationError,
+    OosV2ShadowPlanV1,
+    ShadowActivationPlanV1,
+    ShadowArmPlanV1,
+    ShadowExecutionPlanV1,
+    TrustedOosShadowOperations,
+)
+from trading.research.oos_v2 import PrivateOosDatasetManifestV2
+from trading.research.portfolio_delta_sharpe import (
+    PortfolioIntegrationMode,
+    PortfolioReturnObservationV1,
+    RiskFreeSeriesMode,
+    StationaryBootstrapContractV1,
+    build_portfolio_comparison_contract,
+)
 from trading.research.promotion import REQUIRED_PROMOTION_CRITERIA
 from trading.research.promotion_evidence import (
     PromotionEvaluationContractV1,
@@ -73,7 +97,13 @@ from trading.research.promotion_evidence import (
 )
 from trading.research.replay import DeterministicReplayArtifactV1
 from trading.research.shadow import ShadowArmIdentity, ShadowExecutionContract
-from trading.research.shadow_runtime import MatchedShadowPerformanceSummaryV1
+from trading.research.shadow_runtime import (
+    MatchedShadowPerformanceSummaryV1,
+    ShadowArmRole,
+    ShadowQuoteV1,
+    build_matched_quote_bundle,
+    build_shadow_target_decision,
+)
 
 NOW = datetime(2026, 7, 27, 20, 0, tzinfo=UTC)
 
@@ -1568,6 +1598,350 @@ def test_oos_budget_reservation_is_append_only_and_capacity_bounded(
         connection.execute(
             text("UPDATE oos_budget_reservations SET oos_budget_ordinal=oos_budget_ordinal")
         )
+
+
+def test_trusted_oos_v2_to_independent_shadow_operations(
+    sqlite_database,
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    _, _, factory = sqlite_database
+    repository = _seed_challenger(factory)
+    assert repository.record_replay_artifact(_replay())
+    assert repository.record_falsification_report(_report())
+
+    contract_created_at = NOW + timedelta(hours=1)
+    market_manifest_hash = "7" * 64
+    comparison = build_portfolio_comparison_contract(
+        champion_portfolio_manifest_hash="1" * 64,
+        candidate_portfolio_manifest_hash="2" * 64,
+        candidate_artifact_hash=CANDIDATE_ARTIFACT_HASH,
+        allocation_policy_version="allocation-v1",
+        allocation_policy_hash="3" * 64,
+        integration_mode=PortfolioIntegrationMode.ADD_SLEEVE,
+        sleeve_replaced_or_added="research-sleeve",
+        candidate_risk_budget=0.15,
+        weight_selection_data_cutoff=NOW - timedelta(hours=2),
+        allocation_policy_created_at=NOW - timedelta(hours=1),
+        starting_nav=100_000,
+        market_data_manifest_hash=market_manifest_hash,
+        execution_contract_hash="4" * 64,
+        cost_model_hash="5" * 64,
+        risk_free_series_manifest_hash="6" * 64,
+        risk_free_series_mode=RiskFreeSeriesMode.EXPLICIT_ZERO,
+        common_session_policy="INTERSECTION_NO_INTERPOLATION",
+        annualization_sessions=252,
+        bootstrap_contract=StationaryBootstrapContractV1(
+            configured_seed=7077,
+            samples=300,
+            expected_block_sessions=10,
+            lower_quantile=0.025,
+            variance_epsilon=1e-12,
+        ),
+        cost_stress_multipliers=(1.0, 2.0, 3.0),
+        maximum_absolute_daily_return=1.0,
+        created_at=contract_created_at,
+    )
+    assert repository.portfolio_sharpe().store_comparison_contract(
+        challenger_id="challenger-1",
+        contract=comparison,
+    )
+
+    rows = tuple(
+        PortfolioReturnObservationV1(
+            session_index=index,
+            session_key=f"locked-{index:04d}",
+            available_at=contract_created_at
+            + timedelta(days=index + 1),
+            candidate_portfolio_return_before_cost=(
+                0.0015 + 0.004 * math.sin(index * 0.31)
+            ),
+            champion_portfolio_return_before_cost=(
+                0.0003 + 0.004 * math.sin(index * 0.31)
+            ),
+            candidate_base_cost_return=0.00005,
+            champion_base_cost_return=0.00005,
+            risk_free_daily_return=0.0,
+        )
+        for index in range(180)
+    )
+    private_root = tmp_path / "private-oos-v2"
+    private_root.mkdir()
+    dataset_id = "locked-portfolio-oos-v2"
+    dataset_payload = {
+        "schema_version": "oos_private_dataset_v2",
+        "dataset_id": dataset_id,
+        "candidate_artifact_hash": CANDIDATE_ARTIFACT_HASH,
+        "evaluation_contract_hash": "8" * 64,
+        "portfolio_comparison_contract_hash": comparison.contract_hash,
+        "champion_portfolio_manifest_hash": (
+            comparison.champion_portfolio_manifest_hash
+        ),
+        "candidate_portfolio_manifest_hash": (
+            comparison.candidate_portfolio_manifest_hash
+        ),
+        "allocation_policy_hash": comparison.allocation_policy_hash,
+        "market_data_manifest_hash": (
+            comparison.market_data_manifest_hash
+        ),
+        "execution_contract_hash": (
+            comparison.execution_contract_hash
+        ),
+        "cost_model_hash": comparison.cost_model_hash,
+        "risk_free_series_manifest_hash": (
+            comparison.risk_free_series_manifest_hash
+        ),
+        "source_data_manifest_hash": market_manifest_hash,
+        "candidate_replay_hash": "a" * 64,
+        "trusted_producer_version": "trusted_candidate_evaluation_v2",
+        "independent_trade_count": 60,
+        "observations": [
+            item.model_dump(mode="json") for item in rows
+        ],
+    }
+    dataset_document = {
+        **dataset_payload,
+        "dataset_hash": canonical_hash(dataset_payload),
+    }
+    serialized = json.dumps(
+        dataset_document,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    (private_root / f"{dataset_id}.json").write_text(
+        serialized,
+        encoding="utf-8",
+    )
+    manifest_payload = {
+        "schema_version": "private_oos_dataset_manifest_v2",
+        "dataset_id": dataset_id,
+        "candidate_artifact_hash": CANDIDATE_ARTIFACT_HASH,
+        "evaluation_contract_hash": "8" * 64,
+        "portfolio_comparison_contract_hash": comparison.contract_hash,
+        "source_data_manifest_hash": market_manifest_hash,
+        "candidate_replay_hash": "a" * 64,
+        "trusted_producer_version": "trusted_candidate_evaluation_v2",
+        "common_session_count": len(rows),
+        "independent_trade_count": 60,
+        "private_file_hash": hashlib.sha256(
+            serialized.encode("utf-8")
+        ).hexdigest(),
+        "dataset_hash": dataset_document["dataset_hash"],
+    }
+    private_manifest = PrivateOosDatasetManifestV2.model_validate(
+        {
+            **manifest_payload,
+            "manifest_hash": canonical_hash(manifest_payload),
+        }
+    )
+    evaluated_at = contract_created_at + timedelta(days=200)
+    execution = ShadowExecutionPlanV1(
+        market_input_manifest_hash="b" * 64,
+        decision_schedule_version="schedule-v1",
+        execution_scenario_version="paper-conservative-v1",
+        cost_model_version="cost-v1",
+        starting_capital_usd=Decimal("100000.00"),
+        liquidity_policy_version="liquidity-v1",
+    )
+    plan_payload = {
+        "schema_version": "oos_v2_shadow_plan_v1",
+        "plan_id": "oos-shadow-plan-1",
+        "challenger_id": "challenger-1",
+        "experiment_family": "family-1",
+        "submission_number": 1,
+        "candidate_artifact_hash": CANDIDATE_ARTIFACT_HASH,
+        "evaluation_contract_hash": "8" * 64,
+        "private_dataset_manifest": private_manifest,
+        "champion": ShadowArmPlanV1(
+            role=ShadowArmRole.CHAMPION,
+            arm_id="champion-shadow-v2",
+            strategy_id="T1",
+            strategy_version="1.0.0",
+        ),
+        "challenger": ShadowArmPlanV1(
+            role=ShadowArmRole.CHALLENGER,
+            arm_id="challenger-shadow-v2",
+            strategy_id="T1",
+            strategy_version="1.1.0",
+        ),
+        "execution_contract": execution,
+        "data_available_cutoff": rows[-1].available_at,
+        "created_at": evaluated_at - timedelta(minutes=1),
+        "expires_at": evaluated_at + timedelta(hours=1),
+        "automatic_promotion_enabled": False,
+        "real_order_routing": False,
+    }
+    plan = OosV2ShadowPlanV1.model_validate(
+        {**plan_payload, "plan_hash": canonical_hash(plan_payload)}
+    )
+    config = load_research_config(repository_root / "config")
+    operations = TrustedOosShadowOperations(
+        factory,
+        config=config,
+        private_root=private_root,
+        clock=lambda: evaluated_at,
+    )
+
+    preflight = operations.preflight_oos_v2(plan)
+    assert preflight.status == "READY"
+    assert preflight.private_dataset_verified is True
+    completed = operations.evaluate_oos_v2(plan)
+    assert completed.lifecycle.result.verdict is OosVerdict.PASS
+    assert completed.lifecycle.status is ChallengerStatus.SHADOW_PENDING
+    assert completed.lifecycle.result.common_sessions == len(rows)
+
+    pair = repository.shadow_pair("challenger-1")
+    assert len(pair) == 2
+    shadow_pair_id = str(pair[0]["shadow_pair_id"])
+    activation_payload = {
+        "schema_version": "shadow_activation_plan_v1",
+        "activation_id": "activate-shadow-v2-1",
+        "challenger_id": "challenger-1",
+        "submission_number": 1,
+        "oos_result_hash": completed.lifecycle.result.result_hash,
+        "shadow_pair_id": shadow_pair_id,
+        "champion_artifact_hash": (
+            comparison.champion_portfolio_manifest_hash
+        ),
+        "code_version": "shadow-ops-v1",
+        "idempotency_key": "activate-shadow-v2-1",
+        "created_at": evaluated_at,
+        "expires_at": evaluated_at + timedelta(hours=1),
+        "automatic_promotion_enabled": False,
+        "real_order_routing": False,
+    }
+    activation = ShadowActivationPlanV1.model_validate(
+        {
+            **activation_payload,
+            "activation_hash": canonical_hash(activation_payload),
+        }
+    )
+    invalid_activation_payload = {
+        **activation_payload,
+        "activation_id": "activate-shadow-v2-wrong-champion",
+        "champion_artifact_hash": "c" * 64,
+        "idempotency_key": "activate-shadow-v2-wrong-champion",
+    }
+    invalid_activation = ShadowActivationPlanV1.model_validate(
+        {
+            **invalid_activation_payload,
+            "activation_hash": canonical_hash(
+                invalid_activation_payload
+            ),
+        }
+    )
+    with pytest.raises(
+        OosShadowOperationError,
+        match="SHADOW_ACTIVATION_CHAMPION_ARTIFACT_MISMATCH",
+    ):
+        operations.activate_shadow(invalid_activation)
+
+    started = operations.activate_shadow(activation)
+    repeated_start = operations.activate_shadow(activation)
+    assert started.lifecycle_created is True
+    assert started.initialization.created is True
+    assert repeated_start.lifecycle_created is False
+    assert repeated_start.initialization.created is False
+    assert repeated_start.initialization.spec == started.initialization.spec
+    assert (
+        repository.challenger_status("challenger-1")
+        is ChallengerStatus.SHADOW_RUNNING
+    )
+
+    spec = started.initialization.spec
+    event_time = evaluated_at + timedelta(minutes=1)
+    quote_bundle = build_matched_quote_bundle(
+        market_input_manifest_hash=(
+            spec.market_input_manifest_hash
+        ),
+        as_of=event_time + timedelta(seconds=1),
+        quotes=(
+            ShadowQuoteV1(
+                quote_id="quote-qqq-v2",
+                instrument_id="QQQ",
+                event_time=event_time,
+                available_at=event_time,
+                bid_price=Decimal("199"),
+                ask_price=Decimal("201"),
+                bid_size_shares=Decimal("10000"),
+                ask_size_shares=Decimal("10000"),
+                adv_shares=Decimal("1000000"),
+                source_hash="d" * 64,
+            ),
+            ShadowQuoteV1(
+                quote_id="quote-spy-v2",
+                instrument_id="SPY",
+                event_time=event_time,
+                available_at=event_time,
+                bid_price=Decimal("99"),
+                ask_price=Decimal("101"),
+                bid_size_shares=Decimal("10000"),
+                ask_size_shares=Decimal("10000"),
+                adv_shares=Decimal("1000000"),
+                source_hash="e" * 64,
+            ),
+        ),
+    )
+    common_target = {
+        "spec": spec,
+        "decision_time": evaluated_at,
+        "signal_data_cutoff": evaluated_at - timedelta(minutes=1),
+        "valid_until": evaluated_at + timedelta(minutes=20),
+        "quote_manifest_hash": quote_bundle.quote_manifest_hash,
+    }
+    champion_target = build_shadow_target_decision(
+        target_id="champion-target-v2",
+        role=ShadowArmRole.CHAMPION,
+        target_weights={
+            "SPY": Decimal("0.5"),
+            "USD_CASH": Decimal("0.5"),
+        },
+        **common_target,
+    )
+    challenger_target = build_shadow_target_decision(
+        target_id="challenger-target-v2",
+        role=ShadowArmRole.CHALLENGER,
+        target_weights={
+            "QQQ": Decimal("0.5"),
+            "USD_CASH": Decimal("0.5"),
+        },
+        **common_target,
+    )
+    cycle_payload = {
+        "schema_version": "matched_shadow_cycle_commit_v1",
+        "input_id": "shadow-cycle-input-v2-1",
+        "run_id": spec.run_id,
+        "champion_target": champion_target,
+        "challenger_target": challenger_target,
+        "quote_bundle": quote_bundle,
+        "created_at": quote_bundle.as_of,
+        "automatic_promotion_enabled": False,
+        "real_order_routing": False,
+    }
+    cycle_input = MatchedShadowCycleCommitV1.model_validate(
+        {
+            **cycle_payload,
+            "input_hash": canonical_hash(cycle_payload),
+        }
+    )
+    preview = operations.preview_cycle(cycle_input)
+    committed = operations.commit_cycle(cycle_input)
+    repeated = operations.commit_cycle(cycle_input)
+    assert preview.result_hash == committed.cycle.result_hash
+    assert repeated.cycle.result_hash == committed.cycle.result_hash
+    assert repeated.replay_hash == committed.replay_hash
+
+    status = ResearchShadowRuntimeRepository(factory).status(
+        run_id=spec.run_id
+    )
+    latest = status["latest"]
+    assert isinstance(latest, dict)
+    assert latest["cycle_count"] == 1
+    assert latest["settlement_model"] == "SAME_CYCLE_PAPER_CASH_V1"
+    assert latest["unsettled_receivables_supported"] is False
+    assert status["automatic_promotion_enabled"] is False
+    assert status["real_order_routing"] is False
 
 
 def test_concurrent_oos_reservations_cannot_overrun_family_budget(

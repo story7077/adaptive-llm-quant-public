@@ -186,6 +186,12 @@ def test_operator_ui_selects_provider_and_processes_json(
         )
         assert prospective_evaluation["broker_access_permitted"] is False
         assert prospective_evaluation["real_order_routing"] is False
+        shadow_runtime = research_status.json()["shadow_runtime"]
+        assert shadow_runtime["status"] == "NOT_INITIALIZED"
+        assert shadow_runtime["run_count"] == 0
+        assert shadow_runtime["latest"] is None
+        assert shadow_runtime["automatic_promotion_enabled"] is False
+        assert shadow_runtime["real_order_routing"] is False
 
         research_selection = client.post(
             "/api/research/commander",

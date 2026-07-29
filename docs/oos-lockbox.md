@@ -125,6 +125,45 @@ returns their difference and paired bootstrap interval. The result remains
 aggregate-only: raw returns, session keys, dates, trades, and bootstrap samples
 are forbidden.
 
+### Trusted V2 host operation
+
+The operator-facing entry point is:
+
+```powershell
+$env:TRADING_OOS_PRIVATE_ROOT = "<PRIVATE_LOCKBOX_ROOT>"
+uv run python -m trading.cli research oos-v2 evaluate `
+  --plan .local/research/oos/oos-v2-shadow-plan.json
+```
+
+The command defaults to `--dry-run`. Dry-run validates the immutable Challenger,
+Candidate artifact, mandatory falsification, deterministic replay, predeclared
+whole-portfolio comparison, private manifest, experiment minima, matched shadow
+contract, database time, expiry, and private file hash. It does not reserve OOS
+budget, launch the worker, persist a result, or register a shadow pair.
+
+Add `--commit` only after reviewing that preflight:
+
+```powershell
+uv run python -m trading.cli research oos-v2 evaluate `
+  --plan .local/research/oos/oos-v2-shadow-plan.json `
+  --commit
+```
+
+The plan contains `PrivateOosDatasetManifestV2`, never observations or a
+filesystem path. The private root comes only from the local process environment
+and is not emitted. The host reads the private file only as bounded binary
+chunks to verify its exact SHA-256; only the isolated OOS worker parses the
+observations. Worker stderr, raw rows, dates, session keys, bootstrap samples,
+and the private path do not enter CLI output, logs, the database, or public
+artifacts.
+
+`PASS` atomically stores the bounded result, registers exactly one matched
+paper-only Champion/Challenger pair, and transitions the Challenger to
+`SHADOW_PENDING`. It does not start the pair. `FAIL` transitions to
+`OOS_REJECTED` and creates no shadow registration. Repeating the identical plan
+returns the immutable prior result without consuming a second budget unit;
+changed bindings fail closed.
+
 ## Default decision contract
 
 The production contract requires at least 126 common sessions and applies the
