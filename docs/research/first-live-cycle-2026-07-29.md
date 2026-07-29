@@ -1163,6 +1163,45 @@ Validation for this handoff:
 Actual v12 session, run-scoped ledger, and post-close replay evidence remain
 intentionally pending until the calendar session executes.
 
+## Candidate test-projection remediation
+
+The preserved `IWM-RCG 2.0.0` and `2.0.1` failures exposed two preventable
+Builder-test contract ambiguities rather than evidence that the strategy
+hypothesis passed:
+
+- `2.0.0` retained one strict binary floating-point assertion comparing
+  `0.19999999999999996` with `0.2`; and
+- `2.0.1` passed its complete-tree Candidate tests but two tests depended on
+  unchanged source-snapshot paths that the host-owned isolated test projection
+  deliberately does not expose.
+
+Both failed Candidates remain immutable terminal records. They were not
+modified, deleted, retried, or promoted.
+
+Research Commander public
+[PR 12](https://github.com/story7077/adaptive-llm-quant-research-commander/pull/12)
+removed the ambiguity for future versions. The isolated pytest projection now
+provides `candidate_source_root` for source inspection and
+`repository_root` for changed projected configuration. Builder instructions
+also require tolerance-aware calculated-float assertions and forbid using
+Builder-authored tests to re-prove unchanged Champion files that the host
+already hash-checks independently. Candidate source was already the import
+projection and remains hash-fenced before and after execution, so this fixture
+does not add network, credential, broker, lockbox, or Champion-write access.
+
+PR 12 merged as
+`66f4b0b3d096deb70c6c8b85ef3d13a26cf87233` after:
+
+- `uv run pytest`: **142 passed**;
+- `uv run ruff check .`: passed;
+- `uv run pyright`: 0 errors, 0 warnings;
+- clean-root public release scan: `PUBLIC_SAFE`; and
+- both public security workflows passed.
+
+The local fresh-process Commander/Builder entry point was then verified to load
+that exact clean `main` commit. New Research cycles use the repaired contract;
+the historical failures continue to report their original results.
+
 ## Validation
 
 Post-cycle failure-gate validation:
