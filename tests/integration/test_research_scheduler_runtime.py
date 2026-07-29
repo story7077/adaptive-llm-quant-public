@@ -98,6 +98,7 @@ def _claim_execution(
     lease = repository.claim_execution(
         consumer_id=consumer_id,
         lease_seconds=900,
+        work_not_before=PAST_OPEN,
     )
     assert lease is not None
     return lease
@@ -182,6 +183,7 @@ def test_schedule_plan_and_dispatch_are_idempotent(
         repository.claim_execution(
             consumer_id="research-consumer-2",
             lease_seconds=900,
+            work_not_before=PAST_OPEN,
         )
         is None
     )
@@ -202,6 +204,42 @@ def test_schedule_plan_and_dispatch_are_idempotent(
         reason_code=None,
         maximum_attempts=3,
         result=execution_result,
+    )
+
+
+def test_execution_cutover_leaves_older_receipt_unclaimed(
+    sqlite_database,
+    repository_root: Path,
+) -> None:
+    _, _, factory = sqlite_database
+    _seed_calendar(factory)
+    repository, service = _service(factory, repository_root)
+    service.plan(as_of=PLAN_AS_OF)
+    dispatched = service.dispatch_once(worker_id="cutover-dispatch-worker")
+    assert dispatched["dispatched"] is True
+    work_item_id = str(dispatched["receipt"]["work_item_id"])
+
+    assert (
+        repository.claim_execution(
+            consumer_id="post-cutover-consumer",
+            lease_seconds=900,
+            work_not_before=PLAN_AS_OF + timedelta(days=1),
+        )
+        is None
+    )
+    assert repository.event_history(work_item_id)[-1].event_type == (
+        ResearchScheduleEventType.DISPATCHED.value
+    )
+
+    claimed = repository.claim_execution(
+        consumer_id="matching-cutover-consumer",
+        lease_seconds=900,
+        work_not_before=PAST_OPEN,
+    )
+    assert claimed is not None
+    history = repository.event_history(work_item_id)
+    assert history[-1].payload_json["work_not_before"] == (
+        PAST_OPEN.isoformat()
     )
 
 
@@ -750,6 +788,8 @@ args.result.write_text(
             "30",
             "--consumer-id",
             "cli-consumer",
+            "--work-not-before",
+            "2020-07-24T00:00:00Z",
         ],
     )
     assert consumed.exit_code == 0, consumed.output

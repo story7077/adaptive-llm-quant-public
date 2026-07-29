@@ -135,10 +135,11 @@ Commander conversation, or hidden reasoning.
 Scheduled work is committed in two stages. `research schedule-work` appends a
 typed dispatch receipt without calling a model. `research schedule-consume`
 claims that receipt with a renewable database-clock lease and invokes one
-trusted local launcher using a hash-bound request/result contract. Stale workers,
-reused model contexts, changed Commander selections, invalid model routes, and
-malformed results are rejected before the append-only success event. The
-consumer never receives or routes a broker order.
+trusted local launcher using a hash-bound request/result contract. A required
+UTC cutover leaves older append-only receipts visible but unclaimed. Stale
+workers, reused model contexts, changed Commander selections, invalid model
+routes, and malformed results are rejected before the append-only success
+event. The consumer never receives or routes a broker order.
 
 ## Universe: catalog-driven US equities and ETFs
 

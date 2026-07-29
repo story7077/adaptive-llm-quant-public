@@ -185,6 +185,7 @@ def test_consumer_executes_typed_result_without_inheriting_broker_secret(
             timeout_seconds=30,
         ),
         selection_provider=lambda: None,
+        work_not_before=SESSION_OPEN,
     )
 
     result = asyncio.run(
@@ -236,6 +237,7 @@ def test_consumer_failure_is_sanitized_and_retryable(
             timeout_seconds=30,
         ),
         selection_provider=lambda: None,
+        work_not_before=SESSION_OPEN,
     )
 
     result = asyncio.run(
@@ -270,6 +272,7 @@ def test_execution_lease_renewal_is_append_only_and_keeps_token(
     lease = repository.claim_execution(
         consumer_id="renewing-consumer",
         lease_seconds=900,
+        work_not_before=SESSION_OPEN,
     )
     assert lease is not None
 
@@ -402,6 +405,7 @@ def _complete_deep_dispatch(
     execution_lease = repository.claim_execution(
         consumer_id=consumer_id,
         lease_seconds=900,
+        work_not_before=SESSION_OPEN,
     )
     assert execution_lease is not None
     plan, receipt = repository.execution_input(

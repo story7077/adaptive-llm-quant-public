@@ -710,11 +710,16 @@ class ResearchSchedulerRepository:
         *,
         consumer_id: str,
         lease_seconds: int,
+        work_not_before: datetime,
     ) -> ResearchWorkExecutionLeaseV1 | None:
         if not consumer_id:
             raise ValueError("consumer_id is required")
         if lease_seconds <= 0:
             raise ValueError("execution lease must be positive")
+        work_not_before = require_aware_utc(
+            work_not_before,
+            "work_not_before",
+        )
         with self._session_factory.begin() as session:
             database_now = _database_now(session)
             ranked = (
@@ -778,6 +783,10 @@ class ResearchSchedulerRepository:
                             latest.c.lease_expires_at <= database_now,
                         ),
                     )
+                )
+                .where(
+                    ResearchScheduleWorkItemRow.scheduled_for
+                    >= work_not_before
                 )
                 .order_by(
                     ResearchScheduleWorkItemRow.scheduled_for,
@@ -849,6 +858,7 @@ class ResearchSchedulerRepository:
                 extra_payload={
                     "execution_id": execution_id,
                     "receipt_hash": receipt.receipt_hash,
+                    "work_not_before": work_not_before.isoformat(),
                     "previous_event_hash": latest_event.event_hash,
                 },
             )

@@ -1965,6 +1965,16 @@ def research_schedule_consume(
         int,
         typer.Option("--timeout-seconds", min=1, max=86400),
     ] = 14400,
+    work_not_before: Annotated[
+        str,
+        typer.Option(
+            "--work-not-before",
+            help=(
+                "Required ISO-8601 UTC cutover. Older append-only receipts "
+                "remain unclaimed."
+            ),
+        ),
+    ] = ...,
     run_forever: Annotated[
         bool,
         typer.Option("--run-forever"),
@@ -1989,6 +1999,10 @@ def research_schedule_consume(
             selection_provider=ResearchRepository(
                 factory
             ).current_selection,
+            work_not_before=_research_timestamp(
+                work_not_before,
+                "--work-not-before",
+            ),
         )
         if run_forever:
             asyncio.run(

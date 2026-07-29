@@ -353,10 +353,12 @@ before operating the downstream aggregation/deep-research consumer.
 Run the separate execution consumer only with a trusted local launcher:
 
 ```powershell
+$cutoverUtc = (Get-Date).ToUniversalTime().ToString("o")
 uv run python -m trading.cli research schedule-consume `
   --executor .local/private-research-launcher.py `
   --consumer-id research-consumer-01 `
   --artifact-root .local/research/dispatch `
+  --work-not-before $cutoverUtc `
   --run-forever
 ```
 
@@ -366,6 +368,9 @@ append-only database-clock execution lease, renewal/reclaim fencing, and result
 commit. The private launcher owns user-specific WebGPT/AGBrowse and Codex
 configuration. It receives no execution lease token or inherited broker/API
 secret, and must write one UTF-8 JSON result to the requested local path.
+`--work-not-before` is a required deployment cutover: older receipts remain
+unchanged and visible in status, but no consumer may claim them. Persist the
+chosen UTC value in the local process supervisor so restart behavior is stable.
 
 Long model runs renew the same execution token. Reclaiming an expired lease
 fences the stale process, while an already completed, valid local result is

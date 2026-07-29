@@ -6,9 +6,11 @@ import subprocess
 import sys
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from trading.domain.time import require_aware_utc
 from trading.persistence.research_scheduler import (
     ResearchScheduleFenceError,
     ResearchSchedulerPersistenceError,
@@ -159,6 +161,7 @@ class ResearchDispatchConsumerService:
         config: ResearchConfigBundle,
         executor: ResearchDispatchExecutor,
         selection_provider: Callable[[], CommanderSelectionV1 | None],
+        work_not_before: datetime,
     ) -> None:
         safety = config.config.safety
         if (
@@ -173,6 +176,10 @@ class ResearchDispatchConsumerService:
         self._config = config
         self._executor = executor
         self._selection_provider = selection_provider
+        self._work_not_before = require_aware_utc(
+            work_not_before,
+            "work_not_before",
+        )
 
     async def consume_once(
         self,
@@ -184,12 +191,14 @@ class ResearchDispatchConsumerService:
             self._repository.claim_execution,
             consumer_id=consumer_id,
             lease_seconds=schedule.dispatch_lease_seconds,
+            work_not_before=self._work_not_before,
         )
         if lease is None:
             return {
                 "consumed": False,
                 "reason_code": "NO_DISPATCHED_RESEARCH_WORK",
                 "config_manifest_hash": self._config.manifest_hash,
+                "work_not_before": self._work_not_before.isoformat(),
                 "automatic_promotion_enabled": False,
                 "real_order_routing": False,
             }
@@ -245,6 +254,7 @@ class ResearchDispatchConsumerService:
                 "artifact_count": len(result.artifacts),
                 "invocation_count": len(result.invocations),
                 "config_manifest_hash": self._config.manifest_hash,
+                "work_not_before": self._work_not_before.isoformat(),
                 "automatic_promotion_enabled": False,
                 "real_order_routing": False,
             }
@@ -255,6 +265,7 @@ class ResearchDispatchConsumerService:
                 "work_item_id": lease.work_item_id,
                 "execution_id": lease.execution_id,
                 "config_manifest_hash": self._config.manifest_hash,
+                "work_not_before": self._work_not_before.isoformat(),
                 "automatic_promotion_enabled": False,
                 "real_order_routing": False,
             }
@@ -276,6 +287,7 @@ class ResearchDispatchConsumerService:
                     "work_item_id": lease.work_item_id,
                     "execution_id": lease.execution_id,
                     "config_manifest_hash": self._config.manifest_hash,
+                    "work_not_before": self._work_not_before.isoformat(),
                     "automatic_promotion_enabled": False,
                     "real_order_routing": False,
                 }
@@ -287,6 +299,7 @@ class ResearchDispatchConsumerService:
                 "execution_id": lease.execution_id,
                 "reason_code": reason_code,
                 "config_manifest_hash": self._config.manifest_hash,
+                "work_not_before": self._work_not_before.isoformat(),
                 "automatic_promotion_enabled": False,
                 "real_order_routing": False,
             }
