@@ -121,6 +121,16 @@ parser.add_argument("--result", type=Path, required=True)
 args = parser.parse_args()
 if "APCA_API_SECRET_KEY" in os.environ:
     raise SystemExit(7)
+required_native_identity = {
+    "COMPUTERNAME": "native-host",
+    "USERNAME": "native-user",
+    "USERDOMAIN": "native-domain",
+}
+if any(
+    os.environ.get(name) != expected
+    for name, expected in required_native_identity.items()
+):
+    raise SystemExit(8)
 request = ResearchWorkExecutionRequestV1.model_validate(
     json.loads(args.request.read_text(encoding="utf-8"))
 )
@@ -175,6 +185,9 @@ def test_consumer_executes_typed_result_without_inheriting_broker_secret(
     executable = tmp_path / "executor.py"
     _write_success_executor(executable)
     monkeypatch.setenv("APCA_API_SECRET_KEY", "must-not-reach-executor")
+    monkeypatch.setenv("COMPUTERNAME", "native-host")
+    monkeypatch.setenv("USERNAME", "native-user")
+    monkeypatch.setenv("USERDOMAIN", "native-domain")
     artifact_root = tmp_path / "dispatch-artifacts"
     consumer = ResearchDispatchConsumerService(
         repository=repository,
