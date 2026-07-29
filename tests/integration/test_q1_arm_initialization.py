@@ -123,24 +123,6 @@ def test_q1_arms_use_inherited_and_cash_only_initialization_contract(
         for row in opening_navs
     )
 
-    anchor_nav = hold.initial_nav_usd
-    anchor = StrategyEvaluationAnchor(
-        evaluation_anchor_id="q1-common-anchor",
-        run_id=RUN_ID,
-        calendar_session_id=calendar.calendar_session_id,
-        common_t0_at=T0_AT,
-        initial_nav_usd=anchor_nav,
-        quote_manifest_hash=HASH,
-        anchor_hash=canonical_hash(
-            {"run_id": RUN_ID, "common_t0_at": T0_AT}
-        ),
-        created_at=T0_AT,
-        algorithm_version="q1_math_core_v1",
-        config_manifest_hash=config.manifest_hash,
-        code_version="test-code",
-        model_version="test-model",
-        source_manifest_hash=HASH,
-    )
     strategic_cycle = _cycle(
         cycle_id="q1-arm-strategic",
         kind="Q1_STRATEGIC",
@@ -155,17 +137,31 @@ def test_q1_arms_use_inherited_and_cash_only_initialization_contract(
     )
     with factory.begin() as session:
         session.add(strategic_cycle)
-        session.flush()
-        StrategyEvaluationAnchorRepository(session).append(anchor)
-        processor._append_strategy_opening_states(
-            session,
-            cycle=strategic_cycle,
-            anchor=anchor,
-            created_at=T0_AT,
-            source_manifest_hash=HASH,
-        )
+    MarketDataRepository(factory).append(
+        quotes=[
+            _quote(
+                symbol,
+                index,
+                event_time=T0_AT,
+                quote_prefix="q1-arm-t0",
+            )
+            for index, symbol in enumerate(
+                (*inherited_symbols, "SOXX"),
+                start=1,
+            )
+        ]
+    )
+    result = processor.process(strategic_cycle)
+    assert result["status"] == "STRATEGIC_DECISIONS_COMMITTED"
 
     with factory() as session:
+        anchor_row = StrategyEvaluationAnchorRepository(session).for_run(
+            RUN_ID
+        )
+        assert anchor_row is not None
+        anchor = StrategyEvaluationAnchor.model_validate(
+            anchor_row.payload_json
+        )
         strategy_states = {
             arm_id: latest_arm_state(
                 session,
@@ -184,6 +180,7 @@ def test_q1_arms_use_inherited_and_cash_only_initialization_contract(
             )
         )
 
+    anchor_nav = hold.initial_nav_usd
     assert all(state is not None for state in strategy_states.values())
     assert all(
         state is not None

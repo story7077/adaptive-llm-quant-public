@@ -182,6 +182,34 @@ class Q1CycleNotReady(Q1CycleError):
     pass
 
 
+def _strategic_risk_candidates(
+    states: Mapping[Q1ArmId, Q1ArmState],
+    *,
+    opening_anchor: bool,
+) -> dict[Q1ArmId, Q1ArmState]:
+    """Exclude only uncommitted, cash-only Q1 opening states from risk checks."""
+
+    candidates = dict(states)
+    if not opening_anchor:
+        return candidates
+    for arm_id in (Q1ArmId.Q1_DET, Q1ArmId.Q1_LLM):
+        state = candidates.get(arm_id)
+        if state is None:
+            continue
+        if (
+            state.sequence != 0
+            or state.positions
+            or state.unsettled_receivables
+            or state.settled_cash_usd != state.initial_nav_usd
+            or state.evaluation_anchor_id is None
+        ):
+            raise Q1CycleError(
+                f"{arm_id.value} opening state is not pristine cash-only"
+            )
+        candidates.pop(arm_id)
+    return candidates
+
+
 @dataclass(frozen=True, slots=True)
 class StrategicRiskGate:
     arm_id: Q1ArmId
@@ -603,7 +631,10 @@ class Q1PaperCycleProcessor:
             _preliminary_skipped_risk_arms,
         ) = self._strategic_risk_context(
             run_id=cycle.run_id,
-            strategy_states=states,
+            strategy_states=_strategic_risk_candidates(
+                states,
+                opening_anchor=existing_anchor is None,
+            ),
             strategy_quotes=strategy_quotes,
             as_of=created_at,
             available_quotes=quotes,
@@ -721,7 +752,10 @@ class Q1PaperCycleProcessor:
             skipped_risk_arms,
         ) = self._strategic_risk_context(
             run_id=cycle.run_id,
-            strategy_states=states,
+            strategy_states=_strategic_risk_candidates(
+                states,
+                opening_anchor=existing_anchor is None,
+            ),
             strategy_quotes=strategy_quotes,
             as_of=created_at,
             available_quotes=quotes,
