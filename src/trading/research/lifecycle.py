@@ -10,6 +10,7 @@ from trading.persistence.research import (
 )
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
 from trading.research.contracts import (
+    CandidateTestFailureV1,
     ChallengerStatus,
     FalsificationReportV1,
     OosLockboxResultV1,
@@ -137,6 +138,31 @@ class ResearchLifecycleService:
             created=created,
             status=status,
             artifact_hash=report.report_hash,
+        )
+
+    def record_candidate_test_failure(
+        self,
+        failure: CandidateTestFailureV1,
+    ) -> LifecycleResult:
+        try:
+            created = self._repository.record_candidate_test_failure(
+                failure
+            )
+            status = self._repository.challenger_status(
+                failure.challenger_id
+            )
+        except ResearchPersistenceError as exc:
+            raise ResearchLifecycleError(str(exc)) from exc
+        if status is not ChallengerStatus.TEST_FAILED:
+            raise ResearchLifecycleError(
+                "unexpected post-Candidate-test status "
+                f"{status.value}"
+            )
+        return LifecycleResult(
+            challenger_id=failure.challenger_id,
+            created=created,
+            status=status,
+            artifact_hash=failure.failure_hash,
         )
 
     def register_candidate_artifact(

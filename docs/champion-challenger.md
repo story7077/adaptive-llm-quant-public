@@ -40,6 +40,12 @@ stateDiagram-v2
 Each transition is append-only. Terminal failures remain visible and count
 against the experiment family's adaptive-research budget.
 
+A Candidate that fails its isolated host test suite is still registered as a
+versioned Challenger before the typed `CandidateTestFailureV1` event moves it
+to `TEST_FAILED`. Its patch, manifest, and test attestation remain auditable,
+but no executable Candidate artifact exists and it cannot enter falsification,
+OOS, or shadow.
+
 ## Manifest
 
 `ChallengerManifestV1` binds:
