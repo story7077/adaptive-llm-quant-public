@@ -451,6 +451,48 @@ intended run-identity fence: a run cannot silently change code version. The v4
 records were preserved, and the merged code was started as the new v5 run
 instead.
 
+### Pre-open runtime snapshot correction
+
+Before the first v5 cycle became due, a restart preflight found that the
+long-running process still held its original Python modules while the source
+worktree on disk had subsequently advanced with Research Plane merges. The
+immutable v5 run was bound to workspace code identity
+`workspace:07a76c0356d8bfe95b2c878c316ce35b55e29f705cb4511fc54898010911251d`,
+whereas the advanced worktree produced a different identity. The existing run
+therefore rejected an idempotent initialization attempt with
+`Q1PaperRunConflict: Q1 run code version changed`.
+
+Git-object reconstruction showed that the stored identity exactly matched the
+code tree at merge
+`fbde26a9fce67ca47eb2a26d247b5f5be399851a`. A dedicated detached runtime
+snapshot and isolated environment were created from that merge. Its code
+identity and Q1 config manifest matched the immutable run, and an idempotent
+initialization returned `created=false`, `PENDING_BOOTSTRAP`, and
+`real_order_routing=false`.
+
+The old process was then replaced with the exact snapshot before the market
+opened. Startup initially failed closed because a visible ChatGPT
+acknowledgement modal blocked the model selector. The same headed Chrome and
+AGBrowse control path identified and dismissed only that modal. The subsequent
+bridge preflight verified `GPT-5.6 Sol` with `xhigh`, after which the Q1 API,
+IEX stream, adjusted-history refresh, heartbeat, and Research monitors all
+returned healthy.
+
+No economic Q1 record existed before or after the replacement:
+
+- evaluation anchors: 0;
+- Q1 portfolio decisions: 0;
+- order events: 0;
+- Q1 NAV snapshots: 0;
+- strategy daily results: 0; and
+- non-pending cycles: 0.
+
+The restarted worker extended the versioned 30-day calendar window to 9,637
+pending slots across 23 actual sessions, from 2026-07-29 through 2026-08-28.
+This was a schedule-only append. No past decision was synthesized or
+backfilled. Alpaca Paper canary and automatic promotion remained disabled, and
+real broker routing remained unavailable.
+
 ## Validation
 
 Public repository:
