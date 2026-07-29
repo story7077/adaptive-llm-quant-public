@@ -91,8 +91,12 @@ def verify_run(
 def verify_ledger_arm(
     session_factory: sessionmaker[Session],
     arm_id: str,
+    *,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     with session_factory() as session:
+        if run_id is not None and session.get(RunRow, run_id) is None:
+            raise ValueError(f"Unknown run: {run_id}")
         statement = (
             select(
                 LedgerTransactionRow.ledger_transaction_id,
@@ -106,6 +110,8 @@ def verify_ledger_arm(
             .where(LedgerTransactionRow.arm_id == arm_id)
             .group_by(LedgerTransactionRow.ledger_transaction_id)
         )
+        if run_id is not None:
+            statement = statement.where(LedgerTransactionRow.run_id == run_id)
         balances = list(session.execute(statement))
     unbalanced = [
         transaction_id
@@ -113,6 +119,7 @@ def verify_ledger_arm(
         if abs(Decimal(balance)) > Decimal("0.000001")
     ]
     return {
+        "run_id": run_id,
         "arm_id": arm_id,
         "transaction_count": len(balances),
         "balanced": not unbalanced,
