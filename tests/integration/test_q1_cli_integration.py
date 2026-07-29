@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+from decimal import Decimal
 
 from typer.testing import CliRunner
 
@@ -9,7 +11,11 @@ from trading.domain.algorithm import (
     LEGACY_FORWARD_ALGORITHM_VERSION,
     Q1_ALGORITHM_VERSION,
 )
-from trading.persistence.models import RunRow
+from trading.persistence.models import (
+    LedgerPostingRow,
+    LedgerTransactionRow,
+    RunRow,
+)
 
 
 def _configure_cli_environment(
@@ -153,3 +159,131 @@ def test_paper_cli_requires_explicit_q1_and_preserves_run_identity(
             LEGACY_FORWARD_ALGORITHM_VERSION
         )
         assert q1_run.experiment_version == Q1_ALGORITHM_VERSION
+
+
+def test_ledger_verify_accepts_q1_arm_and_scopes_to_run(
+    sqlite_database,
+    repository_root,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_url, _, factory = sqlite_database
+    _configure_cli_environment(
+        monkeypatch,
+        database_url=database_url,
+        repository_root=repository_root,
+        tmp_path=tmp_path,
+    )
+    runner = CliRunner()
+    for run_id in ("ledger-q1-a", "ledger-q1-b"):
+        initialized = runner.invoke(
+            app,
+            [
+                "paper",
+                "init",
+                "--run-id",
+                run_id,
+                "--algorithm-version",
+                Q1_ALGORITHM_VERSION,
+            ],
+        )
+        assert initialized.exit_code == 0, initialized.output
+
+    with factory() as session:
+        session.add_all(
+            [
+                LedgerTransactionRow(
+                    ledger_transaction_id="ledger-q1-a-capital",
+                    run_id="ledger-q1-a",
+                    arm_id="Q1-DET",
+                    source_id="test-capital-a",
+                    effective_at=datetime(2026, 7, 30, 13, 30, tzinfo=UTC),
+                    payload_json={},
+                ),
+                LedgerTransactionRow(
+                    ledger_transaction_id="ledger-q1-b-unbalanced",
+                    run_id="ledger-q1-b",
+                    arm_id="Q1-DET",
+                    source_id="test-unbalanced-b",
+                    effective_at=datetime(2026, 7, 30, 13, 30, tzinfo=UTC),
+                    payload_json={},
+                ),
+            ]
+        )
+        session.flush()
+        session.add_all(
+            [
+                LedgerPostingRow(
+                    posting_id="ledger-q1-a-debit",
+                    ledger_transaction_id="ledger-q1-a-capital",
+                    account_code="CASH",
+                    asset_code="USD",
+                    quantity_delta=Decimal("100"),
+                    usd_value_delta=Decimal("100"),
+                    payload_json={},
+                ),
+                LedgerPostingRow(
+                    posting_id="ledger-q1-a-credit",
+                    ledger_transaction_id="ledger-q1-a-capital",
+                    account_code="CAPITAL",
+                    asset_code="USD",
+                    quantity_delta=Decimal("-100"),
+                    usd_value_delta=Decimal("-100"),
+                    payload_json={},
+                ),
+                LedgerPostingRow(
+                    posting_id="ledger-q1-b-only-posting",
+                    ledger_transaction_id="ledger-q1-b-unbalanced",
+                    account_code="CASH",
+                    asset_code="USD",
+                    quantity_delta=Decimal("1"),
+                    usd_value_delta=Decimal("1"),
+                    payload_json={},
+                ),
+            ]
+        )
+        session.commit()
+
+    scoped = runner.invoke(
+        app,
+        [
+            "ledger",
+            "verify",
+            "--arm",
+            "Q1-DET",
+            "--run-id",
+            "ledger-q1-a",
+        ],
+    )
+    assert scoped.exit_code == 0, scoped.output
+    payload = json.loads(scoped.output)
+    assert payload == {
+        "arm_id": "Q1-DET",
+        "balanced": True,
+        "run_id": "ledger-q1-a",
+        "transaction_count": 1,
+        "unbalanced_transaction_ids": [],
+    }
+
+    unscoped = runner.invoke(
+        app,
+        ["ledger", "verify", "--arm", "Q1-DET"],
+    )
+    assert unscoped.exit_code == 1
+    assert json.loads(unscoped.output)["unbalanced_transaction_ids"] == [
+        "ledger-q1-b-unbalanced"
+    ]
+
+    missing = runner.invoke(
+        app,
+        [
+            "ledger",
+            "verify",
+            "--arm",
+            "Q1-DET",
+            "--run-id",
+            "missing-run",
+        ],
+    )
+    assert missing.exit_code != 0
+    assert "Unknown run: missing-run" in missing.output
