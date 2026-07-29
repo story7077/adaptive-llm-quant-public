@@ -22,6 +22,14 @@ const ACTIVE_WEB_SEARCH_PILL = [
     '[data-composer-surface]',
     '[data-inline-selection-pill][data-id="search"][data-system-hint-type="search"]',
 ].join(' ');
+const USER_TURN_SELECTOR = [
+    '[data-message-author-role="user"]',
+    '[data-turn="user"]',
+].join(',');
+const ASSISTANT_TURN_SELECTOR = [
+    '[data-message-author-role="assistant"]',
+    '[data-turn="assistant"]',
+].join(',');
 const ALLOWED_ROLES = new Set(['WEB_SCOUT', 'RESEARCH_COMMANDER']);
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const CONVERSATION_PATH = /^\/c\/([A-Za-z0-9_-]+)\/?$/;
@@ -516,7 +524,7 @@ async function collectConversationMetadata(browser) {
 }
 
 async function pageContainsRequest(page, requestId) {
-    const messages = await page.locator('[data-message-author-role="user"]')
+    const messages = await page.locator(USER_TURN_SELECTOR)
         .allInnerTexts()
         .catch(() => []);
     return messages.some((message) => message.includes(requestId));
@@ -840,7 +848,7 @@ async function awaitAssistant(browser, values, browserSessionId) {
     const deadline = Date.now() + timeoutSeconds * 1_000;
     while (Date.now() < deadline) {
         const assistantCount = await page.locator(
-            '[data-message-author-role="assistant"]',
+            ASSISTANT_TURN_SELECTOR,
         ).count().catch(() => 0);
         if (assistantCount > 0) {
             return {
@@ -917,7 +925,7 @@ export function validateActiveBrowseSignals(signals) {
 }
 
 async function inspectActiveBrowse(page, requestId) {
-    const requestTurns = page.locator('[data-message-author-role="user"]').filter({
+    const requestTurns = page.locator(USER_TURN_SELECTOR).filter({
         hasText: requestId,
     });
     let requestSearchHintCount = 0;
@@ -945,7 +953,7 @@ async function inspectActiveBrowse(page, requestId) {
         }
     }
 
-    const assistantTurns = page.locator('[data-message-author-role="assistant"]');
+    const assistantTurns = page.locator(ASSISTANT_TURN_SELECTOR);
     const assistantCount = await assistantTurns.count().catch(() => 0);
     let assistantCitationCount = 0;
     if (assistantCount > 0) {
@@ -970,7 +978,7 @@ async function inspectActiveBrowse(page, requestId) {
 
 async function inspectCompletion(page) {
     const assistantPresent = await anyVisible(
-        page.locator('[data-message-author-role="assistant"]'),
+        page.locator(ASSISTANT_TURN_SELECTOR),
     );
     const streamingActive = await anyVisible(
         page.locator(
@@ -979,6 +987,7 @@ async function inspectCompletion(page) {
                 'button[aria-label="Stop generating"]',
                 'button[aria-label="응답 생성 중지"]',
                 '[data-message-author-role="assistant"][data-is-streaming="true"]',
+                '[data-turn="assistant"][data-is-streaming="true"]',
                 '[data-streaming="true"]',
             ].join(','),
         ),

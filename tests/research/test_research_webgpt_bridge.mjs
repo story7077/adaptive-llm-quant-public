@@ -25,6 +25,14 @@ const TEST_CDP_BINDING = {
     connectionEndpoint: 'ws://127.0.0.1:9222/devtools/browser/browser-cdp-001',
     browserSessionId: 'browser-cdp-001',
 };
+const FAKE_ASSISTANT_TURN_SELECTOR = [
+    '[data-message-author-role="assistant"]',
+    '[data-turn="assistant"]',
+].join(',');
+const FAKE_USER_TURN_SELECTOR = [
+    '[data-message-author-role="user"]',
+    '[data-turn="user"]',
+].join(',');
 
 class FakeLocator {
     constructor(page, selector) {
@@ -55,8 +63,8 @@ class FakeLocator {
     async count() {
         if (this.selector === '[data-testid="accounts-profile-button"]') return 1;
         if (this.selector.includes('aria-haspopup="menu"')) return 1;
-        if (this.selector === '[data-message-author-role="assistant"]') return 1;
-        if (this.selector === '[data-message-author-role="user"]') return 1;
+        if (this.selector === FAKE_ASSISTANT_TURN_SELECTOR) return 1;
+        if (this.selector === FAKE_USER_TURN_SELECTOR) return 1;
         if (this.selector.includes('data-system-hint-type="search"')) return 1;
         return 0;
     }
@@ -69,7 +77,7 @@ class FakeLocator {
         }
         if (this.selector === 'exact-text') return this.page.menuOpened;
         if (this.selector.includes('aria-haspopup="menu"')) return true;
-        return this.selector === '[data-message-author-role="assistant"]';
+        return this.selector === FAKE_ASSISTANT_TURN_SELECTOR;
     }
 
     async click() {
@@ -101,7 +109,7 @@ class FakeLocator {
     }
 
     async allInnerTexts() {
-        if (this.selector === '[data-message-author-role="user"]') {
+        if (this.selector === FAKE_USER_TURN_SELECTOR) {
             return [`bound request ${this.page.requestId}`];
         }
         return [];
