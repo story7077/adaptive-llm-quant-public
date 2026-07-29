@@ -268,6 +268,33 @@ Evaluation V2 authority until a new versioned Q1 UI process is started.
 Machine-specific paths, process IDs, credentials, and local logs remain in
 gitignored local operational metadata and are not part of this public record.
 
+### Read-only Research status handoff
+
+PR [`#19`](https://github.com/story7077/adaptive-llm-quant-public/pull/19)
+merged as
+`d4322edf89f2107f71ee9095ab31ec97c44fa29c`. It adds a loopback-only,
+read-only status mode so the latest Research UI can observe the shared
+PostgreSQL state without restarting the version-pinned Q1 process. This mode
+starts neither a market-data worker nor a paper worker, writes no market
+connection status, rejects every non-read HTTP method with `405`, and derives
+external worker health only from the persisted runtime heartbeat.
+
+At `2026-07-29T03:47Z`, the merged status surface and the original Q1 surface
+reported the same v5 run identity. The external heartbeat was fresh, the Q1
+state remained `PENDING_BOOTSTRAP`, and all three Research monitors remained
+healthy. The Research projection reported:
+
+- `WAITING_FOR_PARENT_DECISION`;
+- zero prospective outcomes;
+- `WAITING_FOR_FORWARD_OUTCOMES`, with 126 successful sessions required;
+- no OOS request or independent Challenger shadow;
+- automatic promotion disabled; and
+- `real_order_routing=false`.
+
+The status process was restarted from the merge commit only after the public
+push and pull-request workflows passed. The operational Q1 process remained
+pinned to its original code commit and was not restarted.
+
 ## Operational Q1 paper runtime
 
 The active synthetic run is `paper_q1_research_20260729_v5`.
