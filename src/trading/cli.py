@@ -85,7 +85,10 @@ from trading.persistence.prospective_outcomes import (
     ProspectiveOutcomeRepository,
 )
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
-from trading.persistence.research_scheduler import ResearchSchedulerRepository
+from trading.persistence.research_scheduler import (
+    ResearchSchedulerPersistenceError,
+    ResearchSchedulerRepository,
+)
 from trading.persistence.research_shadow import (
     ResearchShadowPersistenceError,
     ResearchShadowRuntimeRepository,
@@ -128,6 +131,10 @@ from trading.research.contracts import (
     ResearchCommanderKind,
     ResearchDecisionV1,
     ResearchRequestV1,
+)
+from trading.research.dispatch_execution import (
+    ResearchWorkExecutionRequestV1,
+    ResearchWorkExecutionResultV1,
 )
 from trading.research.experiment_outcomes import (
     AlgorithmProposalV2,
@@ -258,6 +265,11 @@ from trading.runtime.q1_paper import Q1PaperRuntimeService
 from trading.runtime.q1_provider import Q1SelectedCommanderProvider
 from trading.runtime.q1_scheduler import VersionedMarketSession
 from trading.runtime.q1_worker import Q1PaperRuntimeWorker
+from trading.runtime.research_dispatch_consumer import (
+    ResearchDispatchConsumerError,
+    ResearchDispatchConsumerService,
+    SubprocessResearchDispatchExecutor,
+)
 from trading.runtime.research_scheduler import ResearchSchedulerService
 from trading.runtime.scheduler import PaperCycleStore
 from trading.settings import (
@@ -317,7 +329,7 @@ research_app.add_typer(
     name="shadow-runtime",
 )
 
-EXPECTED_DATABASE_REVISION = "0020_candidate_evaluation_dataset_v2"
+EXPECTED_DATABASE_REVISION = "0021_research_execution_lease_v1"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -1931,6 +1943,74 @@ def research_schedule_work(
     _emit(result)
 
 
+@research_app.command("schedule-consume")
+def research_schedule_consume(
+    executor: Annotated[
+        Path,
+        typer.Option("--executor", exists=True, dir_okay=False),
+    ],
+    consumer_id: Annotated[
+        str,
+        typer.Option("--consumer-id", min=1, max=120),
+    ] = "research-consumer-cli",
+    artifact_root: Annotated[
+        Path,
+        typer.Option(
+            "--artifact-root",
+            file_okay=False,
+            help="Git-ignored local execution request/result root.",
+        ),
+    ] = Path(".local/research/dispatch"),
+    timeout_seconds: Annotated[
+        int,
+        typer.Option("--timeout-seconds", min=1, max=86400),
+    ] = 14400,
+    run_forever: Annotated[
+        bool,
+        typer.Option("--run-forever"),
+    ] = False,
+) -> None:
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    factory = make_session_factory(engine)
+    try:
+        service = ResearchDispatchConsumerService(
+            repository=ResearchSchedulerRepository(factory),
+            config=load_research_config(settings.config_dir),
+            executor=SubprocessResearchDispatchExecutor(
+                executable=executor,
+                artifact_root=resolve_local_output(
+                    artifact_root,
+                    repository_root=repo_root(),
+                ),
+                timeout_seconds=timeout_seconds,
+            ),
+            selection_provider=ResearchRepository(
+                factory
+            ).current_selection,
+        )
+        if run_forever:
+            asyncio.run(
+                service.run_forever(consumer_id=consumer_id)
+            )
+            return
+        result = asyncio.run(
+            service.consume_once(consumer_id=consumer_id)
+        )
+    except (
+        ResearchDispatchConsumerError,
+        ResearchFileRuntimeError,
+        ResearchPersistenceError,
+        ResearchSchedulerPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
 @research_app.command("shadow-summary-record")
 def research_shadow_summary_record(
     summary_file: Annotated[
@@ -2791,6 +2871,12 @@ def research_schema() -> None:
             "research_decision_v2": ResearchDecisionV2.model_json_schema(),
             "research_action_plan_v1": (
                 ResearchActionPlanV1.model_json_schema()
+            ),
+            "research_work_execution_request_v1": (
+                ResearchWorkExecutionRequestV1.model_json_schema()
+            ),
+            "research_work_execution_result_v1": (
+                ResearchWorkExecutionResultV1.model_json_schema()
             ),
             "candidate_artifact": (CandidateArtifactBundleV1.model_json_schema()),
             "candidate_evaluation_dataset_v2": (

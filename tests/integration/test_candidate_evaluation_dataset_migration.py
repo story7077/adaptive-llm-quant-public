@@ -18,6 +18,7 @@ from trading.persistence.db import (
 )
 
 REVISION = "0020_candidate_evaluation_dataset_v2"
+HEAD_REVISION = "0021_research_execution_lease_v1"
 DOWN_REVISION = "0019_candidate_prospective_outcomes_v1"
 TABLES = (
     "research_candidate_evaluation_datasets_v2",
@@ -34,7 +35,7 @@ def test_candidate_evaluation_dataset_migration_roundtrip_and_guards(
     )
     upgrade_database(database_url)
     engine = create_database_engine(database_url)
-    assert current_revision(engine) == REVISION
+    assert current_revision(engine) == HEAD_REVISION
     assert set(TABLES).issubset(inspect(engine).get_table_names())
 
     with engine.connect() as connection:
@@ -123,7 +124,7 @@ def test_candidate_evaluation_dataset_migration_roundtrip_and_guards(
 
     upgrade_database(database_url)
     upgraded = create_database_engine(database_url)
-    assert current_revision(upgraded) == REVISION
+    assert current_revision(upgraded) == HEAD_REVISION
     assert set(TABLES).issubset(inspect(upgraded).get_table_names())
     upgraded.dispose()
 

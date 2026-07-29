@@ -767,6 +767,8 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
     assert "research_request_v2" in schema
     assert "research_decision_v2" in schema
     assert "research_action_plan_v1" in schema
+    assert "research_work_execution_request_v1" in schema
+    assert "research_work_execution_result_v1" in schema
     assert "candidate_evaluation_dataset_v2" in schema
     assert "candidate_evaluation_source_manifest_v2" in schema
     assert "prospective_evaluation_config_v1" in schema
