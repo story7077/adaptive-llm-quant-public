@@ -55,6 +55,9 @@ from trading.persistence.meta_controller import MetaControllerRepository
 from trading.persistence.meta_oos import MetaOosRepository
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.prospective import ProspectiveCandidateRepository
+from trading.persistence.prospective_outcomes import (
+    ProspectiveOutcomeRepository,
+)
 from trading.persistence.research import (
     ResearchPersistenceError,
     ResearchRepository,
@@ -71,6 +74,9 @@ from trading.research.lifecycle import (
     ResearchLifecycleService,
 )
 from trading.research.prospective import load_prospective_candidate_config
+from trading.research.prospective_outcomes import (
+    load_prospective_outcome_config,
+)
 from trading.runtime.commander import OperationalRiskCommander
 from trading.runtime.forward_paper import ForwardPaperTradingService
 from trading.runtime.news import (
@@ -80,6 +86,7 @@ from trading.runtime.news import (
 from trading.runtime.paper import PaperRuntimeError, PaperRuntimeService
 from trading.runtime.paper_worker import PaperRuntimeWorker
 from trading.runtime.prospective_candidate import prospective_candidate_status
+from trading.runtime.prospective_outcomes import prospective_outcome_status
 from trading.runtime.q1_alpaca_paper import Q1AlpacaPaperCanaryService
 from trading.runtime.q1_config import llm_transport_config
 from trading.runtime.q1_cycle import Q1PaperCycleProcessor
@@ -173,12 +180,18 @@ def create_app(
     prospective_config = load_prospective_candidate_config(
         active_settings.config_dir
     )
+    prospective_outcome_config = load_prospective_outcome_config(
+        active_settings.config_dir
+    )
     research_scheduler = ResearchSchedulerService(
         repository=ResearchSchedulerRepository(session_factory),
         config=research_config,
     )
     factorial_repository = FactorialPaperExperimentRepository(session_factory)
     prospective_repository = ProspectiveCandidateRepository(session_factory)
+    prospective_outcome_repository = ProspectiveOutcomeRepository(
+        session_factory
+    )
     dashboard_service = MarketDashboardService(session_factory)
     live_market_service = LiveMarketSnapshotService(
         session_factory,
@@ -669,6 +682,16 @@ def create_app(
             research_repository.portfolio_sharpe().status()
         )
         meta_oos_status = MetaOosRepository(session_factory).status()
+        prospective_status = prospective_candidate_status(
+            prospective_repository,
+            config=prospective_config,
+        )
+        latest = prospective_status.get("latest")
+        latest_challenger_id = (
+            latest.get("challenger_id")
+            if isinstance(latest, dict)
+            else None
+        )
         return {
             **persisted_status,
             "recursive_improvement": recursive_improvement_status(
@@ -702,9 +725,15 @@ def create_app(
             "factorial_arms": factorial_status["required_arms"],
             "factorial_experiment": factorial_status,
             "scheduler": research_scheduler.status(),
-            "prospective_candidate": prospective_candidate_status(
-                prospective_repository,
-                config=prospective_config,
+            "prospective_candidate": prospective_status,
+            "prospective_outcomes": prospective_outcome_status(
+                prospective_outcome_repository,
+                config=prospective_outcome_config,
+                challenger_id=(
+                    str(latest_challenger_id)
+                    if latest_challenger_id is not None
+                    else None
+                ),
             ),
             "real_order_routing": False,
         }

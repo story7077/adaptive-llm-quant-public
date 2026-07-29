@@ -1,0 +1,50 @@
+schema_version: candidate_prospective_outcome_config_v1
+producer_version: q1_det_candidate_forward_outcome_v1
+calendar_version: alpaca_market_calendar_v1
+market_dataset_version: alpaca_iex_adjusted_all_v1
+timeframe: 1Day
+adjustment: all
+
+implementation:
+  price_rule: NEXT_SESSION_ADJUSTED_CLOSE
+  delay_sessions: 1
+  return_horizon_sessions: 1
+  outcome_data_delay_minutes: 120
+
+market_context:
+  market_symbol: SPY
+  sector_symbol: SOXX
+  known_factors:
+    - factor_id: CREDIT_HYG_MINUS_TLT
+      long_symbol: HYG
+      short_symbol: TLT
+    - factor_id: SIZE_IWM_MINUS_QQQ
+      long_symbol: IWM
+      short_symbol: QQQ
+  up_regime_return_threshold: 0.005
+  down_regime_return_threshold: -0.005
+
+capacity:
+  adv_lookback_completed_sessions: 20
+
+cost_model:
+  config_path: costs.yaml
+  config_content_sha256: db29fea7e521bfd8bb21bde8cc5e59af4dd39d1fcaeb1d502f67f8ac948120c5
+  version: toss_us_equities_2026_05_14_v1
+
+readiness:
+  minimum_common_sessions: 126
+  minimum_observations: 504
+  numeric_tolerance: 0.000000000001
+
+operations:
+  poll_seconds: 60
+  history_refresh_cooldown_seconds: 900
+  outcome_bar_query_limit: 260
+
+safety:
+  real_order_routing: false
+  automatic_promotion_enabled: false
+  challenger_lifecycle_advance_enabled: false
+  shadow_activation_enabled: false
+  broker_access_permitted: false

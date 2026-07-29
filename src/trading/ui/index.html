@@ -646,8 +646,8 @@
           <div class="panel-head">
             <div>
               <div class="eyebrow">Prospective Candidate Evidence</div>
-              <h2>Parent Q1-DET decision → sealed Challenger target</h2>
-              <p>독립 shadow가 아니라, 동일한 PIT cutoff에 묶인 forward-only target-state 증거입니다.</p>
+              <h2>Parent decision → sealed target → future outcome</h2>
+              <p>고정된 D+2 outcome cutoff로 실제 미래 수익을 append-only 적재합니다. 아직 독립 shadow나 승격 증거는 아닙니다.</p>
             </div>
           </div>
           <div class="q1-status-grid">
@@ -655,6 +655,8 @@
             <div class="q1-status-card"><span>STRATEGY</span><strong id="researchProspectiveStrategy">—</strong></div>
             <div class="q1-status-card"><span>REQUESTS</span><strong id="researchProspectiveRequests">0</strong></div>
             <div class="q1-status-card"><span>VALID TARGETS</span><strong id="researchProspectiveSuccesses">0</strong></div>
+            <div class="q1-status-card"><span>OUTCOMES</span><strong id="researchProspectiveOutcomes">0</strong></div>
+            <div class="q1-status-card"><span>FALSIFICATION INPUT</span><strong id="researchProspectiveReadiness">NOT READY</strong></div>
           </div>
           <pre id="researchProspectiveLatest">parent decision 대기 중</pre>
         </article>
@@ -1668,15 +1670,21 @@
         real_order_routing: scheduler.real_order_routing
       }, null, 2);
       const prospective = data.prospective_candidate || {};
-      $("researchProspectiveState").textContent = `${prospective.status || "—"} · ${prospective.outcome_status || "—"}`;
+      const prospectiveOutcomes = data.prospective_outcomes || {};
+      $("researchProspectiveState").textContent = `${prospective.status || "—"} · ${prospectiveOutcomes.status || prospective.outcome_status || "—"}`;
       $("researchProspectiveStrategy").textContent = `${prospective.strategy_id || "—"} ${prospective.strategy_version || ""}`;
       $("researchProspectiveRequests").textContent = formatNumber(prospective.request_count ?? 0);
       $("researchProspectiveSuccesses").textContent = `${formatNumber(prospective.success_count ?? 0)} valid · ${formatNumber(prospective.failure_count ?? 0)} failed`;
+      $("researchProspectiveOutcomes").textContent = `${formatNumber(prospectiveOutcomes.outcome_count ?? 0)} sessions · ${formatNumber(prospectiveOutcomes.observation_count ?? 0)} rows · ${formatNumber(prospectiveOutcomes.terminal_failure_count ?? 0)} failed`;
+      $("researchProspectiveReadiness").textContent = prospectiveOutcomes.falsification_input_ready === true
+        ? "READY"
+        : `${formatNumber(prospectiveOutcomes.outcome_count ?? 0)}/${formatNumber(prospectiveOutcomes.minimum_common_sessions ?? 0)} sessions`;
       $("researchProspectiveLatest").textContent = JSON.stringify({
         producer_version: prospective.producer_version || null,
         reference_universe: prospective.reference_universe || [],
         state_contract: prospective.state_contract || {},
         latest: prospective.latest || null,
+        forward_outcomes: prospectiveOutcomes,
         challenger_status_advanced: prospective.challenger_status_advanced,
         shadow_started: prospective.shadow_started,
         automatic_promotion_enabled: prospective.automatic_promotion_enabled,

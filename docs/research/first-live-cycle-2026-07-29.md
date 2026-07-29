@@ -167,6 +167,32 @@ This path never creates orders, fills, ledger postings, NAV, returns, a
 Challenger lifecycle transition, or a shadow registration. Even a successful
 response is explicitly `IMMATURE_FORWARD_ONLY`.
 
+### Prospective outcome producer
+
+Migration `0019_candidate_prospective_outcomes_v1` adds the missing future
+outcome half of that bridge without changing the Challenger state. For each
+successful request it precommits to a D+1 implementation close, a D+2
+evaluation close, and a fixed D+2-close-plus-120-minute source cutoff. The
+collector records exact adjusted-bar revisions, returns, parent and Candidate
+weights, cost inputs, 20-session source-bound ADV, market and sector context,
+known factor returns, and regime in one append-only record.
+
+Records first observed after the fixed cutoff cannot change a past outcome.
+If the monitor was unable to capture the required adjusted bars within the
+window, it records an append-only
+`PROSPECTIVE_OUTCOME_DATA_WINDOW_MISSED` terminal failure and does not invent
+or retrospectively repair the observation. That failure contributes nothing to
+readiness but lets the chronological collector continue to later requests.
+Logical outcome creation is the deterministic cutoff time; the separate
+database `recorded_at` retains actual insertion time, so worker retries and
+restarts do not alter the outcome hash.
+
+This producer still creates no Candidate arm, order, fill, ledger posting, NAV,
+falsification report, OOS request, shadow registration, promotion event, or
+Champion mutation. Its readiness threshold of 126 sessions and 504 instrument
+observations means only that a later host-owned falsification dataset may be
+assembled.
+
 ## Operational Q1 paper runtime
 
 The active synthetic run is `paper_q1_research_20260729_v5`.
@@ -249,7 +275,7 @@ instead.
 
 Public repository:
 
-- `uv run pytest`: **639 passed**, one third-party
+- `uv run pytest`: **653 passed**, one third-party
   FastAPI/Starlette deprecation warning;
 - `uv run ruff check .`: passed;
 - `uv run pyright`: 0 errors, 0 warnings;
@@ -260,6 +286,8 @@ Public repository:
   `2b8475fd62f76d100ea5254847f2492ddbca6fe8d8d60629d394e1bf7e08d203`;
 - prospective Candidate config manifest:
   `8c3bda4b64c55d350448821c0f14d91f24da4656b9aeeaa1368656ef9e069fa0`.
+- prospective outcome config manifest:
+  `7ea406b5edf8339d6530654539da36377318d824cc25676e651fbb33865d4ed5`.
 
 Commander repository:
 
@@ -268,16 +296,16 @@ Commander repository:
 - Pyright: 0 errors.
 
 A clean disposable SQLite database upgraded to
-`0018_candidate_prospective_v1`, downgraded to
-`0017_chronological_meta_oos_v1`, and re-upgraded to
-`0018_candidate_prospective_v1`. The CLI downgrade gate now accepts SQLite
-only, so a localhost PostgreSQL URL cannot be mistaken for the disposable
-database.
+`0019_candidate_prospective_outcomes_v1`, downgraded to
+`0018_candidate_prospective_v1`, and re-upgraded to
+`0019_candidate_prospective_outcomes_v1`. The CLI downgrade gate accepts
+SQLite only, so a localhost PostgreSQL URL cannot be mistaken for the
+disposable database.
 
 The synthetic seven-arm demo replay returned
-`ab7ca27aab4152b0cea1951a39c4b3bc552d4727ef399a64a03f1d53efbf096c`
-on two independent invocations. All 11 verification checks passed and every
-arm ledger balanced.
+`ccf42b5d05677f3d2ff59fe85a7e4068a32da0903f8a78fcb3c877bf532a0ba0`
+on two independent invocations in the disposable 0019 database. All 11
+verification checks passed and every arm ledger balanced.
 
 The live v5 run is not yet replay-complete because its first session has not
 opened. `replay` and `verify` returned the same deterministic incomplete-stream
@@ -302,8 +330,10 @@ never use the downgrade command against PostgreSQL.
 
 ## Remaining gates
 
-- record the first parent-bound prospective target and continue chronological
-  forward observation without backfill;
+- continue parent-bound prospective targets and append only outcomes captured
+  within each precommitted future-data window;
+- assemble predeclared host-owned variants only after 126 valid forward
+  sessions and 504 instrument observations;
 - run every mandatory falsification and cost/capacity stress;
 - request locked OOS only after falsification passes;
 - create an independent Challenger shadow arm only after locked OOS passes;

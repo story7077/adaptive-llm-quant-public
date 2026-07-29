@@ -151,6 +151,15 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert prospective["shadow_started"] is False
         assert prospective["automatic_promotion_enabled"] is False
         assert prospective["real_order_routing"] is False
+        outcomes = research_status.json()["prospective_outcomes"]
+        assert outcomes["status"] == "WAITING_FOR_PROSPECTIVE_TARGET"
+        assert outcomes["outcome_count"] == 0
+        assert outcomes["terminal_failure_count"] == 0
+        assert outcomes["falsification_input_ready"] is False
+        assert outcomes["challenger_status_advanced"] is False
+        assert outcomes["shadow_started"] is False
+        assert outcomes["automatic_promotion_enabled"] is False
+        assert outcomes["real_order_routing"] is False
 
         research_selection = client.post(
             "/api/research/commander",
