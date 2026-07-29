@@ -1043,6 +1043,61 @@ validated 121-session PIT signal input. All seven supervised local processes
 were running once, the status endpoints were loopback-only, automatic
 promotion remained disabled, and `real_order_routing=false`.
 
+### v11 Codex Structured Output transport correction
+
+A synthetic, non-account Q1 commander preflight then exercised the actual
+selected Codex transport rather than a mocked provider. The first invocation
+failed closed before model execution. Pydantic had declared the defaulted
+`schema_version` property but omitted it from `required`, while Codex strict
+Structured Outputs requires every declared object property to be required.
+No policy, portfolio decision, database row, or broker request was created.
+
+Public PR
+[#37](https://github.com/story7077/adaptive-llm-quant-public/pull/37)
+now derives a transport-only strict schema that requires every fixed property
+and removes defaults. The authoritative `Q1LlmOverlayDecision` validation
+still runs after transport. A non-zero Codex process exit is also classified
+as `TRANSPORT_FAILED`; stderr is neither persisted nor included in the audit
+record.
+
+The same isolated synthetic preflight then returned a schema-valid
+`GPT-5.6 Sol`/`max` reduce-only response in 46.739 seconds. It selected no
+risk reduction, called no broker, wrote no economic database decision, and
+kept `real_order_routing=false`. This proves the bounded transport and schema
+path, not the quality or profitability of a market decision.
+
+Validation for PR #37 returned 693 passes, one third-party Starlette warning,
+Ruff success, zero Pyright errors or warnings, valid versioned
+configurations, strict UTF-8 decoding, and a passing full public-release scan.
+Both independent GitHub public-release workflows passed. The PR merged as
+`bee038c29dc610b202178f348b9584884188cd00`.
+
+Before rollover, v10 still contained zero evaluation anchors, arm states,
+decisions, intents, order events, fills, ledger records, NAV snapshots, risk
+records, settlements, and daily results. Its pending schedule remains
+append-only and readable. The corrected merge therefore started a new
+immutable run, `paper_q1_research_20260730_v11`, rather than changing v10's
+code identity.
+
+The v11 deployment is bound to:
+
+| Field | Value |
+| --- | --- |
+| Source commit | `bee038c29dc610b202178f348b9584884188cd00` |
+| Code identity | `workspace:91dbc97f85631c8a90d04d22aa3e07de819abc20895be5b342de21b1cd8f51e7` |
+| Algorithm | `q1_math_core_v1` |
+| Q1 config manifest | `afcaa7ea2939b3ca39ecae9f553794450ca498a0d1a48a19758eaab70479ad36` |
+| First scheduled cycle | `2026-07-30T13:30:00Z` |
+| First strategic cycle | `2026-07-30T14:00:00Z` |
+| Pre-bootstrap replay hash | `2e4e7b864657d3199562680a668ef293bae4508ccad67a1e767774d5810c1d86` |
+
+Two independent pre-bootstrap replays returned the same hash. The mode is
+correctly `INCOMPLETE_EVENT_STREAM`: algorithm and routing checks pass while
+initial-state and complete-session checks remain false until the actual
+calendar session runs. v11 reported `PENDING_BOOTSTRAP`, a fresh heartbeat,
+no runtime error, healthy WebGPT readiness, and the selected
+`CODEX_SOL_MAX` commander after deployment.
+
 ## Validation
 
 Post-cycle failure-gate validation:
