@@ -1136,6 +1136,16 @@ runtime error, seven Q1 arms, no active LLM policy, disabled Alpaca Paper
 canary routing, and `real_order_routing=false`. Its next calendar-derived cycle
 is `Q1_SETTLEMENT` at `2026-07-30T13:30:00Z`.
 
+The complete inherited-position quote set and both Q1 risky symbols fit the
+free IEX plan exactly at its 30-subscription limit, with no required symbol
+missing from the bar or quote streams. The production PIT service resolved a
+positive 20-session ADV and 20 source-bar IDs for all nine required symbols.
+It also resolved the Q1 signal input to 121 aligned completed sessions and 242
+source bars through `2026-07-29`, with a
+`2026-07-30T14:00:00Z` cutoff. The stream was connected with a fresh worker
+heartbeat and adjusted-history refresh `READY`; stale quotes before the next
+regular-session open are expected and cannot execute.
+
 Validation for this handoff:
 
 - `uv run pytest`: **694 passed**, with one third-party Starlette warning;
