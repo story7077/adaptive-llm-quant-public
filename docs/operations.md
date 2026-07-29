@@ -42,6 +42,15 @@ record first observed after a cycle's scheduled time cannot satisfy
 contract and prevents a retryable historical bootstrap from starving later
 cycles.
 
+On PostgreSQL, the paper-cycle repository uses `clock_timestamp()` as the
+authority for due-cycle selection, expired-lease reclamation, missed-window
+classification, and new lease timestamps. A workstation clock that is ahead
+therefore cannot claim a cycle before its stored `scheduled_at`. SQLite uses the
+injected application clock so tests and deterministic replay remain
+controllable. Keep the host clock synchronized as well because provider
+timestamps and process-local observations still originate outside the
+repository.
+
 ## First local validation
 
 Run from the repository root:
