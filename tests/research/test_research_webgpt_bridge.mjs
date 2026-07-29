@@ -12,6 +12,7 @@ import test from 'node:test';
 import {
     browserSessionIdFromWebSocketUrl,
     conversationIdFromUrl,
+    isProviderRateLimitText,
     normalizeReasoning,
     parseArgs,
     runBridgeCommand,
@@ -298,6 +299,22 @@ test('model family and reasoning checks are exact and fail closed', () => {
     );
     assert.equal(normalizeReasoning('xhigh'), 'xhigh');
     assert.equal(normalizeReasoning('not very high'), null);
+});
+
+test('temporary provider limits are recognized without relaxing model checks', () => {
+    assert.equal(
+        isProviderRateLimitText(
+            '요청이 너무 많습니다. 액세스가 일시적으로 제한되었습니다.',
+        ),
+        true,
+    );
+    assert.equal(
+        isProviderRateLimitText(
+            'Too many requests. Access is temporarily limited.',
+        ),
+        true,
+    );
+    assert.equal(isProviderRateLimitText('GPT-5.6 Sol Pro'), false);
 });
 
 test('conversation URL parser rejects alternate origins and URL decorations', () => {

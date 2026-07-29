@@ -83,6 +83,16 @@ export function normalizeReasoning(value) {
     return REASONING_LABELS.has(label) ? EXPECTED_REASONING : null;
 }
 
+export function isProviderRateLimitText(value) {
+    const text = normalizeText(value).toLocaleLowerCase('en-US');
+    return (
+        text.includes('too many requests')
+        || text.includes('temporarily limited')
+        || text.includes('요청이 너무 많')
+        || text.includes('일시적으로 제한')
+    );
+}
+
 export function conversationIdFromUrl(value) {
     try {
         const url = new URL(value);
@@ -553,6 +563,7 @@ async function preflight(browser, values, browserSessionId) {
     const requestedConversation = optionalIdentifier(values, 'conversation-id');
     const page = await findPreflightPage(browser, requestedTarget);
     await proveHeadedChrome(page);
+    await rejectProviderRateLimit(page);
     if (
         expectedBrowserSessionId !== null
         && expectedBrowserSessionId !== browserSessionId
@@ -584,6 +595,15 @@ async function preflight(browser, values, browserSessionId) {
         conversation_id: conversationId,
         ...conversations,
     };
+}
+
+async function rejectProviderRateLimit(page) {
+    const dialogs = await page.locator('[role="dialog"]')
+        .allInnerTexts()
+        .catch(() => []);
+    if (dialogs.some(isProviderRateLimitText)) {
+        throw new BridgeFailure('provider_temporarily_rate_limited');
+    }
 }
 
 async function activateWebSearch(page) {
@@ -646,6 +666,7 @@ async function prepareActiveBrowse(browser, values, browserSessionId) {
             timeout: 30_000,
         });
         await proveHeadedChrome(page);
+        await rejectProviderRateLimit(page);
         const targetId = await targetIdFor(page);
         if (conversationIdFromUrl(page.url()) !== null) {
             throw new BridgeFailure('fresh_conversation_not_blank');
