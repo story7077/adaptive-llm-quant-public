@@ -51,6 +51,21 @@ schema-valid proposal for `Q1-DET 2.0.0`, parented to `Q1-DET 1.0.0`. The
 proposal adds a capped, independently gated GLD/TLT/SGOV residual sleeve while
 preserving the parent QQQ/SOXX targets.
 
+### Commander timeout-adoption audit
+
+The retained host stderr records an initial rejection because that validator
+did not yet collect evidence IDs nested inside the bounded Web Scout bundle.
+The Codex child later exited, and the final execution record used the explicit
+`HOST_ADOPTED_AFTER_SUPERVISOR_TIMEOUT` path with child exit confirmed.
+
+A read-only historical revalidation with the current committed validator
+accepted the published decision against the original request at its recorded
+creation time. All 12 cited evidence IDs are members of the original 14-source
+bounded request. Comparing the raw model output with the published decision
+found differences only in the three trusted-host fields `created_at`,
+`output_hash`, and `proposal.proposal_hash`; no economic hypothesis, rule,
+scope, or evidence citation was changed during adoption.
+
 ## Candidate artifact
 
 | Field | Value |
@@ -147,7 +162,7 @@ independent shadow arm. It binds one completed parent `Q1-DET` strategic
 decision to one sealed Candidate request using:
 
 - the parent's actual creation time as both decision time and signal cutoff;
-- 200 aligned completed sessions for GLD, QQQ, SGOV, SOXX, and TLT;
+- 220 aligned completed sessions for GLD, QQQ, SGOV, SOXX, and TLT;
 - exact source bar IDs, event and availability times, and payload hashes;
 - the common evaluation anchor and parent decision/input-manifest hashes;
 - a versioned feature/config contract;
@@ -318,6 +333,46 @@ model uses same-cycle paper cash and exposes
 production-broker buying-power model. Automatic promotion and real broker
 routing remain unavailable.
 
+### Trusted prospective-to-shadow provenance handoff
+
+Public PR
+[#22](https://github.com/story7077/adaptive-llm-quant-public/pull/22)
+closed the remaining promotion-evidence provenance gap. It merged as
+`eee2c40818cdcf0931250493261d9c24c0652277`; the corresponding
+[public release workflow](https://github.com/story7077/adaptive-llm-quant-public/actions/runs/30427030217)
+completed successfully.
+
+A promotion-facing matched cycle can now be derived only from the exact
+post-activation Q1 parent decision, sealed Candidate request, successful and
+identical primary/replay response, registered Candidate artifact, fresh
+persisted `CONNECTED` quotes, and completed PIT ADV bars. The host provenance
+and both arm results are committed atomically. Pre-activation evidence is
+ineligible, supplied performance summaries are recomputed from immutable
+cycles, and manual JSON cycle commit remains disabled with
+`UNATTESTED_MANUAL_SHADOW_CYCLE_COMMIT_DISABLED`.
+
+At `2026-07-29T06:31Z`, three independent merged-code monitors were running:
+
+- the target monitor was `WAITING_FOR_PARENT_DECISION` at `0` requests;
+- the outcome monitor was `ACCUMULATING_FORWARD_OUTCOMES` at `0` outcomes;
+- the evaluation monitor was `WAITING_FOR_FORWARD_OUTCOMES`;
+- all three stderr logs were empty; and
+- the independent shadow runtime correctly remained `NOT_INITIALIZED`.
+
+The monitor's Candidate runtime attestation matched the registered bundle hash,
+Candidate tree hash, aggregate config hash, CPython ABI, declared entrypoint,
+and exact approved strategy-config hash. A separate read-only preflight
+accepted 121 aligned QQQ/SOXX sessions for the Q1 signal and 220 aligned
+GLD/QQQ/SGOV/SOXX/TLT sessions for Candidate features, both through the
+completed 2026-07-28 session.
+
+The version-pinned Q1 process was not hot-reloaded. Its heartbeat was current,
+its next cycle remained the actual `2026-07-29T13:30:00Z` session open, and it
+reported no runtime error. The Alpaca IEX stream was `CONNECTED`; stale prices
+before the US session were expected and were not accepted as executable
+quotes. Alpaca Paper canary, automatic promotion, and real broker routing all
+remained disabled.
+
 ## Operational Q1 paper runtime
 
 The active synthetic run is `paper_q1_research_20260729_v5`.
@@ -415,6 +470,20 @@ Public repository:
   `7ea406b5edf8339d6530654539da36377318d824cc25676e651fbb33865d4ed5`.
 - prospective evaluation V2 config manifest:
   `a7406cf9ffe26279c0dddf54624908fb609a120fb6ec12ce8a35f0f7cfb58a5e`.
+
+Post-provenance handoff at merge
+`eee2c40818cdcf0931250493261d9c24c0652277`:
+
+- `uv run pytest`: **672 passed**, one third-party Starlette/httpx deprecation
+  warning;
+- `uv run ruff check .`: passed;
+- `uv run pyright`: 0 errors;
+- `uv run python -m trading.cli config validate --all`: passed;
+- a disposable database upgraded to `0020`, downgraded to `0019`, and
+  re-upgraded to `0020`;
+- deterministic demo seed, replay, and verification passed with equal replay
+  hashes and balanced ledgers; and
+- the public-release secret, provenance, and clean-root scan passed.
 
 Commander repository:
 
