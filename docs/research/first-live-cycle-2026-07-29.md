@@ -375,7 +375,8 @@ remained disabled.
 
 ## Operational Q1 paper runtime
 
-The active synthetic run is `paper_q1_research_20260729_v5`.
+The initial bring-up run was the synthetic
+`paper_q1_research_20260729_v5`.
 
 At `2026-07-28T20:08Z` its server-reported state was:
 
@@ -493,6 +494,72 @@ This was a schedule-only append. No past decision was synthesized or
 backfilled. Alpaca Paper canary and automatic promotion remained disabled, and
 real broker routing remained unavailable.
 
+### Current v7 private-account paper handoff
+
+Public PR
+[#25](https://github.com/story7077/adaptive-llm-quant-public/pull/25)
+moved PostgreSQL paper-cycle claims, lease reclamation, and claim timestamps to
+the database clock. The merged main commit is
+`00c726b9509ea60a3a058d77e8152e65bcff31d6`. A disposable PostgreSQL proof
+showed that a host clock one hour fast could not claim before database due time,
+while a host clock one hour slow could claim after database due time.
+
+Before any economic row existed, the pre-open audit found that the then-current
+v6 run still referenced the public synthetic example account. That run was
+preserved and stopped with zero anchors, decisions, orders, fills, NAV
+snapshots, or daily results. A new versioned run,
+`paper_q1_research_20260729_v7`, was created from the same merged code and Q1
+configuration but bound to the user-supplied Toss snapshot in local,
+gitignored storage. Account cash, quantities, symbols, screenshots, and local
+paths are intentionally absent from this public record. Frozen non-USD cash is
+non-tradable. HOLD and LIVE-MIRROR will inherit the local snapshot at session
+open; clean strategy arms will still start cash-only at the common T0 NAV.
+
+The v7 immutable identities are:
+
+| Field | Value |
+| --- | --- |
+| Algorithm | `q1_math_core_v1` |
+| Source commit | `00c726b9509ea60a3a058d77e8152e65bcff31d6` |
+| Code identity | `workspace:69ded580a1099368b50c6b9b6d9d2471150170aec613f1281f8a4462cff443f3` |
+| Q1 config manifest | `afcaa7ea2939b3ca39ecae9f553794450ca498a0d1a48a19758eaab70479ad36` |
+| Initial replay hash | `2943f560930e333c7ef3a2ff964876e1fe91f161f01cedd1899c3f8296aa83a7` |
+| First session open | `2026-07-29T13:30:00Z` |
+| First strategic cycle | `2026-07-29T14:00:00Z` |
+
+Two independent pre-open replays produced the same initial hash and identical
+checks. All available record-hash, row-consistency, state-machine, typed-risk,
+and `real_order_routing=false` checks passed. Only
+`initial_state_economics_valid` and `complete_session_record_set_present` were
+false because no session-open state or complete session record existed yet.
+This is an incomplete-stream result, not a successful economic replay.
+
+The Q1 runtime, loopback-only status UI, and three prospective Candidate
+monitors were moved to the same detached main snapshot and Python environment.
+No process remained on an older feature worktree. A user-level local supervisor
+now restores those five processes after logon or process failure without
+publishing its machine-specific configuration. An intentional termination of
+the evaluation monitor was recovered with new process IDs within one 30-second
+poll. PostgreSQL is an automatic Windows service. The database, Q1 API, status
+API, and Chrome CDP listeners were verified as loopback-only.
+
+At the sanitized handoff checkpoint:
+
+- v7 was `PENDING_BOOTSTRAP` with no runtime error;
+- the IEX stream and headed AGBrowse/CDP browser were connected;
+- the WebGPT bridge preflight was healthy with `xhigh`;
+- target, outcome, and evaluation monitors were running against v7;
+- the Candidate remained `WAITING_FOR_PARENT_DECISION`;
+- forward outcomes remained `0/126`;
+- independent shadow remained `NOT_INITIALIZED`;
+- automatic promotion and broker access remained disabled; and
+- `real_order_routing=false`.
+
+No return, alpha, fill, or profitability statement can be made from this
+pre-open checkpoint. The post-open anchor, decisions, order events, paper fills,
+NAV records, and replay hash must be appended only after the actual scheduled
+cycles occur.
+
 ## Validation
 
 Public repository:
@@ -527,6 +594,19 @@ Post-provenance handoff at merge
   hashes and balanced ledgers; and
 - the public-release secret, provenance, and clean-root scan passed.
 
+Current main after PR #25 at
+`00c726b9509ea60a3a058d77e8152e65bcff31d6`:
+
+- `uv run pytest`: **673 passed**, one third-party Starlette warning;
+- `uv run ruff check .`: passed;
+- `uv run pyright`: 0 errors, 0 warnings;
+- `uv run python -m trading.cli config validate --all`: passed;
+- disposable PostgreSQL upgrade, guarded downgrade/re-upgrade, and authoritative
+  database-clock claim proof: passed; and
+- main public-release security workflow
+  [30434932882](https://github.com/story7077/adaptive-llm-quant-public/actions/runs/30434932882):
+  passed.
+
 Commander repository:
 
 - test suite: **137 passed**;
@@ -545,13 +625,13 @@ The synthetic seven-arm demo replay returned
 on two independent invocations in the disposable 0020 database. All 11
 verification checks passed and every arm ledger balanced.
 
-The live v5 run is not yet replay-complete because its first session has not
-opened. `replay` and `verify` returned the same deterministic incomplete-stream
-hash,
-`1af290f96e41284c6e4ce70081bba141be00358757b10a2552371354c633cbd0`,
+The preserved v5 and v6 runs remain unmodified and incomplete. The current v7
+run is also not yet replay-complete because its first session has not opened.
+Two `replay` invocations returned the same deterministic incomplete-stream hash,
+`2943f560930e333c7ef3a2ff964876e1fe91f161f01cedd1899c3f8296aa83a7`,
 with all available hash and state-machine checks passing and the required
 initial-state/session-completeness checks correctly false. The repository's
-complete synthetic Q1 replay tests passed in the 665-test suite.
+complete synthetic Q1 replay tests passed in the 673-test suite.
 
 ### Migration validation incident
 
