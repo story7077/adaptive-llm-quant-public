@@ -18,6 +18,9 @@ particular ticker, sector, or trading style.
 > - Every public account, position, balance, order, and result is synthetic.
 > - WebGPT/AGBrowse and Codex execution require separate user-managed local
 >   environments; browser state, credentials, and private datasets are not bundled.
+> - The scheduler and fenced execution consumer are public, but a trusted,
+>   git-ignored local launcher must connect those contracts to the user's isolated
+>   WebGPT/AGBrowse and Codex environments. No broker or API secret is inherited.
 > - The first live-built `Q1-DET 2.0.0` Challenger remains `PROPOSED`.
 >   Its prospective target-state observations and subsequently matured
 >   next-close outcomes are forward research evidence, not an independent
@@ -129,6 +132,15 @@ receives only an approved structured proposal, a sanitized request binding,
 constraints, and a clean source snapshot—not the full Research Memory,
 Commander conversation, or hidden reasoning.
 
+Scheduled work is committed in two stages. `research schedule-work` appends a
+typed dispatch receipt without calling a model. `research schedule-consume`
+claims that receipt with a renewable database-clock lease and invokes one
+trusted local launcher using a hash-bound request/result contract. A required
+UTC cutover leaves older append-only receipts visible but unclaimed. Stale
+workers, reused model contexts, changed Commander selections, invalid model
+routes, and malformed results are rejected before the append-only success
+event. The consumer never receives or routes a broker order.
+
 ## Universe: catalog-driven US equities and ETFs
 
 Research is not limited to SOXL, SOXS, semiconductor products, or the Q1
@@ -221,6 +233,7 @@ Research contract and status commands:
 uv run python -m trading.cli research schema
 uv run python -m trading.cli research status
 uv run python -m trading.cli research select --commander CODEX_SOL_MAX
+uv run python -m trading.cli research schedule-consume --help
 uv run python -m trading.cli research meta-policy build --help
 uv run python -m trading.cli research oos-v2 --help
 uv run python -m trading.cli research shadow-runtime status

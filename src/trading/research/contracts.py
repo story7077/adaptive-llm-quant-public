@@ -193,11 +193,10 @@ class AlgorithmProposalV1(DomainModel):
 
     @model_validator(mode="after")
     def validate_proposal_hash(self) -> Self:
-        if (
-            self.proposed_strategy_id == self.parent_strategy_id
-            and self.proposed_strategy_version == self.parent_strategy_version
-        ):
-            raise ValueError("a proposal cannot overwrite its parent strategy version")
+        if self.proposed_strategy_version == self.parent_strategy_version:
+            raise ValueError(
+                "proposed strategy version must differ from parent strategy version"
+            )
         payload = self.model_dump(mode="python", exclude={"proposal_hash"})
         if canonical_hash(payload) != self.proposal_hash:
             raise ValueError("proposal_hash mismatch")
@@ -393,6 +392,72 @@ class ChallengerManifestV1(DomainModel):
             raise ValueError("manifest_hash mismatch")
         if self.strategy_version == self.parent_version:
             raise ValueError("a Challenger cannot overwrite its parent version")
+        return self
+
+
+class CandidateTestCountsV1(DomainModel):
+    collected: int = Field(ge=0)
+    passed: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    errors: int = Field(ge=0)
+    xfailed: int = Field(ge=0)
+    xpassed: int = Field(ge=0)
+    deselected: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_failure_count(self) -> Self:
+        if self.failed + self.errors < 1:
+            raise ValueError("a failed Candidate test record requires a failure or error")
+        return self
+
+
+class CandidateTestFailureV1(DomainModel):
+    """Host-owned proof that a Candidate failed before artifact registration."""
+
+    schema_version: Literal["candidate_test_failure_v1"] = (
+        "candidate_test_failure_v1"
+    )
+    challenger_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    candidate_manifest_hash: str = Field(pattern=HASH_PATTERN)
+    proposal_hash: str = Field(pattern=HASH_PATTERN)
+    patch_hash: str = Field(pattern=HASH_PATTERN)
+    test_manifest_hash: str = Field(pattern=HASH_PATTERN)
+    runner_code_hash: str = Field(pattern=HASH_PATTERN)
+    execution_contract_version: str = Field(
+        min_length=1,
+        max_length=160,
+    )
+    status: Literal["FAILED"]
+    exit_code: int
+    test_count: CandidateTestCountsV1
+    failure_reason_code: Literal["CANDIDATE_TEST_SUITE_FAILED"]
+    candidate_tree_unchanged: Literal[True]
+    candidate_source_projection_unchanged: Literal[True]
+    candidate_test_projection_unchanged: Literal[True]
+    host_abi_test_unchanged: Literal[True]
+    output_limit_exceeded: Literal[False]
+    raw_output_persisted: Literal[False]
+    network_access_permitted: Literal[False]
+    credential_access_permitted: Literal[False]
+    broker_access_permitted: Literal[False]
+    host_principal_persisted: Literal[False]
+    real_order_routing: Literal[False]
+    created_at: datetime
+    failure_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return require_aware_utc(value)
+
+    @model_validator(mode="after")
+    def validate_failure(self) -> Self:
+        if self.exit_code == 0:
+            raise ValueError("a failed Candidate test record requires a nonzero exit code")
+        payload = self.model_dump(mode="python", exclude={"failure_hash"})
+        if canonical_hash(payload) != self.failure_hash:
+            raise ValueError("failure_hash mismatch")
         return self
 
 

@@ -39,6 +39,7 @@ from trading.persistence.models import (
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
 from trading.research.contracts import (
     AlgorithmProposalV1,
+    CandidateTestFailureV1,
     ChallengerManifestV1,
     ChallengerStatus,
     CommanderSelectionV1,
@@ -809,6 +810,126 @@ class ResearchRepository:
             except IntegrityError as exc:
                 raise ResearchPersistenceError("candidate artifact registration conflict") from exc
             return True
+
+    def record_candidate_test_failure(
+        self,
+        failure: CandidateTestFailureV1,
+    ) -> bool:
+        """Persist a typed pre-artifact test failure and terminally reject it."""
+
+        with self._session_factory.begin() as session:
+            manifest_row = self._challenger_for_update(
+                session,
+                failure.challenger_id,
+            )
+            try:
+                manifest = ChallengerManifestV1.model_validate(
+                    manifest_row.payload_json
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "stored Challenger manifest payload is invalid"
+                ) from exc
+            if (
+                manifest.challenger_id != manifest_row.challenger_id
+                or manifest.manifest_hash != manifest_row.manifest_hash
+            ):
+                raise ResearchPersistenceError(
+                    "stored Candidate test failure bindings are invalid"
+                )
+            proposal_row = session.get(
+                AlgorithmProposalRow,
+                manifest_row.proposal_id,
+            )
+            if proposal_row is None:
+                raise ResearchPersistenceError(
+                    "Candidate test failure proposal is missing"
+                )
+            if manifest.proposal_hash != proposal_row.proposal_hash:
+                raise ResearchPersistenceError(
+                    "stored Candidate test failure bindings are invalid"
+                )
+            if failure.created_at < manifest.created_at:
+                raise ResearchPersistenceError(
+                    "Candidate test failure predates its Challenger manifest"
+                )
+            bindings: tuple[tuple[str, object, object], ...] = (
+                (
+                    "challenger_id",
+                    failure.challenger_id,
+                    manifest.challenger_id,
+                ),
+                (
+                    "candidate_manifest_hash",
+                    failure.candidate_manifest_hash,
+                    manifest.manifest_hash,
+                ),
+                (
+                    "proposal_hash",
+                    failure.proposal_hash,
+                    manifest.proposal_hash,
+                ),
+                (
+                    "stored_proposal_hash",
+                    failure.proposal_hash,
+                    proposal_row.proposal_hash,
+                ),
+                ("patch_hash", failure.patch_hash, manifest.patch_hash),
+                (
+                    "test_manifest_hash",
+                    failure.test_manifest_hash,
+                    manifest.test_manifest_hash,
+                ),
+            )
+            mismatches = [
+                name
+                for name, actual, expected in bindings
+                if actual != expected
+            ]
+            if mismatches:
+                raise ResearchPersistenceError(
+                    "Candidate test failure binding mismatch: "
+                    + ",".join(mismatches)
+                )
+            candidate_artifact = session.scalar(
+                select(ResearchCandidateArtifactRow).where(
+                    ResearchCandidateArtifactRow.challenger_id
+                    == failure.challenger_id
+                )
+            )
+            if candidate_artifact is not None:
+                raise ResearchPersistenceError(
+                    "pre-artifact Candidate test failure cannot follow "
+                    "candidate artifact registration"
+                )
+            current = self._current_challenger_status(
+                session,
+                manifest_row,
+            )
+            existing = session.scalar(
+                select(ChallengerEventRow).where(
+                    ChallengerEventRow.challenger_id
+                    == failure.challenger_id,
+                    ChallengerEventRow.idempotency_key
+                    == f"candidate-test-failure:{failure.failure_hash}",
+                )
+            )
+            if existing is None and current is not ChallengerStatus.PROPOSED:
+                raise ResearchPersistenceError(
+                    "Candidate test failure requires PROPOSED"
+                )
+            return self._append_challenger_transition(
+                session,
+                manifest=manifest_row,
+                to_status=ChallengerStatus.TEST_FAILED,
+                reason_code=failure.failure_reason_code,
+                artifact_hash=failure.failure_hash,
+                idempotency_key=(
+                    f"candidate-test-failure:{failure.failure_hash}"
+                ),
+                created_at=failure.created_at,
+                artifact_payload=model_payload(failure),
+            )
 
     def candidate_artifact(
         self,
@@ -3111,13 +3232,59 @@ class ResearchRepository:
                     )
                 )
             )
+            challenger_events = list(
+                session.scalars(
+                    select(ChallengerEventRow)
+                    .where(
+                        ChallengerEventRow.challenger_id.in_(
+                            [
+                                manifest.challenger_id
+                                for manifest in manifests
+                            ]
+                        )
+                    )
+                    .order_by(
+                        ChallengerEventRow.challenger_id,
+                        desc(ChallengerEventRow.sequence),
+                    )
+                )
+            )
+            latest_event_by_challenger: dict[
+                str,
+                ChallengerEventRow,
+            ] = {}
+            for event in challenger_events:
+                latest_event_by_challenger.setdefault(
+                    event.challenger_id,
+                    event,
+                )
             challengers = [
                 {
                     **manifest.payload_json,
-                    "current_status": self._current_challenger_status(
-                        session,
-                        manifest,
-                    ).value,
+                    "current_status": (
+                        manifest.initial_status
+                        if (
+                            latest_event_by_challenger.get(
+                                manifest.challenger_id
+                            )
+                            is None
+                        )
+                        else latest_event_by_challenger[
+                            manifest.challenger_id
+                        ].to_status
+                    ),
+                    "latest_status_reason": (
+                        None
+                        if (
+                            latest_event_by_challenger.get(
+                                manifest.challenger_id
+                            )
+                            is None
+                        )
+                        else latest_event_by_challenger[
+                            manifest.challenger_id
+                        ].reason_code
+                    ),
                 }
                 for manifest in manifests
             ]
@@ -3489,6 +3656,7 @@ class ResearchRepository:
         artifact_hash: str | None,
         idempotency_key: str,
         created_at: datetime,
+        artifact_payload: dict[str, Any] | None = None,
     ) -> bool:
         existing = session.scalar(
             select(ChallengerEventRow).where(
@@ -3511,7 +3679,7 @@ class ResearchRepository:
             )
         )
         sequence = 1 if latest_sequence is None else latest_sequence + 1
-        payload = {
+        payload: dict[str, Any] = {
             "challenger_id": manifest.challenger_id,
             "sequence": sequence,
             "from_status": current.value,
@@ -3521,6 +3689,8 @@ class ResearchRepository:
             "idempotency_key": idempotency_key,
             "created_at": created_at,
         }
+        if artifact_payload is not None:
+            payload["artifact_payload"] = artifact_payload
         session.add(
             ChallengerEventRow(
                 challenger_event_id=stable_id(

@@ -12,6 +12,7 @@ import test from 'node:test';
 import {
     browserSessionIdFromWebSocketUrl,
     conversationIdFromUrl,
+    isProviderRateLimitText,
     normalizeReasoning,
     parseArgs,
     runBridgeCommand,
@@ -19,12 +20,21 @@ import {
     validateActiveBrowseSignals,
     validateCheckedSelections,
     validateCompletionSignals,
+    validateRateLimitedPostflightSignals,
 } from '../../scripts/research_webgpt_bridge.mjs';
 
 const TEST_CDP_BINDING = {
     connectionEndpoint: 'ws://127.0.0.1:9222/devtools/browser/browser-cdp-001',
     browserSessionId: 'browser-cdp-001',
 };
+const FAKE_ASSISTANT_TURN_SELECTOR = [
+    '[data-message-author-role="assistant"]',
+    '[data-turn="assistant"]',
+].join(',');
+const FAKE_USER_TURN_SELECTOR = [
+    '[data-message-author-role="user"]',
+    '[data-turn="user"]',
+].join(',');
 
 class FakeLocator {
     constructor(page, selector) {
@@ -55,8 +65,14 @@ class FakeLocator {
     async count() {
         if (this.selector === '[data-testid="accounts-profile-button"]') return 1;
         if (this.selector.includes('aria-haspopup="menu"')) return 1;
-        if (this.selector === '[data-message-author-role="assistant"]') return 1;
-        if (this.selector === '[data-message-author-role="user"]') return 1;
+        if (this.selector.includes('[data-streaming-response-status]')) {
+            const active = this.page.responseActivityChecks > 0;
+            this.page.responseActivityChecks -= 1;
+            return active ? 1 : 0;
+        }
+        if (this.selector === FAKE_ASSISTANT_TURN_SELECTOR) return 1;
+        if (this.selector === FAKE_USER_TURN_SELECTOR) return 1;
+        if (this.selector === '.markdown') return 1;
         if (this.selector.includes('data-system-hint-type="search"')) return 1;
         return 0;
     }
@@ -65,11 +81,12 @@ class FakeLocator {
         if (this.selector.includes('#prompt-textarea')) return true;
         if (this.selector === '[data-testid="accounts-profile-button"]') return true;
         if (this.selector === '[data-testid="composer-intelligence-picker-content"]') {
-            return this.page.menuOpened;
+            return false;
         }
         if (this.selector === 'exact-text') return this.page.menuOpened;
         if (this.selector.includes('aria-haspopup="menu"')) return true;
-        return this.selector === '[data-message-author-role="assistant"]';
+        if (this.selector.includes('[data-streaming-response-status]')) return true;
+        return this.selector === FAKE_ASSISTANT_TURN_SELECTOR;
     }
 
     async click() {
@@ -83,11 +100,23 @@ class FakeLocator {
     async evaluate(callback) {
         if (this.selector === '[data-testid="accounts-profile-button"]') return true;
         if (this.selector === 'exact-text') return false;
+        if (this.selector === '.markdown') {
+            return callback({
+                textContent: JSON.stringify({
+                    schema_version: 'research_evidence_bundle_v1',
+                    request_id: this.page.requestId,
+                    role: 'WEB_SCOUT',
+                }),
+            });
+        }
         return callback({});
     }
 
     async evaluateAll() {
         if (this.selector === '[role="menu"]') return 0;
+        if (this.selector === '[data-testid="composer-intelligence-picker-content"]') {
+            return this.page.menuOpened;
+        }
         if (this.selector.startsWith('[role="menuitemradio"]')) {
             return this.page.menuOpened ? ['GPT-5.6 Sol', 'Very high'] : [];
         }
@@ -98,10 +127,26 @@ class FakeLocator {
     }
 
     async allInnerTexts() {
-        if (this.selector === '[data-message-author-role="user"]') {
+        if (this.selector === '[role="dialog"]' && this.page.providerRateLimited) {
+            return ['요청이 너무 많습니다. 액세스가 일시적으로 제한되었습니다.'];
+        }
+        if (this.selector.includes('aria-haspopup="menu"')) {
+            return ['매우 높음'];
+        }
+        if (this.selector === FAKE_USER_TURN_SELECTOR) {
             return [`bound request ${this.page.requestId}`];
         }
         return [];
+    }
+
+    async getAttribute(name) {
+        if (
+            this.selector === FAKE_ASSISTANT_TURN_SELECTOR
+            && name === 'data-message-model-slug'
+        ) {
+            return this.page.assistantModelSlug;
+        }
+        return null;
     }
 }
 
@@ -111,6 +156,9 @@ class FakePage {
         this.requestId = requestId;
         this.conversationId = conversationId;
         this.menuOpened = false;
+        this.providerRateLimited = false;
+        this.assistantModelSlug = 'gpt-5-6-thinking';
+        this.responseActivityChecks = 1;
         this.keyboard = {
             press: async () => {
                 this.menuOpened = false;
@@ -272,6 +320,43 @@ test('model family and reasoning checks are exact and fail closed', () => {
     assert.equal(normalizeReasoning('not very high'), null);
 });
 
+test('temporary provider limits are recognized without relaxing model checks', () => {
+    assert.equal(
+        isProviderRateLimitText(
+            '요청이 너무 많습니다. 액세스가 일시적으로 제한되었습니다.',
+        ),
+        true,
+    );
+    assert.equal(
+        isProviderRateLimitText(
+            'Too many requests. Access is temporarily limited.',
+        ),
+        true,
+    );
+    assert.equal(isProviderRateLimitText('GPT-5.6 Sol Pro'), false);
+    assert.deepEqual(
+        validateRateLimitedPostflightSignals({
+            modelSlug: 'gpt-5-6-thinking',
+            reasoningLabel: '매우 높음',
+            accessTier: 'Pro',
+        }),
+        {
+            modelVerified: true,
+            reasoningVerified: true,
+            accessTierVerified: true,
+            reasoningLabel: '매우 높음',
+        },
+    );
+    assert.equal(
+        validateRateLimitedPostflightSignals({
+            modelSlug: 'gpt-5-6-instant',
+            reasoningLabel: '매우 높음',
+            accessTier: 'Pro',
+        }).modelVerified,
+        false,
+    );
+});
+
 test('conversation URL parser rejects alternate origins and URL decorations', () => {
     assert.equal(
         conversationIdFromUrl('https://chatgpt.com/c/conversation-new'),
@@ -429,6 +514,11 @@ test('preflight, rebind, and postflight preserve exact transport bindings', asyn
     );
     assert.equal(assistant.status, 'assistant-detected');
     assert.equal(assistant.assistant_count, 1);
+    assert.equal(
+        JSON.parse(assistant.answer_text).request_id,
+        'request-001',
+    );
+    assert.match(assistant.answer_sha256, /^[a-f0-9]{64}$/u);
 
     const after = await runBridgeCommand(
         'postflight',
@@ -448,7 +538,43 @@ test('preflight, rebind, and postflight preserve exact transport bindings', asyn
     assert.equal(after.interrupted, false);
     assert.equal(after.active_browse_verified, true);
     assert.equal(after.active_browse_evidence_count, 1);
+    assert.equal(after.answer_sha256, assistant.answer_sha256);
     assert.equal(Number.isNaN(Date.parse(after.observed_at)), false);
+});
+
+test('postflight verifies a completed response when only the next request is limited', async () => {
+    const root = join(tmpdir(), 'unused-research-bridge-root');
+    const runtime = fakeChromium('request-001');
+    runtime.browser.contexts()[0].page.providerRateLimited = true;
+    runtime.browser.contexts()[0].page.responseActivityChecks = 0;
+    const values = {
+        ...bridgeValues(root),
+        'browser-session-id': 'browser-cdp-001',
+        'target-id': 'target-001',
+        'conversation-id': 'conversation-new',
+    };
+
+    const after = await runBridgeCommand('postflight', values, {
+        chromium: runtime.chromium,
+        cdpBinding: TEST_CDP_BINDING,
+    });
+    assert.equal(after.status, 'complete');
+    assert.equal(after.model_family, 'GPT-5.6 Sol Pro');
+    assert.equal(after.reasoning_profile, 'xhigh');
+    assert.equal(after.provider_rate_limited_after_response, true);
+    assert.equal(
+        after.postflight_verification_source,
+        'BOUND_ASSISTANT_MODEL_SLUG_AND_LOCKED_UI',
+    );
+
+    runtime.browser.contexts()[0].page.assistantModelSlug = 'gpt-5-6-instant';
+    await assert.rejects(
+        runBridgeCommand('postflight', values, {
+            chromium: runtime.chromium,
+            cdpBinding: TEST_CDP_BINDING,
+        }),
+        /model_mismatch/u,
+    );
 });
 
 test('rebind rejects a caller browser session echo that differs from CDP', async () => {

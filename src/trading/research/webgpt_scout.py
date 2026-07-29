@@ -687,6 +687,24 @@ class WebGptActiveResearchScout:
                 "assistant_response_not_detected",
                 "the bound ChatGPT conversation did not produce an assistant turn",
             )
+        bridge_answer_text = assistant_ready.get("answer_text")
+        if bridge_answer_text is not None and (
+            not isinstance(bridge_answer_text, str)
+            or not bridge_answer_text.strip()
+        ):
+            raise WebGptScoutError(
+                "assistant_response_not_detected",
+                "the bound ChatGPT response payload was empty or invalid",
+            )
+        bridge_answer_hash = assistant_ready.get("answer_sha256")
+        if bridge_answer_hash is not None and (
+            not isinstance(bridge_answer_hash, str)
+            or re.fullmatch(r"[a-f0-9]{64}", bridge_answer_hash) is None
+        ):
+            raise WebGptScoutError(
+                "assistant_response_not_detected",
+                "the bound ChatGPT response hash was invalid",
+            )
 
         polled = self._run_agbrowse(
             [
@@ -709,7 +727,12 @@ class WebGptActiveResearchScout:
             conversation_id=conversation_id,
             agbrowse_session_id=agbrowse_session_id,
         )
-        answer_text = polled.get("answerText")
+        polled_answer_text = polled.get("answerText")
+        answer_text = (
+            bridge_answer_text
+            if isinstance(bridge_answer_text, str)
+            else polled_answer_text
+        )
         if not isinstance(answer_text, str) or not answer_text.strip():
             raise WebGptScoutError(
                 "agbrowse_poll_failed",
@@ -747,6 +770,14 @@ class WebGptActiveResearchScout:
             raise WebGptScoutError(
                 "response_not_complete",
                 "post-completion browser state is incomplete, interrupted, or stopped",
+            )
+        postflight_answer_hash = postflight.get("answer_sha256")
+        if bridge_answer_hash is not None and (
+            postflight_answer_hash != bridge_answer_hash
+        ):
+            raise WebGptScoutError(
+                "response_binding_mismatch",
+                "the bound ChatGPT response changed before post-completion verification",
             )
         if (
             postflight.get("active_browse_verified") is not True

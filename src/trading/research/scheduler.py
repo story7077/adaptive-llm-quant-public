@@ -29,6 +29,9 @@ class ResearchScheduleEventType(StrEnum):
     LEASE_ACQUIRED = "LEASE_ACQUIRED"
     LEASE_RECLAIMED = "LEASE_RECLAIMED"
     DISPATCHED = "DISPATCHED"
+    EXECUTION_LEASE_ACQUIRED = "EXECUTION_LEASE_ACQUIRED"
+    EXECUTION_LEASE_RECLAIMED = "EXECUTION_LEASE_RECLAIMED"
+    EXECUTION_LEASE_RENEWED = "EXECUTION_LEASE_RENEWED"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
 
@@ -190,6 +193,32 @@ class ResearchWorkDispatchReceiptV1(DomainModel):
     def validate_hash(self) -> Self:
         if self.receipt_hash != canonical_hash(_receipt_hash_payload(self)):
             raise ValueError("research dispatch receipt hash mismatch")
+        return self
+
+
+class ResearchWorkExecutionLeaseV1(DomainModel):
+    execution_id: str = Field(min_length=1)
+    receipt_id: str = Field(min_length=1)
+    receipt_hash: str = Field(min_length=1)
+    work_item_id: str = Field(min_length=1)
+    work_kind: ResearchScheduleWorkKind
+    consumer_id: str = Field(min_length=1)
+    execution_token: str = Field(min_length=1)
+    dispatch_attempt_number: int = Field(gt=0)
+    acquired_at: datetime
+    lease_expires_at: datetime
+    config_manifest_hash: str = Field(min_length=1)
+    real_order_routing: Literal[False] = False
+
+    @field_validator("acquired_at", "lease_expires_at", mode="after")
+    @classmethod
+    def validate_times(cls, value: datetime) -> datetime:
+        return require_aware_utc(value)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> Self:
+        if self.lease_expires_at <= self.acquired_at:
+            raise ValueError("research execution lease must have positive duration")
         return self
 
 

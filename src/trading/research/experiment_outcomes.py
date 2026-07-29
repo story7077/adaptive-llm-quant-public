@@ -161,12 +161,9 @@ class AlgorithmProposalV2(DomainModel):
 
     @model_validator(mode="after")
     def validate_recursive_action(self) -> Self:
-        if (
-            self.proposed_strategy_id == self.parent_strategy_id
-            and self.proposed_strategy_version == self.parent_strategy_version
-        ):
+        if self.proposed_strategy_version == self.parent_strategy_version:
             raise ValueError(
-                "a proposal cannot overwrite its parent strategy version"
+                "proposed strategy version must differ from parent strategy version"
             )
         if self.primary_action_kind is ResearchActionKind.UNKNOWN_LEGACY:
             raise ValueError("AlgorithmProposalV2 requires a typed primary action")

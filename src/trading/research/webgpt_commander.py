@@ -182,6 +182,8 @@ def render_webgpt_commander_prompt(
         "You may propose only a new versioned Challenger. You must not edit a "
         "Champion, create an order, choose broker actions, enable real routing, "
         "inspect credentials, reveal hidden reasoning, or approve your own proposal.\n"
+        "If you include a proposal, proposed_strategy_version must differ from "
+        "parent_strategy_version even when proposed_strategy_id is new.\n"
         "Return exactly one JSON object and no Markdown. It must conform to "
         f"{decision_type.__name__} and echo every request binding exactly: request_id, "
         "research_cycle_id, selected_commander, commander_selection_id, "

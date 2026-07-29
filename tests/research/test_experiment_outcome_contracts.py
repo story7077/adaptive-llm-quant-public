@@ -172,6 +172,20 @@ def test_algorithm_proposal_v2_requires_one_typed_primary_action() -> None:
         )
 
 
+def test_algorithm_proposal_v2_new_strategy_id_still_requires_a_new_version() -> None:
+    payload = proposal_v2().model_dump(mode="python", exclude={"proposal_hash"})
+    payload["proposed_strategy_id"] = "new-candidate"
+    payload["proposed_strategy_version"] = payload["parent_strategy_version"]
+
+    with pytest.raises(
+        ValueError,
+        match="proposed strategy version must differ from parent strategy version",
+    ):
+        AlgorithmProposalV2.model_validate(
+            {**payload, "proposal_hash": canonical_hash(payload)}
+        )
+
+
 def test_v1_proposal_maps_only_to_unknown_legacy_and_is_not_trainable() -> None:
     legacy = build_experiment_action(
         proposal=proposal_v1(),

@@ -4,16 +4,20 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from sqlalchemy import select
 from typer.testing import CliRunner
 
 import trading.cli as cli_module
 from trading.cli import app
 from trading.domain.hashing import canonical_hash
+from trading.persistence.models import ChallengerEventRow
 from trading.persistence.research import ResearchRepository
 from trading.research.contracts import (
     AlgorithmProposalV1,
     AvailableDataCatalogV1,
     AvailableInstrumentV1,
+    CandidateTestCountsV1,
+    CandidateTestFailureV1,
     ChallengerManifestV1,
     ChallengerStatus,
     CommanderSelectionV1,
@@ -457,10 +461,139 @@ def test_research_cli_executes_versioned_file_pipeline(
     assert status["challengers"][0]["challenger_id"] == manifest.challenger_id
     assert status["challengers"][0]["current_status"] == "PROPOSED"
 
+    failure_payload = {
+        "schema_version": "candidate_test_failure_v1",
+        "challenger_id": manifest.challenger_id,
+        "candidate_manifest_hash": manifest.manifest_hash,
+        "proposal_hash": manifest.proposal_hash,
+        "patch_hash": manifest.patch_hash,
+        "test_manifest_hash": manifest.test_manifest_hash,
+        "runner_code_hash": "6" * 64,
+        "execution_contract_version": "candidate-test-v1",
+        "status": "FAILED",
+        "exit_code": 1,
+        "test_count": CandidateTestCountsV1(
+            collected=25,
+            passed=24,
+            failed=1,
+            skipped=0,
+            errors=0,
+            xfailed=0,
+            xpassed=0,
+            deselected=0,
+        ),
+        "failure_reason_code": "CANDIDATE_TEST_SUITE_FAILED",
+        "candidate_tree_unchanged": True,
+        "candidate_source_projection_unchanged": True,
+        "candidate_test_projection_unchanged": True,
+        "host_abi_test_unchanged": True,
+        "output_limit_exceeded": False,
+        "raw_output_persisted": False,
+        "network_access_permitted": False,
+        "credential_access_permitted": False,
+        "broker_access_permitted": False,
+        "host_principal_persisted": False,
+        "real_order_routing": False,
+        "created_at": as_of + timedelta(minutes=3),
+    }
+    failure = CandidateTestFailureV1.model_validate(
+        {
+            **failure_payload,
+            "failure_hash": canonical_hash(failure_payload),
+        }
+    )
+    failure_file = inputs / "candidate-test-failure.json"
+    assert atomic_write_json(failure_file, failure)
+    failed = runner.invoke(
+        app,
+        [
+            "research",
+            "candidate-test-failure-record",
+            "--failure",
+            str(failure_file),
+        ],
+    )
+    assert failed.exit_code == 0, failed.output
+    failed_payload = json.loads(failed.output)
+    assert failed_payload["created"] is True
+    assert failed_payload["status"] == "TEST_FAILED"
+    assert failed_payload["real_order_routing"] is False
+    assert (
+        ResearchRepository(factory).challenger_status(manifest.challenger_id)
+        is ChallengerStatus.TEST_FAILED
+    )
+    assert (
+        ResearchRepository(factory).candidate_artifact(
+            manifest.challenger_id
+        )
+        is None
+    )
+    with factory() as session:
+        failure_event = session.scalar(
+            select(ChallengerEventRow).where(
+                ChallengerEventRow.challenger_id
+                == manifest.challenger_id
+            )
+        )
+    assert failure_event is not None
+    assert (
+        failure_event.payload_json["artifact_payload"]["schema_version"]
+        == "candidate_test_failure_v1"
+    )
+    assert (
+        failure_event.payload_json["artifact_payload"]["failure_hash"]
+        == failure.failure_hash
+    )
+    failed_status = ResearchRepository(factory).status()
+    assert failed_status["challengers"][0]["current_status"] == "TEST_FAILED"
+    assert (
+        failed_status["challengers"][0]["latest_status_reason"]
+        == "CANDIDATE_TEST_SUITE_FAILED"
+    )
+    repeated = runner.invoke(
+        app,
+        [
+            "research",
+            "candidate-test-failure-record",
+            "--failure",
+            str(failure_file),
+        ],
+    )
+    assert repeated.exit_code == 0, repeated.output
+    assert json.loads(repeated.output)["created"] is False
+
+    mismatched_failure_payload = {
+        **failure.model_dump(mode="python", exclude={"failure_hash"}),
+        "proposal_hash": "7" * 64,
+        "created_at": as_of + timedelta(minutes=4),
+    }
+    mismatched_failure = CandidateTestFailureV1.model_validate(
+        {
+            **mismatched_failure_payload,
+            "failure_hash": canonical_hash(mismatched_failure_payload),
+        }
+    )
+    mismatched_failure_file = inputs / "candidate-test-failure-mismatch.json"
+    assert atomic_write_json(
+        mismatched_failure_file,
+        mismatched_failure,
+    )
+    binding_rejected = runner.invoke(
+        app,
+        [
+            "research",
+            "candidate-test-failure-record",
+            "--failure",
+            str(mismatched_failure_file),
+        ],
+    )
+    assert binding_rejected.exit_code != 0
+    assert "proposal_hash" in binding_rejected.output
+
     mismatched = _manifest(
         decision,
         proposal,
-        as_of + timedelta(minutes=3),
+        as_of + timedelta(minutes=5),
         challenger_id="challenger-cli-mismatch",
         estimated_turnover={"annualized": 99},
     )
@@ -767,6 +900,8 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
     assert "research_request_v2" in schema
     assert "research_decision_v2" in schema
     assert "research_action_plan_v1" in schema
+    assert "research_work_execution_request_v1" in schema
+    assert "research_work_execution_result_v1" in schema
     assert "candidate_evaluation_dataset_v2" in schema
     assert "candidate_evaluation_source_manifest_v2" in schema
     assert "prospective_evaluation_config_v1" in schema

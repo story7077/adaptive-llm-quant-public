@@ -34,12 +34,16 @@ from trading.persistence.models import (
     MarketCalendarSessionRow,
     ResearchEvidenceSourceRow,
 )
+from trading.research.dispatch_execution import (
+    ResearchWorkExecutionResultV1,
+)
 from trading.research.scheduler import (
     ResearchEvidenceMarker,
     ResearchScheduleEventType,
     ResearchSchedulePlanV1,
     ResearchScheduleWorkKind,
     ResearchWorkDispatchReceiptV1,
+    ResearchWorkExecutionLeaseV1,
     ResearchWorkLeaseV1,
     VersionedResearchMarketSession,
     build_dispatch_receipt,
@@ -701,27 +705,327 @@ class ResearchSchedulerRepository:
             )
             return True
 
-    def record_execution_outcome(
+    def claim_execution(
         self,
         *,
-        receipt_id: str,
-        succeeded: bool,
-        reason_code: str | None,
-        maximum_attempts: int,
-    ) -> bool:
+        consumer_id: str,
+        lease_seconds: int,
+        work_not_before: datetime,
+    ) -> ResearchWorkExecutionLeaseV1 | None:
+        if not consumer_id:
+            raise ValueError("consumer_id is required")
+        if lease_seconds <= 0:
+            raise ValueError("execution lease must be positive")
+        work_not_before = require_aware_utc(
+            work_not_before,
+            "work_not_before",
+        )
+        with self._session_factory.begin() as session:
+            database_now = _database_now(session)
+            ranked = (
+                select(
+                    ResearchScheduleEventRow.work_item_id.label(
+                        "work_item_id"
+                    ),
+                    ResearchScheduleEventRow.event_type.label("event_type"),
+                    ResearchScheduleEventRow.lease_expires_at.label(
+                        "lease_expires_at"
+                    ),
+                    ResearchScheduleEventRow.receipt_id.label("receipt_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=ResearchScheduleEventRow.work_item_id,
+                        order_by=(
+                            ResearchScheduleEventRow.sequence.desc(),
+                            ResearchScheduleEventRow.event_id.desc(),
+                        ),
+                    )
+                    .label("event_rank"),
+                )
+                .subquery()
+            )
+            latest = (
+                select(
+                    ranked.c.work_item_id,
+                    ranked.c.event_type,
+                    ranked.c.lease_expires_at,
+                    ranked.c.receipt_id,
+                )
+                .where(ranked.c.event_rank == 1)
+                .subquery()
+            )
+            execution_lease_events = (
+                ResearchScheduleEventType.EXECUTION_LEASE_ACQUIRED.value,
+                ResearchScheduleEventType.EXECUTION_LEASE_RECLAIMED.value,
+                ResearchScheduleEventType.EXECUTION_LEASE_RENEWED.value,
+            )
+            statement = (
+                select(
+                    ResearchScheduleWorkItemRow,
+                    ResearchWorkDispatchReceiptRow,
+                )
+                .join(
+                    latest,
+                    latest.c.work_item_id
+                    == ResearchScheduleWorkItemRow.work_item_id,
+                )
+                .join(
+                    ResearchWorkDispatchReceiptRow,
+                    ResearchWorkDispatchReceiptRow.receipt_id
+                    == latest.c.receipt_id,
+                )
+                .where(
+                    or_(
+                        latest.c.event_type
+                        == ResearchScheduleEventType.DISPATCHED.value,
+                        and_(
+                            latest.c.event_type.in_(execution_lease_events),
+                            latest.c.lease_expires_at <= database_now,
+                        ),
+                    )
+                )
+                .where(
+                    ResearchScheduleWorkItemRow.scheduled_for
+                    >= work_not_before
+                )
+                .order_by(
+                    ResearchScheduleWorkItemRow.scheduled_for,
+                    ResearchScheduleWorkItemRow.work_kind,
+                    ResearchScheduleWorkItemRow.work_item_id,
+                )
+                .limit(1)
+            )
+            if (
+                session.bind is not None
+                and session.bind.dialect.name == "postgresql"
+            ):
+                statement = statement.with_for_update(
+                    of=ResearchScheduleWorkItemRow,
+                    skip_locked=True,
+                )
+            selected = session.execute(statement).first()
+            if selected is None:
+                return None
+            work = selected[0]
+            receipt_row = selected[1]
+            plan = _plan_from_row(work)
+            receipt = _receipt_from_row(receipt_row)
+            latest_event = self._latest_event(session, work.work_item_id)
+            if (
+                latest_event is None
+                or latest_event.receipt_id != receipt.receipt_id
+            ):
+                raise ResearchScheduleFenceError(
+                    "research execution receipt is stale"
+                )
+            reclaimed = latest_event.event_type in execution_lease_events
+            event_type = (
+                ResearchScheduleEventType.EXECUTION_LEASE_RECLAIMED
+                if reclaimed
+                else ResearchScheduleEventType.EXECUTION_LEASE_ACQUIRED
+            )
+            execution_id = stable_id(
+                "research-work-execution",
+                receipt.receipt_id,
+            )
+            sequence = latest_event.sequence + 1
+            execution_token = stable_id(
+                "research-execution-lease",
+                execution_id,
+                sequence,
+                consumer_id,
+                database_now,
+            )
+            lease_expires_at = database_now + timedelta(
+                seconds=lease_seconds
+            )
+            self._append_event(
+                session,
+                plan=plan,
+                sequence=sequence,
+                event_type=event_type,
+                attempt_number=receipt.attempt_number,
+                retryable=True,
+                lease_owner=consumer_id,
+                lease_token=execution_token,
+                lease_expires_at=lease_expires_at,
+                receipt_id=receipt.receipt_id,
+                idempotency_key=(
+                    f"{work.idempotency_key}:execution-lease:"
+                    f"{receipt.attempt_number}:{sequence}"
+                ),
+                created_at=database_now,
+                extra_payload={
+                    "execution_id": execution_id,
+                    "receipt_hash": receipt.receipt_hash,
+                    "work_not_before": work_not_before.isoformat(),
+                    "previous_event_hash": latest_event.event_hash,
+                },
+            )
+            return ResearchWorkExecutionLeaseV1(
+                execution_id=execution_id,
+                receipt_id=receipt.receipt_id,
+                receipt_hash=receipt.receipt_hash,
+                work_item_id=work.work_item_id,
+                work_kind=plan.work_kind,
+                consumer_id=consumer_id,
+                execution_token=execution_token,
+                dispatch_attempt_number=receipt.attempt_number,
+                acquired_at=database_now,
+                lease_expires_at=lease_expires_at,
+                config_manifest_hash=plan.config_manifest_hash,
+                real_order_routing=False,
+            )
+
+    def execution_input(
+        self,
+        *,
+        execution_lease: ResearchWorkExecutionLeaseV1,
+    ) -> tuple[ResearchSchedulePlanV1, ResearchWorkDispatchReceiptV1]:
         with self._session_factory.begin() as session:
             receipt_row = session.get(
                 ResearchWorkDispatchReceiptRow,
-                receipt_id,
+                execution_lease.receipt_id,
             )
             if receipt_row is None:
                 raise ResearchSchedulerPersistenceError(
-                    f"unknown dispatch receipt: {receipt_id}"
+                    "unknown dispatch receipt: "
+                    f"{execution_lease.receipt_id}"
+                )
+            work = _locked_work(session, execution_lease.work_item_id)
+            if work is None:
+                raise ResearchSchedulerPersistenceError(
+                    f"unknown research work: {execution_lease.work_item_id}"
+                )
+            plan = _plan_from_row(work)
+            receipt = _receipt_from_row(receipt_row)
+            self._require_execution_binding(
+                execution_lease=execution_lease,
+                plan=plan,
+                receipt=receipt,
+            )
+            self._require_active_execution_lease(
+                session,
+                lease=execution_lease,
+                database_now=_database_now(session),
+            )
+            return plan, receipt
+
+    def renew_execution_lease(
+        self,
+        *,
+        execution_lease: ResearchWorkExecutionLeaseV1,
+        lease_seconds: int,
+    ) -> ResearchWorkExecutionLeaseV1:
+        if lease_seconds <= 0:
+            raise ValueError("execution lease must be positive")
+        with self._session_factory.begin() as session:
+            receipt_row = session.get(
+                ResearchWorkDispatchReceiptRow,
+                execution_lease.receipt_id,
+            )
+            if receipt_row is None:
+                raise ResearchSchedulerPersistenceError(
+                    "unknown dispatch receipt: "
+                    f"{execution_lease.receipt_id}"
+                )
+            work = _locked_work(session, execution_lease.work_item_id)
+            if work is None:
+                raise ResearchSchedulerPersistenceError(
+                    f"unknown research work: {execution_lease.work_item_id}"
+                )
+            plan = _plan_from_row(work)
+            receipt = _receipt_from_row(receipt_row)
+            self._require_execution_binding(
+                execution_lease=execution_lease,
+                plan=plan,
+                receipt=receipt,
+            )
+            database_now = _database_now(session)
+            latest = self._require_active_execution_lease(
+                session,
+                lease=execution_lease,
+                database_now=database_now,
+            )
+            lease_expires_at = database_now + timedelta(
+                seconds=lease_seconds
+            )
+            self._append_event(
+                session,
+                plan=plan,
+                sequence=latest.sequence + 1,
+                event_type=(
+                    ResearchScheduleEventType.EXECUTION_LEASE_RENEWED
+                ),
+                attempt_number=receipt.attempt_number,
+                retryable=True,
+                lease_owner=execution_lease.consumer_id,
+                lease_token=execution_lease.execution_token,
+                lease_expires_at=lease_expires_at,
+                receipt_id=receipt.receipt_id,
+                idempotency_key=(
+                    f"{work.idempotency_key}:execution-renewal:"
+                    f"{receipt.attempt_number}:{latest.sequence + 1}"
+                ),
+                created_at=database_now,
+                extra_payload={
+                    "execution_id": execution_lease.execution_id,
+                    "receipt_hash": receipt.receipt_hash,
+                    "previous_event_hash": latest.event_hash,
+                },
+            )
+            return execution_lease.model_copy(
+                update={"lease_expires_at": lease_expires_at}
+            )
+
+    def record_execution_outcome(
+        self,
+        *,
+        execution_lease: ResearchWorkExecutionLeaseV1,
+        succeeded: bool,
+        reason_code: str | None,
+        maximum_attempts: int,
+        result: ResearchWorkExecutionResultV1 | None = None,
+    ) -> bool:
+        if maximum_attempts <= 0:
+            raise ValueError("maximum_attempts must be positive")
+        if succeeded != (result is not None):
+            raise ValueError(
+                "successful execution requires exactly one typed result"
+            )
+        with self._session_factory.begin() as session:
+            receipt_row = session.get(
+                ResearchWorkDispatchReceiptRow,
+                execution_lease.receipt_id,
+            )
+            if receipt_row is None:
+                raise ResearchSchedulerPersistenceError(
+                    "unknown dispatch receipt: "
+                    f"{execution_lease.receipt_id}"
                 )
             work = _locked_work(session, receipt_row.work_item_id)
             if work is None:
                 raise ResearchSchedulerPersistenceError(
                     f"unknown research work: {receipt_row.work_item_id}"
+                )
+            plan = _plan_from_row(work)
+            receipt = _receipt_from_row(receipt_row)
+            self._require_execution_binding(
+                execution_lease=execution_lease,
+                plan=plan,
+                receipt=receipt,
+            )
+            if result is not None and (
+                result.execution_id != execution_lease.execution_id
+                or result.receipt_id != receipt.receipt_id
+                or result.work_item_id != plan.work_item_id
+                or result.work_kind is not plan.work_kind
+                or result.dispatch_target is not receipt.dispatch_target
+                or result.real_order_routing
+                or result.automatic_promotion_enabled
+            ):
+                raise ResearchScheduleFenceError(
+                    "research execution result binding is invalid"
                 )
             latest = self._latest_event(session, work.work_item_id)
             if latest is None:
@@ -750,21 +1054,28 @@ class ResearchSchedulerRepository:
                 )
             )
             if existing is not None:
+                if (
+                    existing.lease_token
+                    != execution_lease.execution_token
+                ):
+                    raise ResearchScheduleFenceError(
+                        "research execution outcome belongs to a stale worker"
+                    )
                 return False
-            if (
-                latest.event_type
-                != ResearchScheduleEventType.DISPATCHED.value
-                or latest.receipt_id != receipt_id
-                or latest.attempt_number != receipt_row.attempt_number
-                or latest.lease_token != receipt_row.lease_token
-            ):
-                raise ResearchScheduleFenceError(
-                    "dispatch receipt is stale or already has an outcome"
-                )
             database_now = _database_now(session)
+            latest = self._require_active_execution_lease(
+                session,
+                lease=execution_lease,
+                database_now=database_now,
+            )
+            if result is not None:
+                self._require_unused_invocation_contexts(
+                    session,
+                    result=result,
+                )
             self._append_event(
                 session,
-                plan=_plan_from_row(work),
+                plan=plan,
                 sequence=latest.sequence + 1,
                 event_type=event_type,
                 attempt_number=receipt_row.attempt_number,
@@ -772,16 +1083,25 @@ class ResearchSchedulerRepository:
                     not succeeded
                     and receipt_row.attempt_number < maximum_attempts
                 ),
-                lease_owner=latest.lease_owner,
-                lease_token=latest.lease_token,
-                lease_expires_at=latest.lease_expires_at,
-                receipt_id=receipt_id,
+                lease_owner=execution_lease.consumer_id,
+                lease_token=execution_lease.execution_token,
+                lease_expires_at=execution_lease.lease_expires_at,
+                receipt_id=execution_lease.receipt_id,
                 idempotency_key=idempotency_key,
                 created_at=database_now,
                 extra_payload={
+                    "execution_id": execution_lease.execution_id,
                     "failure_stage": None if succeeded else "WORK_EXECUTION",
                     "reason_code": safe_code,
                     "receipt_hash": receipt_row.receipt_hash,
+                    "result_hash": (
+                        None if result is None else result.result_hash
+                    ),
+                    "execution_result": (
+                        None
+                        if result is None
+                        else result.model_dump(mode="json")
+                    ),
                     "previous_event_hash": latest.event_hash,
                 },
             )
@@ -898,6 +1218,102 @@ class ResearchSchedulerRepository:
                 "research work lease is stale, expired, or reclaimed"
             )
         return latest
+
+    def _require_active_execution_lease(
+        self,
+        session: Session,
+        *,
+        lease: ResearchWorkExecutionLeaseV1,
+        database_now: datetime,
+    ) -> ResearchScheduleEventRow:
+        latest = self._latest_event(session, lease.work_item_id)
+        if (
+            latest is None
+            or latest.event_type
+            not in {
+                ResearchScheduleEventType
+                .EXECUTION_LEASE_ACQUIRED.value,
+                ResearchScheduleEventType
+                .EXECUTION_LEASE_RECLAIMED.value,
+                ResearchScheduleEventType
+                .EXECUTION_LEASE_RENEWED.value,
+            }
+            or latest.lease_owner != lease.consumer_id
+            or latest.lease_token != lease.execution_token
+            or latest.attempt_number != lease.dispatch_attempt_number
+            or latest.receipt_id != lease.receipt_id
+            or latest.lease_expires_at is None
+            or _aware(latest.lease_expires_at) <= database_now
+        ):
+            raise ResearchScheduleFenceError(
+                "research execution lease is stale, expired, or reclaimed"
+            )
+        return latest
+
+    @staticmethod
+    def _require_execution_binding(
+        *,
+        execution_lease: ResearchWorkExecutionLeaseV1,
+        plan: ResearchSchedulePlanV1,
+        receipt: ResearchWorkDispatchReceiptV1,
+    ) -> None:
+        if (
+            execution_lease.work_item_id != plan.work_item_id
+            or execution_lease.work_item_id != receipt.work_item_id
+            or execution_lease.work_kind is not plan.work_kind
+            or execution_lease.work_kind is not receipt.work_kind
+            or execution_lease.receipt_id != receipt.receipt_id
+            or execution_lease.receipt_hash != receipt.receipt_hash
+            or execution_lease.dispatch_attempt_number
+            != receipt.attempt_number
+            or execution_lease.config_manifest_hash
+            != plan.config_manifest_hash
+            or execution_lease.config_manifest_hash
+            != receipt.config_manifest_hash
+            or execution_lease.real_order_routing
+        ):
+            raise ResearchScheduleFenceError(
+                "research execution lease binding is invalid"
+            )
+
+    @staticmethod
+    def _require_unused_invocation_contexts(
+        session: Session,
+        *,
+        result: ResearchWorkExecutionResultV1,
+    ) -> None:
+        incoming = {
+            item.invocation_context_hash for item in result.invocations
+        }
+        if not incoming:
+            return
+        succeeded_rows = session.scalars(
+            select(ResearchScheduleEventRow).where(
+                ResearchScheduleEventRow.event_type
+                == ResearchScheduleEventType.SUCCEEDED.value
+            )
+        )
+        used: set[str] = set()
+        for row in succeeded_rows:
+            stored = row.payload_json.get("execution_result")
+            if not isinstance(stored, dict):
+                continue
+            try:
+                existing = ResearchWorkExecutionResultV1.model_validate(
+                    stored
+                )
+            except ValueError as exc:
+                raise ResearchSchedulerPersistenceError(
+                    "stored research execution result is invalid"
+                ) from exc
+            used.update(
+                item.invocation_context_hash
+                for item in existing.invocations
+            )
+        if incoming & used:
+            raise ResearchScheduleFenceError(
+                "research execution reused an earlier model context"
+            )
 
     @staticmethod
     def _latest_event(
@@ -1117,6 +1533,17 @@ def _projected_status(
         return "LEASED"
     if event_type is ResearchScheduleEventType.DISPATCHED:
         return "DISPATCHED"
+    if event_type in {
+        ResearchScheduleEventType.EXECUTION_LEASE_ACQUIRED,
+        ResearchScheduleEventType.EXECUTION_LEASE_RECLAIMED,
+        ResearchScheduleEventType.EXECUTION_LEASE_RENEWED,
+    }:
+        if (
+            event_row.lease_expires_at is not None
+            and _aware(event_row.lease_expires_at) <= database_now
+        ):
+            return "EXECUTION_LEASE_EXPIRED"
+        return "EXECUTING"
     if event_type is ResearchScheduleEventType.SUCCEEDED:
         return "SUCCEEDED"
     return "RETRY_PENDING" if event_row.retryable else "FAILED_TERMINAL"
