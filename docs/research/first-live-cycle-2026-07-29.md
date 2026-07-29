@@ -709,6 +709,260 @@ specific append-only receipt only after the bridge again verifies the required
 model and reasoning profile. It does not use an API fallback, a different
 ChatGPT model, automatic promotion, or broker routing.
 
+### Native Commander recovery and v9 paper handoff
+
+Public PR
+[#34](https://github.com/story7077/adaptive-llm-quant-public/pull/34)
+raised the public-release workflow timeout from 10 to 30 minutes after a
+complete public suite legitimately exceeded the former limit. Both required
+checks passed and the PR merged as
+`2f649d5265ef8f24034037d099d4cbdb767c699e`.
+
+The next retry reached the WebGPT postflight but failed before Codex started.
+The public dispatch consumer had correctly removed model-visible host identity
+variables, but it also removed the three host-only values that the Windows ACL
+controller needs to construct the native read jail. Public PR
+[#35](https://github.com/story7077/adaptive-llm-quant-public/pull/35)
+now permits `COMPUTERNAME`, `USERNAME`, and `USERDOMAIN` only in the trusted
+executor environment. The child model environment still excludes all three,
+as well as `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, credential-shaped
+variables, and Codex/OpenAI environment variables. The focused integration
+test requires the exact host identity values while proving that an injected
+Alpaca secret cannot reach the executor. Both full public CI checks passed and
+the PR merged as
+`1c330a2246e437db04f8eb6526a7b8589a325973`.
+
+The fenced retry execution
+`research-work-execution_a4fc34b006eaef47cb8568ab` then completed a fresh
+headed-Chrome WebGPT scout conversation. It produced
+`research_evidence_bundle_v1` for cycle
+`scheduled-research-cycle_1a3efe10275ac9748967d419`, bound to:
+
+- WebGPT request `scheduled-web-scout_a58890bdf20446c4cf9046f2`;
+- conversation `6a6a4b82-830c-83e8-8ca0-792dab20360b`;
+- browser session `320dcdc9-ee35-4f20-80bd-399804592126`;
+- `GPT-5.6 Sol Pro` with `xhigh` reasoning;
+- 13 accepted sources: seven `TIER_1_OFFICIAL` and six
+  `TIER_2_PRIMARY_DATA`; and
+- source snapshot commit
+  `1c330a2246e437db04f8eb6526a7b8589a325973` with context manifest
+  `3cc85144c5a1251aec8c2f8aab20db8ffbf75ac87a059cbc6dfe3da12cb1dea5`.
+
+The selected Commander is `CODEX_SOL_MAX`. Invocation
+`commander-44a1ee01f2ea43e8a9f4634770d2cf2a` started in the separate public
+Commander repository with `gpt-5.6-sol`, reasoning `max`, a fresh process,
+`--ephemeral`, `--ignore-user-config`, disabled memories/plugins/apps/browser
+and computer use, no resume, no persistent history, and a schema-bound output.
+The run emitted `native-acl-events`, `native-read-jail-preflight.json`, and
+`execution-started.json` before model execution. The Builder has not been
+conflated with this invocation; it must receive a separate invocation record
+only after a valid structured proposal.
+
+The invocation completed with the schema-valid decision
+`REQUEST_MORE_EVIDENCE`, not a fabricated proposal. The Commander found that
+Q1-DET 1.0.0 underperformed B0-VOL under all three bound cost stresses, while
+the already registered Q1-DET 2.0.0 Challenger still lacked a hash-bound
+discovery/falsification result. It also rejected a liquidity/credit mechanism
+because the request did not contain release-lagged historical H.4.1 or
+high-yield OAS data. The four requested evidence classes were:
+
+- discovery evaluation of Q1-DET 2.0.0 with its declared placebos, ablations,
+  regime splits, cost/delay stresses, turnover, capacity, and portfolio
+  DeltaSharpe;
+- release-lagged, revision-aware H.4.1 history;
+- release-lagged high-yield OAS history, or a predeclared discovery comparison
+  showing whether eligible HYG adjusted bars are an adequate proxy; and
+- the sanitized structured test-failure detail for IWM-RCG 2.0.0.
+
+The decision output hash is
+`5c0210a10f8c67d0163fed6c5704baf1b2beac36b13c059dfefa341da7443df0`.
+The dispatch result hash is
+`067dbed986a0d40d38512530796d8d6dddc820911644832ba09dcbdaa4ee9780`.
+Scheduler work `research-work_3ff291034f967491cb15129b` attempt 2 appended
+`SUCCEEDED`; the result attests one fresh Web Scout invocation and one fresh
+Research Commander invocation. No Builder invocation, Candidate patch,
+falsification result, OOS request, or shadow registration was created because
+there was no approved proposal.
+
+The status API initially returned HTTP 500 because the detached v8 paper
+runtime predated execution-lease scheduler events that already existed in the
+append-only database. Current public main already contained the event
+projection and integration coverage. Deploying it against the old run ID
+correctly failed closed with `Q1PaperRunConflict: Q1 run code version changed`.
+The v8 run remains immutable and readable. A new
+`paper_q1_research_20260729_v9` run was therefore started at the current main
+commit. Its paper and Research status endpoints both returned HTTP 200, the Q1
+worker resumed with a fresh heartbeat, the next calendar-backed bootstrap
+remained `2026-07-30T13:30:00Z`, and `real_order_routing` remained false.
+
+The four local Research monitors and the loopback read-only status process
+were also moved from the immutable v8 identity to v9 before the next market
+session. The target collector remains `WAITING_FOR_PARENT_DECISION`, the
+outcome collector has no eligible request, and the evaluation gate remains
+`WAITING_FOR_FORWARD_OUTCOMES`. This changes no stored v8 record and does not
+backfill a Candidate observation.
+
+The host supervisor still carried the earlier detached-runtime commit as its
+restart preflight even though the live children had already moved to current
+main. That would have prevented the complete stack from returning after a
+supervisor or host restart. Its expected commit was updated to
+`1c330a2246e437db04f8eb6526a7b8589a325973`, and the supervisor alone was
+restarted. It logged `SUPERVISOR_STARTED` with the new commit while the
+existing v9 worker retained its heartbeat, next calendar cycle, and HTTP
+availability. The receipt-specific retry watcher for the now-successful
+attempt was removed from the supervisor set and stopped; the generic fenced
+consumer remains responsible for future eligible work.
+
+Two independent pre-bootstrap Q1 replays of v9 returned the same hash,
+`56a8f2347e84279f88b2a24fbf56cd0ae0919d4dd9439b6c0f85ede81253090e`.
+Both correctly returned a nonzero exit and
+`complete_session_record_set_present=false` because no common T0 anchor or
+completed session exists yet. The available run-version and routing checks
+passed, including `run_is_q1_math_core_v1=true` and
+`real_order_routing_false=true`. This is deterministic incomplete-stream
+evidence, not a completed-session replay claim.
+
+One of the four Commander evidence requests was then resolved without changing
+the failed Candidate. An exact, network-denied replay of the sealed IWM-RCG
+2.0.0 Candidate test file reproduced one failure:
+
+`tests/candidates/test_iwm_rcg_v2_0_0.py::IwmRcgCandidateTests::test_host_owned_sleeve_variants_preserve_full_investment_limit`
+
+The observed assertion was the strict binary floating-point comparison
+`0.19999999999999996 != 0.2`; the isolated Candidate test file reported 23
+passes and one failure. The original host manifest remains authoritative at 25
+collected checks, 24 passes, and one failure because it also includes the
+host-owned ABI check. A bounded structured diagnostic binds the original
+Candidate manifest, Candidate tree, test manifest, failure record, exact test
+file, implementation file, and strategy config. Its diagnostic hash is
+`bb38b2ef50b5559a432edc16275626231f8b8b3a0dcfbf5dea90d6fb7183c6e9`.
+It stores neither raw process output nor local absolute paths and is included
+as a distinct failure-evidence cluster in the next Research request. The
+existing IWM-RCG 2.0.0 result remains immutable `TEST_FAILED`; any retry must
+use a new Candidate version.
+
+### Commander-requested evidence follow-up
+
+A separately bound follow-up cycle,
+`requested-evidence-followup-cycle_1b65d456768d0d0da3002369`, used a new
+WebGPT conversation rather than resuming any prior Scout or Commander context.
+The headed-Chrome postflight verified:
+
+- request `requested-evidence-web-scout_152c3a871b5f5e105b0c72a9`;
+- conversation `6a6a54a1-7cb8-83e8-b37d-e41190f1254f`;
+- the previously bound local browser session;
+- `GPT-5.6 Sol Pro`, `xhigh`, and Pro access;
+- a complete, non-interrupted response with active browsing; and
+- answer hash
+  `63dfc3a7922b218928c71598cc422186c666238ad15176b5afa22497619c4825`.
+
+The validated `research_evidence_bundle_v1` has hash
+`81bb2d8fec145b314f5cab7a337febba078782278cce01560e4a82b9c2a3d377`.
+It contains 16 queries, 23 structured claims, and 16 accepted sources: 13
+`TIER_1_OFFICIAL`, two `TIER_2_PRIMARY_DATA`, and one
+`TIER_5_SOCIAL`. No claim supported only by the social source was marked
+corroborated.
+
+The follow-up resolved the requested release-history question conservatively:
+
+- archived H.4.1 release pages and the published Thursday release rule can bind
+  reserve and weekly-average TGA observations to first availability, while a
+  current bulk download alone is not revision-safe;
+- the searched Daily Treasury Statement interfaces did not prove an immutable
+  per-observation publication timestamp or revision-aware TGA vintage, so that
+  path remains discovery-only;
+- ALFRED exposes vintage retrieval for the ICE BofA high-yield OAS series, but
+  ICE rights and redistribution restrictions require a separate data-rights
+  review; and
+- release-lagged HYG excess return over SGOV is a testable discovery proxy, but
+  it is explicitly not equivalent to OAS because it mixes credit spread,
+  Treasury duration, carry, and ETF microstructure.
+
+The follow-up Research request
+`requested-evidence-research-request_1af8cafbc8cd88f05e66e0f9` is bound to
+context manifest
+`63ad70888a851062599e18df87558d5fcf760c12b1a98b00173c0254c47eeace`.
+It includes the exact IWM-RCG 2.0.0 failure diagnostic and a hash-bound
+prospective-readiness snapshot for Q1-DET 2.0.0. That snapshot has payload hash
+`81d5f78ef14985fa0352edc46d4e0e383a479e03c6114f762dd8830601158f99`
+and records `WAITING_FOR_FORWARD_OUTCOMES`, `0/126`, no falsification input,
+no OOS, no shadow, no broker access, and no automatic promotion.
+
+### Isolated IWM-RCG 2.0.1 attempt
+
+Fresh Commander invocation
+`commander-6f8abc8fd6d34aa185c1b1a5248c36d3` ran in the separate Commander
+repository with `gpt-5.6-sol`, reasoning `max`, ephemeral execution, disabled
+resume and user configuration, a successful sibling-read-denial preflight, and
+no credential use. Its output hash is
+`e9c628b0a61b5f75239968b32ea2e861de56f1035e6e0a6cfaa9273b1acd5377`.
+The public Research ledger accepted the resulting
+`PROPOSE_STRATEGY_REVISION` decision.
+
+The proposal did not mutate the failed IWM-RCG 2.0.0 tree. It requested a new
+IWM-RCG 2.0.1 version over HYG, IWM, QQQ, SGOV, SOXX, and SPY, using only
+completed-session, prior-close price features and the existing Candidate
+decision ABI. The proposal retained the prior hypothesis but required
+tolerance-aware numeric invariants and the full host-owned falsification,
+cost, delay, capacity, turnover, drawdown, PIT, and deterministic-replay gates.
+
+Fresh Builder invocation
+`builder-bf2ff09433f444e98c7a2ef663334224` ran separately with the same model
+family and reasoning profile. Its output hash is
+`5d1a9d75244cb0be4dbfe3aeddd54924c2e7e6c60e4e88de0b64b10ca71a90ba`.
+It added only the versioned 2.0.1 strategy, configuration, documentation, and
+Candidate test files permitted by the proposal. It produced no promotion
+decision, broker action, order, or executable Candidate artifact.
+
+The host finalized immutable Challenger
+`challenger-9ba46818415847b4b9650cb6` with:
+
+- manifest hash
+  `55981805a0498f3abdece1426b263760196d6fbc9efadb8364eca056d5d5d5b8`;
+- patch hash
+  `881063fd2a9e6216eba32614a8d1c7db6f248d8502b1caaa6eed8ce380071037`;
+- code hash
+  `8c630b25bf3f8de2535b64505e2294249fd3a22b1bd3fdde3acf2611543be0c5`;
+- config hash
+  `4852b54e149b4bb112666123e4e29cdadd47c11a0a7fb75b77cf42364d7673fa`;
+  and
+- test-manifest hash
+  `15d5be6aafdf244a2d803ea9cf60a550fd481b00a2b461b36b4eee85ff77a086`.
+
+The authoritative isolated test run collected 33 checks, including the
+host-owned ABI check. It passed 31 and failed two. The Candidate source,
+Candidate tests, host ABI test, and complete Candidate tree remained
+hash-identical before and after execution. Network, credential, broker, and
+real-order access were all disabled, and raw process output was not persisted.
+
+An exact disposable diagnostic reproduced both failures. The Candidate's own
+32 tests pass in the complete Candidate tree, but the isolated test projection
+contains only declared Candidate tests plus changed strategy or research
+configuration. Two tests incorrectly attempted to read undeclared files:
+
+- `test_candidate_source_has_no_external_or_privileged_capability` tried to
+  read the strategy implementation through the test projection rather than
+  importing or inspecting the projected Candidate source; and
+- `test_legacy_q1_candidate_files_remain_hash_identical` tried to read the
+  unchanged Q1-DET 2.0.0 configuration, which the projection intentionally
+  does not copy.
+
+The host patch-policy check already owns changed-path allowlisting and legacy
+immutability. This is therefore a test-projection contract failure, not
+evidence that the economic hypothesis passed. The terminal failure record hash
+is `60feee11612bc1d4a56e9f3643c9fa404b4e75c1533c6c8c2757dc2867b8612c`;
+the sanitized diagnostic payload hash is
+`c257b8380bdc8cb8de072a06750133205889ba61287fe236a7440ae2cf3a2253`.
+IWM-RCG 2.0.1 remains immutable `TEST_FAILED`. It has no Candidate artifact,
+falsification result, OOS request, or shadow arm. A repair, if later funded,
+must use another version.
+
+At `2026-07-29T20:46Z`, q1 paper run
+`paper_q1_research_20260729_v9` remained healthy in `PENDING_BOOTSTRAP` with a
+fresh worker heartbeat, no runtime error, and its next calendar-backed
+`Q1_SETTLEMENT` cycle at `2026-07-30T13:30:00Z`. Q1-DET 2.0.0 remained
+`0/126`; automatic promotion and real broker routing remained disabled.
+
 ## Validation
 
 Post-cycle failure-gate validation:
