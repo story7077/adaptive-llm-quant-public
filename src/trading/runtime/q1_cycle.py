@@ -1429,6 +1429,7 @@ class Q1PaperCycleProcessor:
                 as_of=as_of,
             )
         except Q1CycleNotReady:
+            quotes.pop("SOXX", None)
             return quotes
         quotes.update(active_bundle)
         return quotes

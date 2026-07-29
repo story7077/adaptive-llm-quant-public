@@ -422,7 +422,7 @@ def test_active_quote_skew_failure_preserves_anchor_and_qqq_benchmark() -> None:
             ask=Decimal("101"),
             available_at=NOW,
         )
-        for symbol in ("NVDA", "QQQ", "SOXL")
+        for symbol in ("NVDA", "QQQ", "SOXL", "SOXX")
     }
 
     def fresh_quotes(
@@ -444,7 +444,7 @@ def test_active_quote_skew_failure_preserves_anchor_and_qqq_benchmark() -> None:
 
     untyped._fresh_decision_quotes = fresh_quotes
     result = processor._strategic_quote_bundle(
-        anchor_symbols=("SOXL", "NVDA"),
+        anchor_symbols=("SOXL", "SOXX", "NVDA"),
         as_of=NOW,
     )
 
