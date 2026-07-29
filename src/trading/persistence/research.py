@@ -1054,6 +1054,37 @@ class ResearchRepository:
                 and bindings["evaluation_contract_hash"] == evaluation_contract_hash
             )
 
+    def falsification_report(
+        self,
+        challenger_id: str,
+    ) -> FalsificationReportV1 | None:
+        with self._session_factory() as session:
+            row = session.scalar(
+                select(FalsificationReportRow).where(
+                    FalsificationReportRow.challenger_id == challenger_id
+                )
+            )
+        if row is None:
+            return None
+        try:
+            report = FalsificationReportV1.model_validate(
+                row.payload_json
+            )
+            self._falsification_bindings(report)
+        except (ResearchPersistenceError, ValueError) as exc:
+            raise ResearchPersistenceError(
+                "stored falsification report is invalid"
+            ) from exc
+        if (
+            row.report_hash != report.report_hash
+            or row.mandatory_passed != report.mandatory_passed
+            or _stored_time(row.created_at) != report.created_at
+        ):
+            raise ResearchPersistenceError(
+                "stored falsification report binding mismatch"
+            )
+        return report
+
     def challenger_status(self, challenger_id: str) -> ChallengerStatus:
         with self._session_factory() as session:
             manifest = session.get(ChallengerManifestRow, challenger_id)
@@ -1154,6 +1185,47 @@ class ResearchRepository:
                 )
             )
             return artifact is not None
+
+    def replay_artifact(
+        self,
+        challenger_id: str,
+    ) -> DeterministicReplayArtifactV1 | None:
+        with self._session_factory() as session:
+            row = session.scalar(
+                select(ResearchReplayArtifactRow).where(
+                    ResearchReplayArtifactRow.challenger_id
+                    == challenger_id
+                )
+            )
+        if row is None:
+            return None
+        try:
+            artifact = DeterministicReplayArtifactV1(
+                challenger_id=row.challenger_id,
+                candidate_artifact_hash=row.candidate_artifact_hash,
+                config_hash=row.config_hash,
+                code_hash=row.code_hash,
+                data_manifest_hash=row.data_manifest_hash,
+                first_replay_hash=row.first_replay_hash,
+                second_replay_hash=row.second_replay_hash,
+                created_at=_stored_time(row.created_at),
+            )
+        except ValueError as exc:
+            raise ResearchPersistenceError(
+                "stored replay artifact is invalid"
+            ) from exc
+        if (
+            row.artifact_hash != artifact.artifact_hash
+            or row.candidate_artifact_hash
+            != artifact.candidate_artifact_hash
+            or row.data_manifest_hash != artifact.data_manifest_hash
+            or row.deterministic_match != artifact.deterministic_match
+            or _stored_time(row.created_at) != artifact.created_at
+        ):
+            raise ResearchPersistenceError(
+                "stored replay artifact binding mismatch"
+            )
+        return artifact
 
     def append_budget_event(
         self,

@@ -45,6 +45,8 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert "EFFECTIVE EVENTS" in page.text
         assert "LEARNING ELIGIBLE" in page.text
         assert "Prospective Candidate Evidence" in page.text
+        assert 'id="researchProspectiveEvaluation"' in page.text
+        assert 'id="researchProspectiveReplay"' in page.text
 
         selected = client.post(
             "/api/control/provider",
@@ -160,6 +162,29 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert outcomes["shadow_started"] is False
         assert outcomes["automatic_promotion_enabled"] is False
         assert outcomes["real_order_routing"] is False
+        prospective_evaluation = research_status.json()[
+            "prospective_evaluation"
+        ]
+        assert (
+            prospective_evaluation["status"]
+            == "WAITING_FOR_CHALLENGER"
+        )
+        assert prospective_evaluation["dataset"] is None
+        assert prospective_evaluation["trace"] is None
+        assert prospective_evaluation["falsification"] is None
+        assert (
+            prospective_evaluation["required_successful_sessions"]
+            == 126
+        )
+        assert prospective_evaluation["falsification_started"] is False
+        assert prospective_evaluation["oos_started"] is False
+        assert prospective_evaluation["shadow_started"] is False
+        assert (
+            prospective_evaluation["automatic_promotion_enabled"]
+            is False
+        )
+        assert prospective_evaluation["broker_access_permitted"] is False
+        assert prospective_evaluation["real_order_routing"] is False
 
         research_selection = client.post(
             "/api/research/commander",

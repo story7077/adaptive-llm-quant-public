@@ -1,5 +1,5 @@
 schema_version: candidate_prospective_config_v1
-producer_version: q1_det_candidate_feature_producer_v1
+producer_version: q1_det_candidate_feature_producer_v2
 strategy_config_path: strategies/challengers/q1-det-v2.0.0.yaml
 strategy_config_content_sha256: ca584917c436f8bc29263a14ed7030e9e6223fe6ce849364d3d7ded90d870228
 strategy_id: Q1-DET
@@ -12,7 +12,7 @@ market_data:
   timeframe: 1Day
   adjustment: all
   dataset_version: alpaca_iex_adjusted_all_v1
-  required_completed_sessions: 200
+  required_completed_sessions: 220
   query_limit: 260
 
 features:

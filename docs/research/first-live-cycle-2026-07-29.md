@@ -193,6 +193,35 @@ Champion mutation. Its readiness threshold of 126 sessions and 504 instrument
 observations means only that a later host-owned falsification dataset may be
 assembled.
 
+### Prospective evaluation dataset V2
+
+The follow-up `candidate_prospective_evaluation_dataset_v2` path implements
+that later host-owned assembly without changing the forward evidence already
+recorded. Migration `0020_candidate_evaluation_dataset_v2` adds append-only
+dataset and trace tables. The selection rule is the exact first 126 successful
+forward sessions, with all terminal failures through the same selection cutoff
+retained in the cohort manifest.
+
+Every base and transformed scenario binds:
+
+- the stored request and request-source manifest;
+- the actual versioned market-calendar path;
+- the deterministic transformation;
+- the hidden forward-outcome source and availability time;
+- the evaluation config and sealed Candidate artifact.
+
+The predeclared variants cover adjacent parameter values, data removal,
+calendar shift, signal placebos, and GLD/TLT label shuffle. Each variant evolves
+its own target state chronologically. The future outcome is never placed in a
+Candidate request. Independent isolated primary and replay invocations must
+match before the host can persist the trace and run mandatory falsification.
+
+The one-shot evaluation monitor remains dormant until the cohort is ready and
+then stops after one terminal evaluation. It cannot request locked OOS, create
+an independent shadow arm, promote the Challenger, access broker credentials,
+or create an order. Until 126 successful sessions exist, its only valid state
+is `WAITING_FOR_FORWARD_OUTCOMES`.
+
 ## Operational Q1 paper runtime
 
 The active synthetic run is `paper_q1_research_20260729_v5`.
@@ -275,7 +304,7 @@ instead.
 
 Public repository:
 
-- `uv run pytest`: **653 passed**, one third-party
+- `uv run pytest`: **665 passed**, one third-party
   FastAPI/Starlette deprecation warning;
 - `uv run ruff check .`: passed;
 - `uv run pyright`: 0 errors, 0 warnings;
@@ -285,9 +314,11 @@ Public repository:
 - Research config manifest:
   `2b8475fd62f76d100ea5254847f2492ddbca6fe8d8d60629d394e1bf7e08d203`;
 - prospective Candidate config manifest:
-  `8c3bda4b64c55d350448821c0f14d91f24da4656b9aeeaa1368656ef9e069fa0`.
+  `7a47d85225092cb80072e2222aed9b1c870f1c61ea0c532066d851505d05fff6`.
 - prospective outcome config manifest:
   `7ea406b5edf8339d6530654539da36377318d824cc25676e651fbb33865d4ed5`.
+- prospective evaluation V2 config manifest:
+  `a7406cf9ffe26279c0dddf54624908fb609a120fb6ec12ce8a35f0f7cfb58a5e`.
 
 Commander repository:
 
@@ -296,15 +327,15 @@ Commander repository:
 - Pyright: 0 errors.
 
 A clean disposable SQLite database upgraded to
-`0019_candidate_prospective_outcomes_v1`, downgraded to
-`0018_candidate_prospective_v1`, and re-upgraded to
-`0019_candidate_prospective_outcomes_v1`. The CLI downgrade gate accepts
+`0020_candidate_evaluation_dataset_v2`, downgraded to
+`0019_candidate_prospective_outcomes_v1`, and re-upgraded to
+`0020_candidate_evaluation_dataset_v2`. The CLI downgrade gate accepts
 SQLite only, so a localhost PostgreSQL URL cannot be mistaken for the
 disposable database.
 
 The synthetic seven-arm demo replay returned
-`ccf42b5d05677f3d2ff59fe85a7e4068a32da0903f8a78fcb3c877bf532a0ba0`
-on two independent invocations in the disposable 0019 database. All 11
+`f76af79eb41d0498769d070352d8928df6f914fe227c9f5b781f5a7829a89b97`
+on two independent invocations in the disposable 0020 database. All 11
 verification checks passed and every arm ledger balanced.
 
 The live v5 run is not yet replay-complete because its first session has not
@@ -313,7 +344,7 @@ hash,
 `1af290f96e41284c6e4ce70081bba141be00358757b10a2552371354c633cbd0`,
 with all available hash and state-machine checks passing and the required
 initial-state/session-completeness checks correctly false. The repository's
-complete synthetic Q1 replay tests passed in the 639-test suite.
+complete synthetic Q1 replay tests passed in the 665-test suite.
 
 ### Migration validation incident
 

@@ -235,6 +235,25 @@ The mandatory suite covers:
 Missing mandatory results are a failure. Any mandatory `FAIL` or `BLOCKED`
 prevents OOS and shadow admission.
 
+### Forward-only evaluation input
+
+The first live Challenger uses a separate prospective evidence path before
+mandatory falsification. It seals one Candidate request at each parent
+`Q1-DET` decision and later records the precommitted next-close outcome. After
+126 successful sessions, `candidate_evaluation_dataset_v2` freezes the exact
+first-N cohort and all terminal failures known at the selection cutoff.
+
+Unlike the legacy single-manifest evaluation fixture, V2 preserves a distinct
+request source manifest, calendar-path hash, transformation hash, and outcome
+source hash for every scenario. Stateful parameter variants use only their own
+prior target state. Future records cannot change the selected cohort or any
+past scenario hash.
+
+The host executes separate isolated primary and replay lanes, materializes the
+evaluation trace, and runs the complete trusted falsification catalog. This is
+still a pre-OOS service: it cannot inspect locked OOS observations, create a
+shadow arm, promote a Challenger, mutate the Champion, or route an order.
+
 ## OOS and shadow
 
 The OOS service consumes private observations but returns only a verdict, bounded

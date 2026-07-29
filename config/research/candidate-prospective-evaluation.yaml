@@ -1,0 +1,116 @@
+schema_version: candidate_prospective_evaluation_config_v1
+producer_version: q1_det_prospective_evaluation_dataset_v2
+deterministic_seed: 7077
+strategy_config_path: strategies/challengers/q1-det-v2.0.0.yaml
+prospective_config_path: research/candidate-prospective.yaml
+outcome_config_path: research/candidate-prospective-outcomes.yaml
+
+source_selection:
+  policy: FIRST_N_SUCCESSFUL_FORWARD_SESSIONS
+  required_common_sessions: 126
+  minimum_request_coverage_ratio: 0.90
+  minimum_variant_session_coverage_ratio: 0.90
+  numeric_tolerance: 0.000000000001
+
+universe:
+  eligible_instrument_count: 5
+  eligible_non_survivor_count: 0
+  symbols: [GLD, QQQ, SGOV, SOXX, TLT]
+
+state:
+  base_state_source: STORED_PROSPECTIVE_REQUEST
+  variant_initial_state_source: FIRST_BASE_REQUEST_CURRENT_WEIGHTS
+  variant_subsequent_state_source: PRIOR_VARIANT_TARGETS
+  review_clock_source: VERSIONED_MARKET_CALENDAR
+
+feature_calculation:
+  annualization_sessions: 252
+  realized_volatility_ddof: 1
+  minimum_variance: 0.000000000001
+  source_revision: 0
+
+transform_constants:
+  removed_downside_beta: -9.0
+  static_excess_return: 0.10
+  static_moving_average_gap: 0.10
+  static_realized_volatility: 1.0
+  static_downside_beta: -1.0
+  static_minimum_downside_observations: 30
+
+parameter_neighborhoods:
+  - variant_id: GLD_ENTRY_BETA_0_15
+    required_history_sessions: 200
+    parameter_overrides:
+      gld_entry_downside_beta: 0.15
+  - variant_id: GLD_ENTRY_BETA_0_35
+    required_history_sessions: 200
+    parameter_overrides:
+      gld_entry_downside_beta: 0.35
+  - variant_id: MOVING_AVERAGE_180
+    required_history_sessions: 200
+    parameter_overrides:
+      moving_average_sessions: 180
+  - variant_id: MOVING_AVERAGE_220
+    required_history_sessions: 220
+    parameter_overrides:
+      moving_average_sessions: 220
+  - variant_id: RETURN_HORIZON_42_105
+    required_history_sessions: 200
+    parameter_overrides:
+      long_return_sessions: 105
+      short_return_sessions: 42
+  - variant_id: RETURN_HORIZON_84_168
+    required_history_sessions: 200
+    parameter_overrides:
+      long_return_sessions: 168
+      short_return_sessions: 84
+  - variant_id: SLEEVE_CAP_0_25
+    required_history_sessions: 200
+    parameter_overrides:
+      sleeve_cap: 0.25
+  - variant_id: SLEEVE_CAP_0_45
+    required_history_sessions: 200
+    parameter_overrides:
+      sleeve_cap: 0.45
+  - variant_id: TLT_ENTRY_BETA_0_10
+    required_history_sessions: 200
+    parameter_overrides:
+      tlt_entry_downside_beta: 0.10
+  - variant_id: TLT_ENTRY_BETA_NEG_0_10
+    required_history_sessions: 200
+    parameter_overrides:
+      tlt_entry_downside_beta: -0.10
+
+data_ablations:
+  - variant_id: LEAVE_GLD_OUT
+    symbol: GLD
+  - variant_id: LEAVE_TLT_OUT
+    symbol: TLT
+
+date_shifts:
+  - variant_id: SHUFFLED_ACTIVATION_DATES
+    review_clock_offset_sessions: 10
+
+placebos:
+  - variant_id: INVERTED_EXCESS_TREND
+    transform: INVERT_EXCESS_TREND
+  - variant_id: NO_DOWNSIDE_BETA_GATE
+    transform: REMOVE_DOWNSIDE_BETA_GATE
+  - variant_id: SGOV_ONLY
+    transform: SGOV_ONLY
+  - variant_id: STATIC_GLD_TLT
+    transform: STATIC_GLD_TLT
+
+symbol_shuffles:
+  - variant_id: SWAP_GLD_TLT_LABELS
+    left_symbol: GLD
+    right_symbol: TLT
+
+safety:
+  real_order_routing: false
+  broker_access_permitted: false
+  credential_access_permitted: false
+  automatic_promotion_enabled: false
+  challenger_lifecycle_advance_before_falsification: false
+  oos_access_permitted: false
+  shadow_activation_enabled: false

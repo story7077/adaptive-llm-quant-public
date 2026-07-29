@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -55,6 +55,9 @@ from trading.persistence.meta_controller import MetaControllerRepository
 from trading.persistence.meta_oos import MetaOosRepository
 from trading.persistence.paper import load_paper_account_spec
 from trading.persistence.prospective import ProspectiveCandidateRepository
+from trading.persistence.prospective_evaluation import (
+    ProspectiveEvaluationRepository,
+)
 from trading.persistence.prospective_outcomes import (
     ProspectiveOutcomeRepository,
 )
@@ -74,6 +77,9 @@ from trading.research.lifecycle import (
     ResearchLifecycleService,
 )
 from trading.research.prospective import load_prospective_candidate_config
+from trading.research.prospective_evaluation import (
+    load_prospective_evaluation_config,
+)
 from trading.research.prospective_outcomes import (
     load_prospective_outcome_config,
 )
@@ -86,6 +92,9 @@ from trading.runtime.news import (
 from trading.runtime.paper import PaperRuntimeError, PaperRuntimeService
 from trading.runtime.paper_worker import PaperRuntimeWorker
 from trading.runtime.prospective_candidate import prospective_candidate_status
+from trading.runtime.prospective_evaluation import (
+    prospective_evaluation_status,
+)
 from trading.runtime.prospective_outcomes import prospective_outcome_status
 from trading.runtime.q1_alpaca_paper import Q1AlpacaPaperCanaryService
 from trading.runtime.q1_config import llm_transport_config
@@ -183,6 +192,9 @@ def create_app(
     prospective_outcome_config = load_prospective_outcome_config(
         active_settings.config_dir
     )
+    prospective_evaluation_config = (
+        load_prospective_evaluation_config(active_settings.config_dir)
+    )
     research_scheduler = ResearchSchedulerService(
         repository=ResearchSchedulerRepository(session_factory),
         config=research_config,
@@ -191,6 +203,9 @@ def create_app(
     prospective_repository = ProspectiveCandidateRepository(session_factory)
     prospective_outcome_repository = ProspectiveOutcomeRepository(
         session_factory
+    )
+    prospective_evaluation_repository = (
+        ProspectiveEvaluationRepository(session_factory)
     )
     dashboard_service = MarketDashboardService(session_factory)
     live_market_service = LiveMarketSnapshotService(
@@ -687,11 +702,33 @@ def create_app(
             config=prospective_config,
         )
         latest = prospective_status.get("latest")
-        latest_challenger_id = (
-            latest.get("challenger_id")
+        latest_payload = (
+            cast(dict[str, Any], latest)
             if isinstance(latest, dict)
+            else {}
+        )
+        raw_latest_challenger_id = (
+            latest_payload.get("challenger_id")
+        )
+        latest_challenger_id = (
+            raw_latest_challenger_id
+            if isinstance(raw_latest_challenger_id, str)
             else None
         )
+        if latest_challenger_id is None:
+            challengers = persisted_status.get("challengers")
+            latest_challenger = (
+                cast(dict[str, Any], challengers[0])
+                if isinstance(challengers, list)
+                and challengers
+                and isinstance(challengers[0], dict)
+                else {}
+            )
+            raw_latest_challenger = latest_challenger.get(
+                "challenger_id"
+            )
+            if isinstance(raw_latest_challenger, str):
+                latest_challenger_id = raw_latest_challenger
         return {
             **persisted_status,
             "recursive_improvement": recursive_improvement_status(
@@ -729,11 +766,13 @@ def create_app(
             "prospective_outcomes": prospective_outcome_status(
                 prospective_outcome_repository,
                 config=prospective_outcome_config,
-                challenger_id=(
-                    str(latest_challenger_id)
-                    if latest_challenger_id is not None
-                    else None
-                ),
+                challenger_id=latest_challenger_id,
+            ),
+            "prospective_evaluation": prospective_evaluation_status(
+                prospective_evaluation_repository,
+                config=prospective_evaluation_config,
+                research_repository=research_repository,
+                challenger_id=latest_challenger_id,
             ),
             "real_order_routing": False,
         }

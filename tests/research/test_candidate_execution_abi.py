@@ -21,10 +21,16 @@ from trading.research.candidate_abi import (
 )
 from trading.research.candidate_evaluation import (
     CandidateEvaluationDatasetV1,
+    CandidateEvaluationDatasetV2,
     CandidateEvaluationError,
     CandidateOutcomeV1,
+    build_candidate_evaluation_cohort_entry_v2,
+    build_candidate_evaluation_cohort_manifest_v2,
     build_candidate_evaluation_dataset,
+    build_candidate_evaluation_dataset_v2,
     build_candidate_evaluation_scenario,
+    build_candidate_evaluation_source_binding_v2,
+    build_candidate_evaluation_source_manifest_v2,
     evaluate_candidate_twice,
     execute_candidate_dataset_twice,
 )
@@ -468,15 +474,168 @@ def test_nondeterministic_or_failed_candidate_fails_closed() -> None:
         "created_at": NOW + timedelta(days=2),
     }
 
-    with pytest.raises(CandidateEvaluationError, match="not deterministic"):
+    with pytest.raises(
+        CandidateEvaluationError,
+        match="not deterministic",
+    ) as nondeterministic:
         evaluate_candidate_twice(
             executor=_NondeterministicExecutor(),
             **common,
         )
+    assert nondeterministic.value.replay is not None
+    assert nondeterministic.value.replay.deterministic_match is False
     with pytest.raises(CandidateEvaluationError, match="execution rejected"):
         evaluate_candidate_twice(
             executor=_FailingExecutor(),
             **common,
+        )
+
+
+def test_v2_dataset_preserves_distinct_pit_manifests_per_scenario() -> None:
+    base_request = _request()
+    variant_request = build_candidate_decision_request(
+        request_id="candidate-request-variant",
+        challenger_id=base_request.challenger_id,
+        candidate_artifact_hash=base_request.candidate_artifact_hash,
+        strategy_id=base_request.strategy_id,
+        strategy_version=base_request.strategy_version,
+        decision_time=base_request.decision_time,
+        signal_data_cutoff=base_request.signal_data_cutoff,
+        variant=CandidateEvaluationVariantV1(
+            parameter_neighborhood_id="WINDOW_42"
+        ),
+        instruments=base_request.instruments,
+        constraints=base_request.constraints,
+        strategy_parameters={"signal_scale": 0.9},
+        source_data_manifest_hash=HASH_C,
+    )
+    outcomes = (
+        _outcome("QQQ", forward_return=0.02, baseline_target_weight=0.5),
+        _outcome("SOXX", forward_return=0.03, baseline_target_weight=0.25),
+    )
+    base = build_candidate_evaluation_scenario(
+        scenario_id="scenario-base-v2",
+        request=base_request,
+        outcomes=outcomes,
+        evaluation_nav_usd=100_000,
+    )
+    variant = build_candidate_evaluation_scenario(
+        scenario_id="scenario-variant-v2",
+        request=variant_request,
+        outcomes=outcomes,
+        evaluation_nav_usd=100_000,
+    )
+    outcome_hash = canonical_hash({"forward": "source"})
+    calendar_hash = canonical_hash({"calendar": "path"})
+    cohort_entry = build_candidate_evaluation_cohort_entry_v2(
+        prospective_request_id=base_request.request_id,
+        request_hash=base_request.request_hash,
+        decision_time=base_request.decision_time,
+        signal_data_cutoff=base_request.signal_data_cutoff,
+        outcome_source_hash=outcome_hash,
+        outcome_available_at=outcomes[0].outcome_available_at,
+    )
+    cohort = build_candidate_evaluation_cohort_manifest_v2(
+        selection_policy="FIRST_N_SUCCESSFUL_FORWARD_SESSIONS",
+        required_successful_sessions=1,
+        entries=(cohort_entry,),
+        terminal_failure_hashes=(),
+        terminal_request_count=1,
+        selection_data_cutoff=outcomes[0].outcome_available_at,
+    )
+    bindings = (
+        build_candidate_evaluation_source_binding_v2(
+            scenario=base,
+            base_scenario_id=base.scenario_id,
+            base_request_hash=base_request.request_hash,
+            base_source_manifest_hash=HASH_B,
+            calendar_path_hash=calendar_hash,
+            outcome_source_hash=outcome_hash,
+            transformation_hash=HASH_B,
+        ),
+        build_candidate_evaluation_source_binding_v2(
+            scenario=variant,
+            base_scenario_id=base.scenario_id,
+            base_request_hash=base_request.request_hash,
+            base_source_manifest_hash=HASH_B,
+            calendar_path_hash=calendar_hash,
+            outcome_source_hash=outcome_hash,
+            transformation_hash=HASH_C,
+        ),
+    )
+    source = build_candidate_evaluation_source_manifest_v2(
+        producer_version="candidate-evaluation-v2",
+        config_manifest_hash=HASH_D,
+        cohort_manifest=cohort,
+        bindings=bindings,
+    )
+
+    dataset = build_candidate_evaluation_dataset_v2(
+        dataset_id="candidate-dataset-v2",
+        challenger_id=base_request.challenger_id,
+        candidate_artifact_hash=base_request.candidate_artifact_hash,
+        source_manifest=source,
+        eligible_instrument_count=2,
+        eligible_non_survivor_count=0,
+        scenarios=(variant, base),
+    )
+
+    assert isinstance(dataset, CandidateEvaluationDatasetV2)
+    assert {
+        item.request.source_data_manifest_hash
+        for item in dataset.scenarios
+    } == {HASH_B, HASH_C}
+    assert dataset.source_manifest.cohort_manifest.manifest_hash
+
+
+def test_v1_dataset_still_rejects_mixed_source_manifests() -> None:
+    base_request = _request()
+    variant_request = build_candidate_decision_request(
+        request_id="candidate-request-mixed-v1",
+        challenger_id=base_request.challenger_id,
+        candidate_artifact_hash=base_request.candidate_artifact_hash,
+        strategy_id=base_request.strategy_id,
+        strategy_version=base_request.strategy_version,
+        decision_time=base_request.decision_time,
+        signal_data_cutoff=base_request.signal_data_cutoff,
+        variant=CandidateEvaluationVariantV1(
+            parameter_neighborhood_id="WINDOW_42"
+        ),
+        instruments=base_request.instruments,
+        constraints=base_request.constraints,
+        strategy_parameters={"signal_scale": 0.9},
+        source_data_manifest_hash=HASH_C,
+    )
+    outcomes = (
+        _outcome("QQQ", forward_return=0.02, baseline_target_weight=0.5),
+        _outcome("SOXX", forward_return=0.03, baseline_target_weight=0.25),
+    )
+    scenarios = (
+        build_candidate_evaluation_scenario(
+            scenario_id="scenario-base-mixed-v1",
+            request=base_request,
+            outcomes=outcomes,
+            evaluation_nav_usd=100_000,
+        ),
+        build_candidate_evaluation_scenario(
+            scenario_id="scenario-variant-mixed-v1",
+            request=variant_request,
+            outcomes=outcomes,
+            evaluation_nav_usd=100_000,
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="binding mismatch"):
+        build_candidate_evaluation_dataset(
+            dataset_id="candidate-dataset-mixed-v1",
+            challenger_id=base_request.challenger_id,
+            candidate_artifact_hash=(
+                base_request.candidate_artifact_hash
+            ),
+            source_data_manifest_hash=HASH_B,
+            eligible_instrument_count=2,
+            eligible_non_survivor_count=0,
+            scenarios=scenarios,
         )
 
 

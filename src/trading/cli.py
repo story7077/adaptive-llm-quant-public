@@ -76,6 +76,10 @@ from trading.persistence.prospective import (
     ProspectiveCandidateRepository,
     ProspectivePersistenceError,
 )
+from trading.persistence.prospective_evaluation import (
+    ProspectiveEvaluationPersistenceError,
+    ProspectiveEvaluationRepository,
+)
 from trading.persistence.prospective_outcomes import (
     ProspectiveOutcomePersistenceError,
     ProspectiveOutcomeRepository,
@@ -87,6 +91,10 @@ from trading.replay.q1 import replay_q1_run
 from trading.replay.verifier import verify_ledger_arm, verify_run
 from trading.research.candidate_abi import CandidateDecisionRequestV1
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
+from trading.research.candidate_evaluation import (
+    CandidateEvaluationDatasetV2,
+    CandidateEvaluationSourceManifestV2,
+)
 from trading.research.candidate_experiment import (
     CandidateExperimentRegistrationError,
     CandidateExperimentRegistrationService,
@@ -156,6 +164,12 @@ from trading.research.prospective import (
     ProspectiveCandidateError,
     load_prospective_candidate_config,
 )
+from trading.research.prospective_evaluation import (
+    PROSPECTIVE_EVALUATION_CONFIG_FILE,
+    ProspectiveEvaluationConfigV1,
+    ProspectiveEvaluationError,
+    load_prospective_evaluation_config,
+)
 from trading.research.prospective_outcomes import (
     PROSPECTIVE_OUTCOME_CONFIG_FILE,
     ProspectiveOutcomeConfigBundle,
@@ -188,6 +202,14 @@ from trading.runtime.prospective_candidate import (
     ProspectiveCandidateCollector,
     ProspectiveCollectionResult,
     prospective_candidate_status,
+)
+from trading.runtime.prospective_evaluation import (
+    ProspectiveEvaluationRunResult,
+    ProspectiveEvaluationService,
+    prospective_evaluation_status,
+)
+from trading.runtime.prospective_evaluation_monitor import (
+    run_prospective_evaluation_monitor,
 )
 from trading.runtime.prospective_monitor import (
     PROSPECTIVE_WAIT_ERROR_CODES,
@@ -264,7 +286,7 @@ research_app.add_typer(research_memory_app, name="memory")
 research_app.add_typer(research_meta_policy_app, name="meta-policy")
 research_app.add_typer(research_meta_oos_app, name="meta-oos")
 
-EXPECTED_DATABASE_REVISION = "0019_candidate_prospective_outcomes_v1"
+EXPECTED_DATABASE_REVISION = "0020_candidate_evaluation_dataset_v2"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -436,6 +458,9 @@ def validate_config(
         prospective_outcomes = load_prospective_outcome_config(
             settings.config_dir
         )
+        prospective_evaluation = load_prospective_evaluation_config(
+            settings.config_dir
+        )
         operational_config(q1)
         _emit(
             {
@@ -453,6 +478,9 @@ def validate_config(
                         "CANDIDATE_PROSPECTIVE_OUTCOMES_V1": (
                             prospective_outcomes.manifest_hash
                         ),
+                        "CANDIDATE_PROSPECTIVE_EVALUATION_V2": (
+                            prospective_evaluation.manifest_hash
+                        ),
                     }
                 ),
                 "files": sorted(
@@ -465,6 +493,7 @@ def validate_config(
                         FACTORIAL_CONFIG_FILE,
                         PROSPECTIVE_CONFIG_FILE,
                         PROSPECTIVE_OUTCOME_CONFIG_FILE,
+                        PROSPECTIVE_EVALUATION_CONFIG_FILE,
                         prospective.config.strategy_config_path,
                     }
                 ),
@@ -502,6 +531,20 @@ def validate_config(
                         "files": [
                             PROSPECTIVE_OUTCOME_CONFIG_FILE,
                             prospective_outcomes.config.cost_model.config_path,
+                        ],
+                    },
+                    "CANDIDATE_PROSPECTIVE_EVALUATION_V2": {
+                        "manifest_hash": (
+                            prospective_evaluation.manifest_hash
+                        ),
+                        "files": [
+                            PROSPECTIVE_EVALUATION_CONFIG_FILE,
+                            prospective_evaluation.config
+                            .prospective_config_path,
+                            prospective_evaluation.config
+                            .outcome_config_path,
+                            prospective_evaluation.config
+                            .strategy_config_path,
                         ],
                     },
                 },
@@ -903,6 +946,9 @@ def research_status() -> None:
     prospective_outcome_config = load_prospective_outcome_config(
         settings.config_dir
     )
+    prospective_evaluation_config = (
+        load_prospective_evaluation_config(settings.config_dir)
+    )
     research_repository = ResearchRepository(factory)
     persisted_status = research_repository.status()
     meta_controller_status = MetaControllerRepository(factory).status()
@@ -913,11 +959,31 @@ def research_status() -> None:
         config=prospective_config,
     )
     prospective_latest = prospective_status.get("latest")
-    prospective_challenger_id = (
-        prospective_latest.get("challenger_id")
+    prospective_latest_payload = (
+        cast(dict[str, Any], prospective_latest)
         if isinstance(prospective_latest, dict)
+        else {}
+    )
+    raw_prospective_challenger_id = (
+        prospective_latest_payload.get("challenger_id")
+    )
+    prospective_challenger_id = (
+        raw_prospective_challenger_id
+        if isinstance(raw_prospective_challenger_id, str)
         else None
     )
+    if prospective_challenger_id is None:
+        challengers = persisted_status.get("challengers")
+        latest_challenger = (
+            cast(dict[str, Any], challengers[0])
+            if isinstance(challengers, list)
+            and challengers
+            and isinstance(challengers[0], dict)
+            else {}
+        )
+        raw_latest_challenger = latest_challenger.get("challenger_id")
+        if isinstance(raw_latest_challenger, str):
+            prospective_challenger_id = raw_latest_challenger
     payload = {
         **persisted_status,
         "recursive_improvement": recursive_improvement_status(
@@ -937,11 +1003,13 @@ def research_status() -> None:
         "prospective_outcomes": prospective_outcome_status(
             ProspectiveOutcomeRepository(factory),
             config=prospective_outcome_config,
-            challenger_id=(
-                str(prospective_challenger_id)
-                if prospective_challenger_id is not None
-                else None
-            ),
+            challenger_id=prospective_challenger_id,
+        ),
+        "prospective_evaluation": prospective_evaluation_status(
+            ProspectiveEvaluationRepository(factory),
+            config=prospective_evaluation_config,
+            research_repository=research_repository,
+            challenger_id=prospective_challenger_id,
         ),
         "real_order_routing": False,
     }
@@ -2042,6 +2110,117 @@ def research_prospective_outcome_monitor(
     )
 
 
+@research_app.command("prospective-evaluation-run")
+def research_prospective_evaluation_run(
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+    commander_root: Annotated[
+        Path,
+        typer.Option("--commander-root", exists=True, file_okay=False),
+    ],
+    commander_run: Annotated[
+        Path,
+        typer.Option("--commander-run", exists=True, file_okay=False),
+    ],
+) -> None:
+    """Build and falsify the frozen 126-session forward cohort once."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        result = _run_prospective_evaluation(
+            settings=settings,
+            engine=engine,
+            challenger_id=challenger_id,
+            commander_root=commander_root,
+            commander_run=commander_run,
+        )
+    except (
+        CommanderCandidateError,
+        ProspectiveEvaluationError,
+        ProspectiveEvaluationPersistenceError,
+        ProspectiveOutcomePersistenceError,
+        ResearchLifecycleError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(_prospective_evaluation_result_payload(result))
+    if result.status == "WAITING_FOR_FORWARD_OUTCOMES":
+        raise typer.Exit(3)
+
+
+@research_app.command("prospective-evaluation-monitor")
+def research_prospective_evaluation_monitor(
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+    commander_root: Annotated[
+        Path,
+        typer.Option("--commander-root", exists=True, file_okay=False),
+    ],
+    commander_run: Annotated[
+        Path,
+        typer.Option("--commander-run", exists=True, file_okay=False),
+    ],
+) -> None:
+    """Wait for 126 forward sessions, run falsification once, then stop."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    outcome_config = load_prospective_outcome_config(
+        settings.config_dir
+    )
+    engine = create_database_engine(settings.database_url)
+    _emit_json_line(
+        {
+            "schema_version": (
+                "candidate_prospective_evaluation_monitor_status_v1"
+            ),
+            "status": "PROSPECTIVE_EVALUATION_MONITOR_RUNNING",
+            "challenger_id": challenger_id,
+            "poll_seconds": outcome_config.config.operations.poll_seconds,
+            "automatic_promotion_enabled": False,
+            "oos_started": False,
+            "shadow_started": False,
+            "broker_access_permitted": False,
+            "real_order_routing": False,
+        }
+    )
+    try:
+        result = run_prospective_evaluation_monitor(
+            evaluate=lambda: _run_prospective_evaluation(
+                settings=settings,
+                engine=engine,
+                challenger_id=challenger_id,
+                commander_root=commander_root,
+                commander_run=commander_run,
+            ),
+            poll_seconds=outcome_config.config.operations.poll_seconds,
+        )
+    except (
+        CommanderCandidateError,
+        ProspectiveEvaluationError,
+        ProspectiveEvaluationPersistenceError,
+        ProspectiveOutcomePersistenceError,
+        ResearchLifecycleError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit_json_line(
+        {
+            **_prospective_evaluation_result_payload(result),
+            "schema_version": (
+                "candidate_prospective_evaluation_monitor_result_v1"
+            ),
+            "monitor_state": "STOPPED_AFTER_TERMINAL_EVALUATION",
+        }
+    )
+
+
 @research_app.command("promotion-evaluate")
 def research_promotion_evaluate(
     challenger_id: Annotated[str, typer.Option("--challenger-id")],
@@ -2178,6 +2357,15 @@ def research_schema() -> None:
                 ResearchActionPlanV1.model_json_schema()
             ),
             "candidate_artifact": (CandidateArtifactBundleV1.model_json_schema()),
+            "candidate_evaluation_dataset_v2": (
+                CandidateEvaluationDatasetV2.model_json_schema()
+            ),
+            "candidate_evaluation_source_manifest_v2": (
+                CandidateEvaluationSourceManifestV2.model_json_schema()
+            ),
+            "prospective_evaluation_config_v1": (
+                ProspectiveEvaluationConfigV1.model_json_schema()
+            ),
             "algorithm_proposal_v2": AlgorithmProposalV2.model_json_schema(),
             "experiment_outcome_event_v1": (
                 ExperimentOutcomeEventV1.model_json_schema()
@@ -3600,6 +3788,126 @@ def _prospective_outcome_result_payload(
         "outcome_recorded": True,
         "challenger_status_advanced": False,
         "falsification_started": False,
+        "oos_started": False,
+        "shadow_started": False,
+        "automatic_promotion_enabled": False,
+        "broker_access_permitted": False,
+        "real_order_routing": False,
+    }
+
+
+def _run_prospective_evaluation(
+    *,
+    settings: Settings,
+    engine: Any,
+    challenger_id: str,
+    commander_root: Path,
+    commander_run: Path,
+) -> ProspectiveEvaluationRunResult:
+    return ProspectiveEvaluationService(
+        make_session_factory(engine),
+        evaluation_config=load_prospective_evaluation_config(
+            settings.config_dir
+        ),
+        outcome_config=load_prospective_outcome_config(
+            settings.config_dir
+        ),
+        research_config=load_research_config(settings.config_dir),
+    ).run(
+        challenger_id=challenger_id,
+        commander_root=commander_root,
+        commander_run=commander_run,
+    )
+
+
+def _prospective_evaluation_result_payload(
+    result: ProspectiveEvaluationRunResult,
+) -> dict[str, Any]:
+    report = result.falsification_report
+    build = result.build_result
+    return {
+        "schema_version": (
+            "candidate_prospective_evaluation_result_v1"
+        ),
+        "status": result.status,
+        "challenger_status": result.challenger_status.value,
+        "successful_forward_sessions": (
+            result.successful_forward_sessions
+        ),
+        "required_forward_sessions": result.required_forward_sessions,
+        "terminal_failure_count": result.terminal_failure_count,
+        "dataset": (
+            None
+            if result.dataset is None
+            else {
+                "dataset_id": result.dataset.dataset_id,
+                "dataset_hash": result.dataset.dataset_hash,
+                "source_manifest_hash": (
+                    result.dataset.source_manifest.manifest_hash
+                ),
+                "selection_cohort_hash": (
+                    result.dataset.source_manifest.cohort_manifest
+                    .manifest_hash
+                ),
+                "scenario_count": len(result.dataset.scenarios),
+            }
+        ),
+        "trace": (
+            None
+            if result.trace is None
+            else {
+                "trace_id": result.trace.trace_id,
+                "trace_hash": result.trace.trace_hash,
+                "observation_count": len(result.trace.observations),
+                "evaluation_contract_hash": (
+                    result.trace.evaluation_contract_hash
+                ),
+            }
+        ),
+        "replay": (
+            None
+            if result.replay is None
+            else {
+                "artifact_hash": result.replay.artifact_hash,
+                "deterministic_match": (
+                    result.replay.deterministic_match
+                ),
+            }
+        ),
+        "falsification": (
+            None
+            if report is None
+            else {
+                "report_hash": report.report_hash,
+                "mandatory_passed": report.mandatory_passed,
+                "results": [
+                    {
+                        "test_id": item.test_id,
+                        "status": item.status.value,
+                        "reason_code": item.reason_code,
+                    }
+                    for item in report.results
+                ],
+            }
+        ),
+        "build_diagnostics": (
+            None
+            if build is None
+            else {
+                "request_coverage_ratio": (
+                    build.request_coverage_ratio
+                ),
+                "base_scenario_count": build.base_scenario_count,
+                "variant_scenario_count": (
+                    build.variant_scenario_count
+                ),
+                "variant_coverage": build.variant_coverage,
+            }
+        ),
+        "dataset_created": result.dataset_created,
+        "trace_created": result.trace_created,
+        "replay_created": result.replay_created,
+        "falsification_created": result.falsification_created,
         "oos_started": False,
         "shadow_started": False,
         "automatic_promotion_enabled": False,
