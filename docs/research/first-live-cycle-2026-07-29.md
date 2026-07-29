@@ -1098,6 +1098,61 @@ calendar session runs. v11 reported `PENDING_BOOTSTRAP`, a fresh heartbeat,
 no runtime error, healthy WebGPT readiness, and the selected
 `CODEX_SOL_MAX` commander after deployment.
 
+## v12 run-scoped ledger handoff
+
+Public PR
+[38](https://github.com/story7077/adaptive-llm-quant-public/pull/38)
+closed the last pre-session operations gap: `ledger verify` now accepts every
+Q1 arm and can bind its result to one immutable `run_id`. A regression test
+proves that a same-named arm in another run cannot alter the scoped result.
+The PR was merged as
+`f289ea08c65935c1dad0c5b65916d28c09031b1a` after both public security
+workflows passed.
+
+The clean replacement run is
+`paper_q1_research_20260730_v12`:
+
+| Item | Frozen value |
+| --- | --- |
+| Source commit | `f289ea08c65935c1dad0c5b65916d28c09031b1a` |
+| Code identity | `workspace:1697244db88d65023d6f1f94e7217ce66312c07f203f1260c32fa3a4845b5d71` |
+| Algorithm | `q1_math_core_v1` |
+| Q1 config manifest | `afcaa7ea2939b3ca39ecae9f553794450ca498a0d1a48a19758eaab70479ad36` |
+| First scheduled cycle | `2026-07-30T13:30:00Z` |
+| First strategic cycle | `2026-07-30T14:00:00Z` |
+| Pre-bootstrap replay hash | `37a889dcfc38d712f0fd000eab7fc8648c1aefb89b17273958e1beb0d1f17ee1` |
+
+Before replacement, v11 had zero rows across all economic Q1 relations.
+After replacement, v12 also had zero anchors, state snapshots, decisions,
+intents, order events, fills, ledger transactions and postings, NAV snapshots,
+risk records, settlements, daily results, and matched results. Two independent
+v12 pre-bootstrap replays returned the same hash. Their
+`INCOMPLETE_EVENT_STREAM` result is expected: algorithm, routing, hashes,
+state machines, and configuration checks pass, while initial-state and
+complete-session checks remain false until the actual session.
+
+The deployed v12 status reported `PENDING_BOOTSTRAP`, a fresh heartbeat, no
+runtime error, seven Q1 arms, no active LLM policy, disabled Alpaca Paper
+canary routing, and `real_order_routing=false`. Its next calendar-derived cycle
+is `Q1_SETTLEMENT` at `2026-07-30T13:30:00Z`.
+
+Validation for this handoff:
+
+- `uv run pytest`: **694 passed**, with one third-party Starlette warning;
+- `uv run ruff check .`: passed;
+- `uv run pyright`: 0 errors, 0 warnings;
+- `uv run python -m trading.cli config validate --all`: passed;
+- disposable SQLite migration `0021 → 0020 → 0021`: passed;
+- public-release secret, provenance, clean-root, and UTF-8 scan: passed; and
+- public workflow runs
+  [30497533317](https://github.com/story7077/adaptive-llm-quant-public/actions/runs/30497533317)
+  and
+  [30497547324](https://github.com/story7077/adaptive-llm-quant-public/actions/runs/30497547324):
+  passed.
+
+Actual v12 session, run-scoped ledger, and post-close replay evidence remain
+intentionally pending until the calendar session executes.
+
 ## Validation
 
 Post-cycle failure-gate validation:
