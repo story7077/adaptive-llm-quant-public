@@ -1353,6 +1353,7 @@ class Q1PaperCycleProcessor:
         symbols: tuple[str, ...],
         as_of: datetime,
         observed_after: datetime | None = None,
+        enforce_multi_symbol_skew: bool = True,
     ) -> dict[str, DecisionQuote]:
         if not symbols:
             return {}
@@ -1393,7 +1394,8 @@ class Q1PaperCycleProcessor:
             )
             event_times.append(event_time)
         if (
-            event_times
+            enforce_multi_symbol_skew
+            and event_times
             and (max(event_times) - min(event_times)).total_seconds()
             > maximum_quote_skew_seconds(self._runtime.config)
         ):
@@ -1406,34 +1408,30 @@ class Q1PaperCycleProcessor:
         anchor_symbols: tuple[str, ...],
         as_of: datetime,
     ) -> dict[str, DecisionQuote]:
-        """Keep QQQ benchmarks operable when the optional SOXX quote is absent."""
+        """Separate inherited anchor valuation from the active decision bundle.
+
+        HOLD's inherited positions determine the common T0 NAV, but they are
+        not members of the clean strategy arms' QQQ/SOXX decision bundle.
+        Every inherited quote must still be fresh and executable. Only the
+        active QQQ/SOXX bundle is subject to the configured cross-symbol skew
+        fence, so an unrelated inherited holding cannot block all clean arms.
+        """
 
         required = tuple(sorted({*anchor_symbols, "QQQ"}))
         quotes = self._fresh_decision_quotes(
             symbols=required,
             as_of=as_of,
+            enforce_multi_symbol_skew=False,
         )
-        if "SOXX" in quotes:
-            return quotes
         try:
-            soxx = self._fresh_decision_quotes(
-                symbols=("SOXX",),
+            active_bundle = self._fresh_decision_quotes(
+                symbols=("QQQ", "SOXX"),
                 as_of=as_of,
             )
         except Q1CycleNotReady:
+            quotes.pop("SOXX", None)
             return quotes
-        candidate = soxx["SOXX"]
-        qqq = quotes["QQQ"]
-        if (
-            abs(
-                (
-                    candidate.available_at - qqq.available_at
-                ).total_seconds()
-            )
-            > maximum_quote_skew_seconds(self._runtime.config)
-        ):
-            return quotes
-        quotes.update(soxx)
+        quotes.update(active_bundle)
         return quotes
 
     def _strategic_risk_context(

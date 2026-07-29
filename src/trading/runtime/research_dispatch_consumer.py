@@ -357,6 +357,7 @@ def _sanitized_executor_environment() -> dict[str, str]:
     permitted = (
         "ALLUSERSPROFILE",
         "APPDATA",
+        "COMPUTERNAME",
         "COMSPEC",
         "LOCALAPPDATA",
         "PATH",
@@ -368,7 +369,9 @@ def _sanitized_executor_environment() -> dict[str, str]:
         "SYSTEMROOT",
         "TEMP",
         "TMP",
+        "USERDOMAIN",
         "USERPROFILE",
+        "USERNAME",
         "WINDIR",
     )
     environment = {

@@ -352,6 +352,107 @@ def test_live_mirror_quote_failure_does_not_block_strategy_context(
     assert skipped == (Q1ArmId.LIVE_MIRROR,)
 
 
+def test_inherited_anchor_quotes_do_not_join_active_strategy_skew_bundle() -> None:
+    processor = object.__new__(Q1PaperCycleProcessor)
+    untyped = cast(Any, processor)
+    calls: list[tuple[tuple[str, ...], bool]] = []
+    anchor_quotes = {
+        symbol: DecisionQuote(
+            symbol=symbol,
+            quote_id=f"anchor-{symbol}",
+            bid=Decimal("99"),
+            ask=Decimal("101"),
+            available_at=NOW,
+        )
+        for symbol in ("NVDA", "QQQ", "SOXL")
+    }
+    active_quotes = {
+        symbol: DecisionQuote(
+            symbol=symbol,
+            quote_id=f"active-{symbol}",
+            bid=Decimal("199"),
+            ask=Decimal("201"),
+            available_at=NOW,
+        )
+        for symbol in ("QQQ", "SOXX")
+    }
+
+    def fresh_quotes(
+        *,
+        symbols: tuple[str, ...],
+        as_of: datetime,
+        observed_after: datetime | None = None,
+        enforce_multi_symbol_skew: bool = True,
+    ) -> dict[str, DecisionQuote]:
+        del as_of, observed_after
+        calls.append((symbols, enforce_multi_symbol_skew))
+        return (
+            dict(active_quotes)
+            if enforce_multi_symbol_skew
+            else {
+                symbol: anchor_quotes[symbol]
+                for symbol in symbols
+            }
+        )
+
+    untyped._fresh_decision_quotes = fresh_quotes
+    result = processor._strategic_quote_bundle(
+        anchor_symbols=("SOXL", "NVDA"),
+        as_of=NOW,
+    )
+
+    assert calls == [
+        (("NVDA", "QQQ", "SOXL"), False),
+        (("QQQ", "SOXX"), True),
+    ]
+    assert result["NVDA"].quote_id == "anchor-NVDA"
+    assert result["SOXL"].quote_id == "anchor-SOXL"
+    assert result["QQQ"].quote_id == "active-QQQ"
+    assert result["SOXX"].quote_id == "active-SOXX"
+
+
+def test_active_quote_skew_failure_preserves_anchor_and_qqq_benchmark() -> None:
+    processor = object.__new__(Q1PaperCycleProcessor)
+    untyped = cast(Any, processor)
+    anchor_quotes = {
+        symbol: DecisionQuote(
+            symbol=symbol,
+            quote_id=f"anchor-{symbol}",
+            bid=Decimal("99"),
+            ask=Decimal("101"),
+            available_at=NOW,
+        )
+        for symbol in ("NVDA", "QQQ", "SOXL", "SOXX")
+    }
+
+    def fresh_quotes(
+        *,
+        symbols: tuple[str, ...],
+        as_of: datetime,
+        observed_after: datetime | None = None,
+        enforce_multi_symbol_skew: bool = True,
+    ) -> dict[str, DecisionQuote]:
+        del as_of, observed_after
+        if enforce_multi_symbol_skew:
+            raise Q1CycleNotReady(
+                "Decision quote bundle exceeds maximum skew"
+            )
+        return {
+            symbol: anchor_quotes[symbol]
+            for symbol in symbols
+        }
+
+    untyped._fresh_decision_quotes = fresh_quotes
+    result = processor._strategic_quote_bundle(
+        anchor_symbols=("SOXL", "SOXX", "NVDA"),
+        as_of=NOW,
+    )
+
+    assert set(result) == {"NVDA", "QQQ", "SOXL"}
+    assert result["QQQ"].quote_id == "anchor-QQQ"
+    assert "SOXX" not in result
+
+
 def test_next_session_strategic_releases_after_two_valid_checks(
     repository_root: Path,
 ) -> None:
