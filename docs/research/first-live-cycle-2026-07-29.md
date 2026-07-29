@@ -963,6 +963,86 @@ fresh worker heartbeat, no runtime error, and its next calendar-backed
 `Q1_SETTLEMENT` cycle at `2026-07-30T13:30:00Z`. Q1-DET 2.0.0 remained
 `0/126`; automatic promotion and real broker routing remained disabled.
 
+### Post-close PIT refresh and v10 quote-bundle correction
+
+A pre-session production-path signal check initially rejected the 2026-07-29
+QQQ and SOXX daily bars. Both observations had first been captured at
+`2026-07-29T18:59:29Z`, before the versioned calendar close at
+`2026-07-29T20:00:00Z`. Treating those partial bars as the next session's
+completed input would have been look-ahead-unsafe, so the signal failed closed
+with `adjusted close cannot be available before its session close`.
+
+At `2026-07-29T21:00:16Z`, a post-close adjusted-history request fetched 1,054
+bars and appended 17 provider revisions without replacing any earlier row. A
+second identical request at `2026-07-29T21:02:45Z` fetched the same 1,054 bars
+and appended zero rows. The production Q1 signal path then accepted:
+
+| Field | Value |
+| --- | --- |
+| Planned signal cutoff | `2026-07-30T14:00:00Z` |
+| Completed-session range | `2026-02-04` through `2026-07-29` |
+| Aligned QQQ/SOXX sessions | 121 |
+| Source bars | 242 |
+| Signal hash | `dbbeab4a721d0fbc4f766bb6f5182ef06ad543651de406b79aa5d60948f81688` |
+| Q1 config manifest | `afcaa7ea2939b3ca39ecae9f553794450ca498a0d1a48a19758eaab70479ad36` |
+| All records available by cutoff | `true` |
+
+The actual 2026-07-30 calendar is open
+`2026-07-30T13:30:00Z` through `2026-07-30T20:00:00Z`. Its generated schedule
+contains one bootstrap, one settlement, one 10:00 ET strategic cycle, one noon
+LLM review, 25 deterministic NAV/risk checks, 389 regular-session execution
+checks, and one close result. No execution cycle is scheduled at or after the
+actual close.
+
+The v7 failure record also exposed an independent quote-bundle defect. The
+common T0 valuation path placed every inherited HOLD symbol and QQQ into the
+same two-second event-time skew bundle. A read-only replay at the exact
+79-attempt v7 cutoff reproduced that legacy failure even though the active
+QQQ/SOXX pair itself satisfied the configured skew. Inherited positions do not
+belong to clean strategy arms, so an unrelated inherited quote must not erase
+the evaluation anchor and every benchmark decision.
+
+Public PR
+[#36](https://github.com/story7077/adaptive-llm-quant-public/pull/36)
+separated the inherited-position valuation set from the active QQQ/SOXX
+decision bundle. Every inherited quote still requires PIT validity, a maximum
+15-second age, and positive executable bid/ask values. The two-second
+cross-symbol skew fence remains unchanged for QQQ/SOXX. If the active SOXX
+quote is unavailable or outside the fence, the Q1 arms are explicitly
+data-blocked while eligible QQQ benchmarks remain operable; an inherited SOXX
+quote cannot bypass that fence. The exact v7 replay passed with the corrected
+quote-bundle path.
+
+The PR's local validation returned 692 passes, Ruff success, zero Pyright
+errors or warnings, all versioned configurations valid, and a passing full
+public-release scan. Both independent GitHub public-release workflows passed.
+The PR merged as
+`a5c1fd64720c163b58efc126b18dce44a0982083`.
+
+The pre-open v9 rollover audit found zero evaluation anchors, arm states,
+decisions, intents, order events, fills, NAV snapshots, ledger transactions,
+risk episodes, settlement events, and daily results. Its pending schedule
+records remain append-only and readable. The merged code therefore started a
+new immutable run, `paper_q1_research_20260730_v10`, rather than changing v9's
+code identity.
+
+The v10 deployment is bound to:
+
+| Field | Value |
+| --- | --- |
+| Source commit | `a5c1fd64720c163b58efc126b18dce44a0982083` |
+| Code identity | `workspace:ff4711a887ec5c41661ead78a06b55370e4c22ace96f51c96c9fbe75f0064bd3` |
+| Algorithm | `q1_math_core_v1` |
+| Q1 config manifest | `afcaa7ea2939b3ca39ecae9f553794450ca498a0d1a48a19758eaab70479ad36` |
+| First scheduled cycle | `2026-07-30T13:30:00Z` |
+| First strategic cycle | `2026-07-30T14:00:00Z` |
+
+After deployment, v10 reported `PENDING_BOOTSTRAP`, a fresh worker heartbeat,
+no runtime error, healthy `GPT-5.6 Sol`/`xhigh` WebGPT readiness, and the same
+validated 121-session PIT signal input. All seven supervised local processes
+were running once, the status endpoints were loopback-only, automatic
+promotion remained disabled, and `real_order_routing=false`.
+
 ## Validation
 
 Post-cycle failure-gate validation:
