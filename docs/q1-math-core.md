@@ -162,10 +162,17 @@ promotion이나 수익성 판단을 자동으로 만들지 않는다.
 | Q1-LLM | common T0 NAV 전액 USD_CASH | QQQ/SOXX/cash | Q1-DET와 LLM 비교 |
 
 09:30 ET bootstrap cycle은 세션과 계좌 준비를 시작한다. 전략 성과의
-`evaluation_anchor`는 첫 10:00 ET 전략 결정 직전의 공통 fresh quote
-bundle로 계산한 T0 NAV와 시각을 한 번만 불변 저장한다. 모든 전략 arm은
+`evaluation_anchor`는 첫 10:00 ET 전략 결정 직전의 공통 fresh valuation
+quote set으로 계산한 T0 NAV와 시각을 한 번만 불변 저장한다. 모든 전략 arm은
 그 동일 NAV를 settled USD cash로 받고 빈 포지션에서 시작한다. KRW와
 기타 non-tradable cash는 동결·제외한다.
+
+상속 포지션의 valuation quote는 각각 freshness·양수 bid/ask·PIT 조건을
+통과해야 하지만 clean strategy arm의 다종목 decision bundle은 아니다.
+설정된 cross-symbol skew fence는 활성 QQQ/SOXX decision bundle에 별도로
+적용한다. SOXX가 없거나 skew 조건을 통과하지 못하면 Q1 arm만 data-blocked
+상태로 남고, 상속 포지션 하나가 evaluation anchor나 QQQ 기준선 전체를
+제거하지 않는다.
 
 최초 세션 이후에도 09:30 bootstrap은 기존 state를 재초기화하지 않고
 현재 수량·settled/unsettled cash와 session-open 직후 fresh quote로 모든
