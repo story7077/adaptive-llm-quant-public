@@ -576,13 +576,114 @@ one fenced dispatch receipt per configured 60-second poll. The scheduler neither
 imports nor calls a broker, WebGPT, or Codex. Recursive outcome maintenance,
 automatic promotion, and real order routing remained disabled.
 
-A dispatch receipt is not model execution. No downstream receipt consumer is
-yet running, so this activation proves automatic calendar planning and fenced
-dispatch only. The completed Scout-to-Commander-to-Builder cycle documented
-above remains the first manually orchestrated end-to-end research cycle.
-Automating the receipt-to-research-cycle consumer remains an explicit gap.
+A dispatch receipt is not model execution. At this checkpoint no downstream
+receipt consumer was running, so the activation proved automatic calendar
+planning and fenced dispatch only. The later scheduled-consumer cycle below
+closed that local execution gap while preserving the same leases, isolation,
+and paper-only boundaries.
+
+### Observed v7 close and v8 rollover
+
+The v7 run reached the actual 2026-07-29 session and preserved its bootstrap
+and risk-check records, but its first 10:00 ET strategic cycle never committed.
+That cycle made 79 retryable attempts and ended with
+`Q1_DATA_NOT_READY`; the last recorded detail was that the decision quote
+bundle exceeded the configured maximum skew. The run contains six NAV
+snapshots but zero evaluation anchors, portfolio decisions, order events,
+strategy daily results, or risk episodes. No late decision was synthesized.
+
+A separate first-decision risk-bootstrap ordering defect found during this
+operation was fixed in public
+[#30](https://github.com/story7077/adaptive-llm-quant-public/pull/30).
+The fix excludes only pristine, uncommitted cash-only Q1 strategy arms from
+pre-commit risk checks; LIVE-MIRROR and all subsequent checks remain active.
+The v7 records remain unchanged.
+
+The corrected code started a new versioned run,
+`paper_q1_research_20260729_v8`, at source commit
+`9875cad1a86a55a1dc03080b065de64fd640247f`. It is
+`PENDING_BOOTSTRAP`, has no evaluation anchor or economic decision, and is
+waiting for the next actual session open at `2026-07-30T13:30:00Z`. The first
+strategic cycle is scheduled for `2026-07-30T14:00:00Z`; normal execution
+slices, if any valid intents exist, follow from 14:01 through 14:20 UTC.
+The worker heartbeat, IEX stream, and local WebGPT preflight are healthy.
+Alpaca Paper canary and automatic promotion remain disabled, and
+`real_order_routing=false`.
+
+### First scheduled-consumer Research Cycle
+
+The first deep-research dispatch consumer then completed an actual
+Scout-to-Commander-to-Builder cycle from the append-only scheduler receipt.
+It reused no prior conversation or Codex invocation.
+
+| Field | Value |
+| --- | --- |
+| Execution | `research-work-execution_d6cc2889f9e6dea8363ec37e` |
+| Research cycle | `scheduled-research-cycle_8a62e733ec30f116af96fe2f` |
+| Selected Commander | `CODEX_SOL_MAX` |
+| Source snapshot | `0cd5dbbcd5b484425cca0126569bbaf03d05d073` |
+| Context manifest | `a6bc8bbaa78a737c300f139e676439964b395df0815e0544ff03ce5c773fafa1` |
+| Decision | `PROPOSE_NEW_STRATEGY` |
+| Decision hash | `0d5ec0a7618067c2eaf1bb4974bc544f173358ff8b1e1d23c6cb484f805bdd2a` |
+| Proposal | `proposal-iwm-rate-credit-gate-v2.0.0` |
+| Proposal hash | `61dc42efcb8de5f2a72f95fd8c9a539105b24d6215d83dcbb0523845986a2c2e` |
+| Challenger | `challenger-4edf3f6b32a5f9e136f916f5` |
+| Strategy | `IWM-RCG 2.0.0` |
+| Result hash | `80337af9f9a0e0b8cebc0ee89d6c48289289f05c981b47ffc00d9527cd6c82f2` |
+
+The fresh Web Scout conversation used headed Chrome, CDP, AGBrowse,
+`GPT-5.6 Sol Pro`, and `xhigh`. It completed 12 active queries and returned 17
+sources plus 17 structured claims. Social sources remained leads rather than
+standalone facts.
+
+The Research Commander ran in the separate repository as fresh ephemeral
+`gpt-5.6-sol` with reasoning `max`. It proposed a rate-and-credit-confirmed IWM
+strategy over `HYG`, `IWM`, `QQQ`, `SGOV`, `SPY`, and `TLT`. A second, isolated
+Builder invocation produced only the approved versioned patch and declared
+tests. Its supervisor timed out after the child had already exited; the host
+used the explicit `HOST_ADOPTED_AFTER_SUPERVISOR_TIMEOUT` path, confirmed the
+child exit, stability window, output hash, candidate tree, and ACL cleanup, and
+did not relaunch the model.
+
+The host test run collected 25 tests: 24 passed and one failed. The failure was
+a strict floating-point equality assertion in a sleeve-allocation regression.
+The system did not reinterpret that as success. It preserved the patch,
+Challenger manifest, and structured test attestation, then appended the typed
+`CandidateTestFailureV1` event and terminal `TEST_FAILED` status.
+
+| Failure record | Hash |
+| --- | --- |
+| Challenger manifest | `9c5ab83966b7957b3203e87b6e521a6947e1a7f3fea9849cdb49112ac5edcf11` |
+| Candidate test manifest | `74d0848c47b1a066e2fcecc868a47091bf131df1ddc0aef5330b82ffe3fe6a49` |
+| Candidate test failure | `09ecdab4c8c573c7c7f60bee9cd34448deb4fcae6320a7459f2cdd81ed0e3e6d` |
+
+Commander public
+[#11](https://github.com/story7077/adaptive-llm-quant-research-commander/pull/11)
+and trading public
+[#32](https://github.com/story7077/adaptive-llm-quant-public/pull/32)
+added the failed-Candidate preservation and trusted lifecycle gates. Their
+merge commits are `e1493853d9fcf142d992195971b6e6d345591156` and
+`fabd3ff2502698cc6a6fcde77e56ccdd1652cffe`.
+
+The rejected Challenger has zero Candidate artifacts, falsification reports,
+OOS results, and shadow-arm registrations. Replaying the same execution request
+returned `RESULT_ADOPTED`; the Challenger event count remained one and the
+Commander and Builder invocation counts remained one each. Automatic
+promotion and real broker routing stayed false.
 
 ## Validation
+
+Post-cycle failure-gate validation:
+
+- public repository at merge `fabd3ff2502698cc6a6fcde77e56ccdd1652cffe`:
+  **687 passed**, one third-party Starlette/httpx deprecation warning;
+- public Ruff, Pyright, all-config validation, and strict UTF-8 decoding:
+  passed;
+- public PR #32 push and pull-request security workflows: passed;
+- Commander repository at merge
+  `e1493853d9fcf142d992195971b6e6d345591156`: **141 passed**;
+- Commander Ruff, Pyright, strict UTF-8 decoding, and both PR #11 security
+  workflows: passed.
 
 Public repository:
 
@@ -647,13 +748,16 @@ The synthetic seven-arm demo replay returned
 on two independent invocations in the disposable 0020 database. All 11
 verification checks passed and every arm ledger balanced.
 
-The preserved v5 and v6 runs remain unmodified and incomplete. The current v7
-run is also not yet replay-complete because its first session has not opened.
-Two `replay` invocations returned the same deterministic incomplete-stream hash,
+The preserved v5 and v6 runs remain unmodified and incomplete. The preserved
+v7 run reached its first session but never committed the strategic decision
+described above. Its two pre-open `replay` invocations returned the same
+deterministic incomplete-stream hash,
 `2943f560930e333c7ef3a2ff964876e1fe91f161f01cedd1899c3f8296aa83a7`,
-with all available hash and state-machine checks passing and the required
-initial-state/session-completeness checks correctly false. The repository's
-complete synthetic Q1 replay tests passed in the 673-test suite.
+with all then-available hash and state-machine checks passing and the required
+initial-state/session-completeness checks correctly false. The current v8 run
+is also intentionally incomplete until its next actual session. The
+repository's complete synthetic Q1 replay tests passed in the current
+687-test suite.
 
 ### Migration validation incident
 
