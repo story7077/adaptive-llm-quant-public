@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import {
     isAbsolute,
@@ -29,6 +30,16 @@ const USER_TURN_SELECTOR = [
 const ASSISTANT_TURN_SELECTOR = [
     '[data-message-author-role="assistant"]',
     '[data-turn="assistant"]',
+].join(',');
+const RESPONSE_ACTIVITY_SELECTOR = [
+    'button[data-testid="stop-button"]',
+    'button[aria-label="Stop generating"]',
+    'button[aria-label="응답 생성 중지"]',
+    '[data-message-author-role="assistant"][data-is-streaming="true"]',
+    '[data-turn="assistant"][data-is-streaming="true"]',
+    '[data-streaming="true"]',
+    '[data-streaming-response-status]',
+    '.loading-shimmer-tertiary',
 ].join(',');
 const ALLOWED_ROLES = new Set(['WEB_SCOUT', 'RESEARCH_COMMANDER']);
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
@@ -847,10 +858,19 @@ async function awaitAssistant(browser, values, browserSessionId) {
 
     const deadline = Date.now() + timeoutSeconds * 1_000;
     while (Date.now() < deadline) {
-        const assistantCount = await page.locator(
-            ASSISTANT_TURN_SELECTOR,
-        ).count().catch(() => 0);
-        if (assistantCount > 0) {
+        const assistantTurns = page.locator(ASSISTANT_TURN_SELECTOR);
+        const assistantCount = await assistantTurns.count().catch(() => 0);
+        const responseActive = assistantCount > 0 && await anyVisible(
+            page.locator(RESPONSE_ACTIVITY_SELECTOR),
+        );
+        const answer = responseActive
+            ? null
+            : await boundAssistantJson(
+                assistantTurns,
+                requestId,
+                role,
+            );
+        if (answer !== null) {
             return {
                 ok: true,
                 status: 'assistant-detected',
@@ -860,6 +880,8 @@ async function awaitAssistant(browser, values, browserSessionId) {
                 target_id: targetId,
                 conversation_id: conversationId,
                 assistant_count: assistantCount,
+                answer_text: answer.text,
+                answer_sha256: answer.sha256,
             };
         }
         const failed = await anyVisible(
@@ -887,6 +909,42 @@ async function anyVisible(locator) {
         if (await locator.nth(index).isVisible().catch(() => false)) return true;
     }
     return false;
+}
+
+async function boundAssistantJson(assistantTurns, requestId, role) {
+    const count = await assistantTurns.count().catch(() => 0);
+    if (count <= 0) return null;
+    const assistant = assistantTurns.nth(count - 1);
+    const markdown = assistant.locator('.markdown').last();
+    const markdownCount = await markdown.count().catch(() => 0);
+    const source = markdownCount > 0 ? markdown : assistant;
+    const text = await source.evaluate((element) => element.textContent)
+        .catch(() => null);
+    if (typeof text !== 'string' || !text.trim()) return null;
+    const candidate = text.trim();
+    let parsed;
+    try {
+        parsed = JSON.parse(candidate);
+    } catch {
+        return null;
+    }
+    const expectedSchema = role === 'WEB_SCOUT'
+        ? 'research_evidence_bundle_v1'
+        : 'research_decision_v1';
+    if (
+        parsed === null
+        || typeof parsed !== 'object'
+        || Array.isArray(parsed)
+        || parsed.schema_version !== expectedSchema
+        || parsed.request_id !== requestId
+        || parsed.role !== role
+    ) {
+        return null;
+    }
+    return {
+        text: candidate,
+        sha256: createHash('sha256').update(candidate, 'utf8').digest('hex'),
+    };
 }
 
 export function validateCompletionSignals(signals) {
@@ -981,16 +1039,7 @@ async function inspectCompletion(page) {
         page.locator(ASSISTANT_TURN_SELECTOR),
     );
     const streamingActive = await anyVisible(
-        page.locator(
-            [
-                'button[data-testid="stop-button"]',
-                'button[aria-label="Stop generating"]',
-                'button[aria-label="응답 생성 중지"]',
-                '[data-message-author-role="assistant"][data-is-streaming="true"]',
-                '[data-turn="assistant"][data-is-streaming="true"]',
-                '[data-streaming="true"]',
-            ].join(','),
-        ),
+        page.locator(RESPONSE_ACTIVITY_SELECTOR),
     );
     const thinkingStopped = await anyVisible(
         page.locator(
@@ -1033,6 +1082,11 @@ async function postflight(browser, values, browserSessionId) {
     const page = await findPageByTargetId(browser, verified.target_id);
     const completion = await inspectCompletion(page);
     const activeBrowse = await inspectActiveBrowse(page, verified.request_id);
+    const answer = await boundAssistantJson(
+        page.locator(ASSISTANT_TURN_SELECTOR),
+        verified.request_id,
+        verified.role,
+    );
     if (
         completion.response_complete !== true
         || completion.thinking_stopped !== false
@@ -1043,12 +1097,16 @@ async function postflight(browser, values, browserSessionId) {
     if (activeBrowse.active_browse_verified !== true) {
         throw new BridgeFailure('active_browse_not_verified');
     }
+    if (answer === null) {
+        throw new BridgeFailure('response_json_not_bound');
+    }
     return {
         ...verified,
         status: 'complete',
         observed_at: new Date().toISOString(),
         ...completion,
         ...activeBrowse,
+        answer_sha256: answer.sha256,
     };
 }
 

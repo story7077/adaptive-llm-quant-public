@@ -63,8 +63,14 @@ class FakeLocator {
     async count() {
         if (this.selector === '[data-testid="accounts-profile-button"]') return 1;
         if (this.selector.includes('aria-haspopup="menu"')) return 1;
+        if (this.selector.includes('[data-streaming-response-status]')) {
+            const active = this.page.responseActivityChecks > 0;
+            this.page.responseActivityChecks -= 1;
+            return active ? 1 : 0;
+        }
         if (this.selector === FAKE_ASSISTANT_TURN_SELECTOR) return 1;
         if (this.selector === FAKE_USER_TURN_SELECTOR) return 1;
+        if (this.selector === '.markdown') return 1;
         if (this.selector.includes('data-system-hint-type="search"')) return 1;
         return 0;
     }
@@ -77,6 +83,7 @@ class FakeLocator {
         }
         if (this.selector === 'exact-text') return this.page.menuOpened;
         if (this.selector.includes('aria-haspopup="menu"')) return true;
+        if (this.selector.includes('[data-streaming-response-status]')) return true;
         return this.selector === FAKE_ASSISTANT_TURN_SELECTOR;
     }
 
@@ -91,6 +98,15 @@ class FakeLocator {
     async evaluate(callback) {
         if (this.selector === '[data-testid="accounts-profile-button"]') return true;
         if (this.selector === 'exact-text') return false;
+        if (this.selector === '.markdown') {
+            return callback({
+                textContent: JSON.stringify({
+                    schema_version: 'research_evidence_bundle_v1',
+                    request_id: this.page.requestId,
+                    role: 'WEB_SCOUT',
+                }),
+            });
+        }
         return callback({});
     }
 
@@ -122,6 +138,7 @@ class FakePage {
         this.requestId = requestId;
         this.conversationId = conversationId;
         this.menuOpened = false;
+        this.responseActivityChecks = 1;
         this.keyboard = {
             press: async () => {
                 this.menuOpened = false;
@@ -440,6 +457,11 @@ test('preflight, rebind, and postflight preserve exact transport bindings', asyn
     );
     assert.equal(assistant.status, 'assistant-detected');
     assert.equal(assistant.assistant_count, 1);
+    assert.equal(
+        JSON.parse(assistant.answer_text).request_id,
+        'request-001',
+    );
+    assert.match(assistant.answer_sha256, /^[a-f0-9]{64}$/u);
 
     const after = await runBridgeCommand(
         'postflight',
@@ -459,6 +481,7 @@ test('preflight, rebind, and postflight preserve exact transport bindings', asyn
     assert.equal(after.interrupted, false);
     assert.equal(after.active_browse_verified, true);
     assert.equal(after.active_browse_evidence_count, 1);
+    assert.equal(after.answer_sha256, assistant.answer_sha256);
     assert.equal(Number.isNaN(Date.parse(after.observed_at)), false);
 });
 
