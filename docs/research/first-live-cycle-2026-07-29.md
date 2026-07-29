@@ -560,6 +560,28 @@ pre-open checkpoint. The post-open anchor, decisions, order events, paper fills,
 NAV records, and replay hash must be appended only after the actual scheduled
 cycles occur.
 
+### Research schedule activation
+
+At `2026-07-29T09:21Z`, the existing append-only Research Scheduler service was
+started as a sixth supervisor-managed process on the same detached main
+snapshot. A read-only preview before activation found 32 due plans within the
+configured 35-day planning window:
+
+- 24 `DAILY_AGGREGATION`;
+- 5 `WEEKLY_DEEP_RESEARCH`; and
+- 3 `EVIDENCE_TRIGGERED_RESEARCH`.
+
+The first scheduler tick persisted those 32 immutable plans and began appending
+one fenced dispatch receipt per configured 60-second poll. The scheduler neither
+imports nor calls a broker, WebGPT, or Codex. Recursive outcome maintenance,
+automatic promotion, and real order routing remained disabled.
+
+A dispatch receipt is not model execution. No downstream receipt consumer is
+yet running, so this activation proves automatic calendar planning and fenced
+dispatch only. The completed Scout-to-Commander-to-Builder cycle documented
+above remains the first manually orchestrated end-to-end research cycle.
+Automating the receipt-to-research-cycle consumer remains an explicit gap.
+
 ## Validation
 
 Public repository:
