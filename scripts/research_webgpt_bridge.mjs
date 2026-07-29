@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import {
     isAbsolute,
@@ -22,6 +23,24 @@ const ACTIVE_WEB_SEARCH_PILL = [
     '[data-composer-surface]',
     '[data-inline-selection-pill][data-id="search"][data-system-hint-type="search"]',
 ].join(' ');
+const USER_TURN_SELECTOR = [
+    '[data-message-author-role="user"]',
+    '[data-turn="user"]',
+].join(',');
+const ASSISTANT_TURN_SELECTOR = [
+    '[data-message-author-role="assistant"]',
+    '[data-turn="assistant"]',
+].join(',');
+const RESPONSE_ACTIVITY_SELECTOR = [
+    'button[data-testid="stop-button"]',
+    'button[aria-label="Stop generating"]',
+    'button[aria-label="응답 생성 중지"]',
+    '[data-message-author-role="assistant"][data-is-streaming="true"]',
+    '[data-turn="assistant"][data-is-streaming="true"]',
+    '[data-streaming="true"]',
+    '[data-streaming-response-status]',
+    '.loading-shimmer-tertiary',
+].join(',');
 const ALLOWED_ROLES = new Set(['WEB_SCOUT', 'RESEARCH_COMMANDER']);
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const CONVERSATION_PATH = /^\/c\/([A-Za-z0-9_-]+)\/?$/;
@@ -62,6 +81,16 @@ function normalizeText(value) {
 export function normalizeReasoning(value) {
     const label = normalizeText(value).toLocaleLowerCase('en-US');
     return REASONING_LABELS.has(label) ? EXPECTED_REASONING : null;
+}
+
+export function isProviderRateLimitText(value) {
+    const text = normalizeText(value).toLocaleLowerCase('en-US');
+    return (
+        text.includes('too many requests')
+        || text.includes('temporarily limited')
+        || text.includes('요청이 너무 많')
+        || text.includes('일시적으로 제한')
+    );
 }
 
 export function conversationIdFromUrl(value) {
@@ -369,7 +398,16 @@ async function exactLabelIsChecked(locator) {
 }
 
 async function intelligencePickerVisible(page) {
-    return page.locator(INTELLIGENCE_PICKER).isVisible().catch(() => false);
+    return page.locator(INTELLIGENCE_PICKER).evaluateAll((pickers) => pickers
+        .some((picker) => {
+            const style = window.getComputedStyle(picker);
+            const rect = picker.getBoundingClientRect();
+            return style.visibility !== 'hidden'
+                && style.display !== 'none'
+                && rect.width > 0
+                && rect.height > 0;
+        }))
+        .catch(() => false);
 }
 
 async function closeIntelligencePicker(page) {
@@ -419,9 +457,11 @@ async function openIntelligencePicker(page) {
     for (let index = count - 1; index >= 0; index -= 1) {
         const trigger = triggers.nth(index);
         if (!(await trigger.isVisible().catch(() => false))) continue;
-        await trigger.click({ timeout: 3_000 }).catch(() => undefined);
-        await page.waitForTimeout(250);
-        if (await intelligencePickerVisible(page)) return;
+        await trigger.click({ timeout: 3_000, force: true }).catch(() => undefined);
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+            await page.waitForTimeout(100);
+            if (await intelligencePickerVisible(page)) return;
+        }
     }
     throw new BridgeFailure('model_selector_unavailable');
 }
@@ -505,7 +545,7 @@ async function collectConversationMetadata(browser) {
 }
 
 async function pageContainsRequest(page, requestId) {
-    const messages = await page.locator('[data-message-author-role="user"]')
+    const messages = await page.locator(USER_TURN_SELECTOR)
         .allInnerTexts()
         .catch(() => []);
     return messages.some((message) => message.includes(requestId));
@@ -523,6 +563,7 @@ async function preflight(browser, values, browserSessionId) {
     const requestedConversation = optionalIdentifier(values, 'conversation-id');
     const page = await findPreflightPage(browser, requestedTarget);
     await proveHeadedChrome(page);
+    await rejectProviderRateLimit(page);
     if (
         expectedBrowserSessionId !== null
         && expectedBrowserSessionId !== browserSessionId
@@ -554,6 +595,15 @@ async function preflight(browser, values, browserSessionId) {
         conversation_id: conversationId,
         ...conversations,
     };
+}
+
+async function rejectProviderRateLimit(page) {
+    const dialogs = await page.locator('[role="dialog"]')
+        .allInnerTexts()
+        .catch(() => []);
+    if (dialogs.some(isProviderRateLimitText)) {
+        throw new BridgeFailure('provider_temporarily_rate_limited');
+    }
 }
 
 async function activateWebSearch(page) {
@@ -616,6 +666,7 @@ async function prepareActiveBrowse(browser, values, browserSessionId) {
             timeout: 30_000,
         });
         await proveHeadedChrome(page);
+        await rejectProviderRateLimit(page);
         const targetId = await targetIdFor(page);
         if (conversationIdFromUrl(page.url()) !== null) {
             throw new BridgeFailure('fresh_conversation_not_blank');
@@ -828,10 +879,19 @@ async function awaitAssistant(browser, values, browserSessionId) {
 
     const deadline = Date.now() + timeoutSeconds * 1_000;
     while (Date.now() < deadline) {
-        const assistantCount = await page.locator(
-            '[data-message-author-role="assistant"]',
-        ).count().catch(() => 0);
-        if (assistantCount > 0) {
+        const assistantTurns = page.locator(ASSISTANT_TURN_SELECTOR);
+        const assistantCount = await assistantTurns.count().catch(() => 0);
+        const responseActive = assistantCount > 0 && await anyVisible(
+            page.locator(RESPONSE_ACTIVITY_SELECTOR),
+        );
+        const answer = responseActive
+            ? null
+            : await boundAssistantJson(
+                assistantTurns,
+                requestId,
+                role,
+            );
+        if (answer !== null) {
             return {
                 ok: true,
                 status: 'assistant-detected',
@@ -841,6 +901,8 @@ async function awaitAssistant(browser, values, browserSessionId) {
                 target_id: targetId,
                 conversation_id: conversationId,
                 assistant_count: assistantCount,
+                answer_text: answer.text,
+                answer_sha256: answer.sha256,
             };
         }
         const failed = await anyVisible(
@@ -868,6 +930,42 @@ async function anyVisible(locator) {
         if (await locator.nth(index).isVisible().catch(() => false)) return true;
     }
     return false;
+}
+
+async function boundAssistantJson(assistantTurns, requestId, role) {
+    const count = await assistantTurns.count().catch(() => 0);
+    if (count <= 0) return null;
+    const assistant = assistantTurns.nth(count - 1);
+    const markdown = assistant.locator('.markdown').last();
+    const markdownCount = await markdown.count().catch(() => 0);
+    const source = markdownCount > 0 ? markdown : assistant;
+    const text = await source.evaluate((element) => element.textContent)
+        .catch(() => null);
+    if (typeof text !== 'string' || !text.trim()) return null;
+    const candidate = text.trim();
+    let parsed;
+    try {
+        parsed = JSON.parse(candidate);
+    } catch {
+        return null;
+    }
+    const expectedSchema = role === 'WEB_SCOUT'
+        ? 'research_evidence_bundle_v1'
+        : 'research_decision_v1';
+    if (
+        parsed === null
+        || typeof parsed !== 'object'
+        || Array.isArray(parsed)
+        || parsed.schema_version !== expectedSchema
+        || parsed.request_id !== requestId
+        || parsed.role !== role
+    ) {
+        return null;
+    }
+    return {
+        text: candidate,
+        sha256: createHash('sha256').update(candidate, 'utf8').digest('hex'),
+    };
 }
 
 export function validateCompletionSignals(signals) {
@@ -906,7 +1004,7 @@ export function validateActiveBrowseSignals(signals) {
 }
 
 async function inspectActiveBrowse(page, requestId) {
-    const requestTurns = page.locator('[data-message-author-role="user"]').filter({
+    const requestTurns = page.locator(USER_TURN_SELECTOR).filter({
         hasText: requestId,
     });
     let requestSearchHintCount = 0;
@@ -934,7 +1032,7 @@ async function inspectActiveBrowse(page, requestId) {
         }
     }
 
-    const assistantTurns = page.locator('[data-message-author-role="assistant"]');
+    const assistantTurns = page.locator(ASSISTANT_TURN_SELECTOR);
     const assistantCount = await assistantTurns.count().catch(() => 0);
     let assistantCitationCount = 0;
     if (assistantCount > 0) {
@@ -959,18 +1057,10 @@ async function inspectActiveBrowse(page, requestId) {
 
 async function inspectCompletion(page) {
     const assistantPresent = await anyVisible(
-        page.locator('[data-message-author-role="assistant"]'),
+        page.locator(ASSISTANT_TURN_SELECTOR),
     );
     const streamingActive = await anyVisible(
-        page.locator(
-            [
-                'button[data-testid="stop-button"]',
-                'button[aria-label="Stop generating"]',
-                'button[aria-label="응답 생성 중지"]',
-                '[data-message-author-role="assistant"][data-is-streaming="true"]',
-                '[data-streaming="true"]',
-            ].join(','),
-        ),
+        page.locator(RESPONSE_ACTIVITY_SELECTOR),
     );
     const thinkingStopped = await anyVisible(
         page.locator(
@@ -1013,6 +1103,11 @@ async function postflight(browser, values, browserSessionId) {
     const page = await findPageByTargetId(browser, verified.target_id);
     const completion = await inspectCompletion(page);
     const activeBrowse = await inspectActiveBrowse(page, verified.request_id);
+    const answer = await boundAssistantJson(
+        page.locator(ASSISTANT_TURN_SELECTOR),
+        verified.request_id,
+        verified.role,
+    );
     if (
         completion.response_complete !== true
         || completion.thinking_stopped !== false
@@ -1023,12 +1118,16 @@ async function postflight(browser, values, browserSessionId) {
     if (activeBrowse.active_browse_verified !== true) {
         throw new BridgeFailure('active_browse_not_verified');
     }
+    if (answer === null) {
+        throw new BridgeFailure('response_json_not_bound');
+    }
     return {
         ...verified,
         status: 'complete',
         observed_at: new Date().toISOString(),
         ...completion,
         ...activeBrowse,
+        answer_sha256: answer.sha256,
     };
 }
 
