@@ -610,6 +610,25 @@ Start the loopback UI:
 uv run python -m trading.cli ui serve --host 127.0.0.1 --port 8765
 ```
 
+When a version-pinned paper process already owns market data and Q1 runtime,
+start a separate latest-code read-only status surface instead of starting a
+second worker:
+
+```powershell
+uv run python -m trading.cli ui serve `
+  --host 127.0.0.1 `
+  --port 8766 `
+  --algorithm-version q1_math_core_v1 `
+  --status-only
+```
+
+`--status-only` does not initialize, stop, or replace market-data or paper
+workers and does not write a market connection status. All non-read HTTP
+methods fail with `405`. Paper process health is derived from the persisted
+runtime heartbeat and explicitly reports that the UI process does not own the
+worker. This mode is suitable for observing a run whose code commit must remain
+pinned while the Research status implementation advances independently.
+
 Both UI serve commands reject non-loopback hosts. They are local operator
 surfaces and must not be exposed through a custom ASGI runner or reverse proxy
 without a separately reviewed authentication boundary.

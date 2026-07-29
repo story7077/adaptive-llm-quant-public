@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from sqlalchemy.engine import Engine
@@ -159,6 +159,7 @@ def create_app(
     *,
     settings: Settings | None = None,
     session_factory: sessionmaker[Session] | None = None,
+    status_only: bool = False,
 ) -> FastAPI:
     active_settings = settings or Settings.from_env(_repo_root())
     engine: Engine | None = None
@@ -263,6 +264,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+        if status_only:
+            _app.state.q1_worker_state = "STATUS_ONLY_EXTERNAL_RUNTIME"
+            try:
+                yield
+            finally:
+                if engine is not None:
+                    engine.dispose()
+            return
         market_stop: asyncio.Event | None = None
         market_task: asyncio.Task[None] | None = None
         paper_stop: asyncio.Event | None = None
@@ -609,6 +618,21 @@ def create_app(
         if q1_mode
         else "NOT_APPLICABLE"
     )
+    app.state.status_only = status_only
+
+    if status_only:
+
+        @app.middleware("http")
+        async def reject_status_only_writes(
+            request: Request,
+            call_next: Any,
+        ) -> Any:
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                return _json_error(
+                    405,
+                    "status-only operator UI is read-only",
+                )
+            return await call_next(request)
 
     @app.exception_handler(ControlPlaneError)
     async def control_plane_error_handler(_request: Any, exc: ControlPlaneError) -> Any:
@@ -661,20 +685,38 @@ def create_app(
             if legacy_paper_service is None:
                 raise PaperRuntimeError("Legacy paper status service is unavailable")
             payload = legacy_paper_service.status(active_settings.paper_run_id)
-        payload["scheduler"] = paper_cycles.status(active_settings.paper_run_id)
+        scheduler_status = paper_cycles.status(
+            active_settings.paper_run_id
+        )
+        payload["scheduler"] = scheduler_status
         payload["runtime_enabled"] = active_settings.paper_runtime_enabled
-        paper_task = getattr(app.state, "paper_task", None)
+        payload["operator_surface_mode"] = (
+            "STATUS_ONLY_READ_ONLY" if status_only else "MANAGED_RUNTIME"
+        )
         selection = service.current_selection()
-        payload["process"] = {
-            "task_running": (
-                isinstance(paper_task, asyncio.Task) and not paper_task.done()
-            ),
-            "worker_state": (
-                app.state.q1_worker_state
-                if q1_mode
-                else "LEGACY_UI_LIFESPAN_WORKER"
-            ),
-        }
+        if status_only:
+            payload["process"] = _status_only_process_status(
+                scheduler_status,
+                now=SystemClock().now(),
+                stale_after_seconds=max(
+                    30,
+                    active_settings.paper_poll_seconds * 4,
+                ),
+            )
+        else:
+            paper_task = getattr(app.state, "paper_task", None)
+            payload["process"] = {
+                "task_running": (
+                    isinstance(paper_task, asyncio.Task)
+                    and not paper_task.done()
+                ),
+                "worker_state": (
+                    app.state.q1_worker_state
+                    if q1_mode
+                    else "LEGACY_UI_LIFESPAN_WORKER"
+                ),
+                "managed_by_this_process": True,
+            }
         payload["ai"] = {
             "webgpt_enabled": active_settings.webgpt_enabled,
             "real_llm_enabled": active_settings.real_llm_enabled,
@@ -773,6 +815,11 @@ def create_app(
                 config=prospective_evaluation_config,
                 research_repository=research_repository,
                 challenger_id=latest_challenger_id,
+            ),
+            "operator_surface_mode": (
+                "STATUS_ONLY_READ_ONLY"
+                if status_only
+                else "MANAGED_RUNTIME"
             ),
             "real_order_routing": False,
         }
@@ -1056,6 +1103,56 @@ def _json_error(status_code: int, detail: str) -> Any:
     from fastapi.responses import JSONResponse
 
     return JSONResponse(status_code=status_code, content={"detail": detail})
+
+
+def _status_only_process_status(
+    scheduler_status: dict[str, Any],
+    *,
+    now: datetime,
+    stale_after_seconds: int,
+) -> dict[str, Any]:
+    runtime = scheduler_status.get("runtime")
+    if not isinstance(runtime, dict):
+        return {
+            "task_running": False,
+            "worker_state": "EXTERNAL_RUNTIME_NOT_INITIALIZED",
+            "managed_by_this_process": False,
+            "status_source": "PERSISTED_RUNTIME_HEARTBEAT",
+            "heartbeat_fresh": False,
+        }
+    typed_runtime = cast(dict[str, Any], runtime)
+    state = typed_runtime.get("state")
+    raw_heartbeat = typed_runtime.get("heartbeat_at")
+    heartbeat: datetime | None = None
+    if isinstance(raw_heartbeat, str):
+        try:
+            parsed = datetime.fromisoformat(
+                raw_heartbeat.replace("Z", "+00:00")
+            )
+        except ValueError:
+            parsed = None
+        if parsed is not None and parsed.tzinfo is not None:
+            heartbeat = parsed
+    heartbeat_fresh = (
+        heartbeat is not None
+        and heartbeat <= now
+        and now - heartbeat <= timedelta(seconds=stale_after_seconds)
+    )
+    state_name = state if isinstance(state, str) and state else "UNKNOWN"
+    terminal = state_name in {"FAILED", "STOPPED"}
+    if terminal:
+        worker_state = f"EXTERNAL_RUNTIME_{state_name}"
+    elif not heartbeat_fresh:
+        worker_state = "EXTERNAL_RUNTIME_HEARTBEAT_STALE"
+    else:
+        worker_state = f"EXTERNAL_RUNTIME_{state_name}"
+    return {
+        "task_running": heartbeat_fresh and not terminal,
+        "worker_state": worker_state,
+        "managed_by_this_process": False,
+        "status_source": "PERSISTED_RUNTIME_HEARTBEAT",
+        "heartbeat_fresh": heartbeat_fresh,
+    }
 
 
 app = create_app()
