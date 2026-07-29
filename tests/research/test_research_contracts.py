@@ -386,6 +386,23 @@ def test_proposal_uses_catalog_not_hardcoded_semiconductor_universe() -> None:
         )
 
 
+def test_new_strategy_id_still_requires_a_new_version() -> None:
+    payload = _proposal(universe=["AAPL", "SPY"]).model_dump(
+        mode="python",
+        exclude={"proposal_hash"},
+    )
+    payload["proposed_strategy_id"] = "NEW-T1"
+    payload["proposed_strategy_version"] = payload["parent_strategy_version"]
+
+    with pytest.raises(
+        ValueError,
+        match="proposed strategy version must differ from parent strategy version",
+    ):
+        AlgorithmProposalV1.model_validate(
+            {**payload, "proposal_hash": canonical_hash(payload)}
+        )
+
+
 def test_proposal_cannot_escape_request_file_scope() -> None:
     request, catalog = _request()
     payload = _proposal(universe=["AAPL", "SPY"]).model_dump(mode="python")
