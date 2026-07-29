@@ -184,6 +184,12 @@ def test_selected_codex_dispatches_strict_hash_addressed_bundle(
     request_text = bundle.request_file.read_text(encoding="utf-8")
     assert "news-한국어" in request_text
     assert bundle.schema_file.is_file()
+    output_schema = json.loads(bundle.schema_file.read_text(encoding="utf-8"))
+    assert output_schema["additionalProperties"] is False
+    assert set(output_schema["required"]) == set(output_schema["properties"])
+    assert len(output_schema["required"]) == len(output_schema["properties"])
+    assert "schema_version" in output_schema["required"]
+    assert '"default"' not in json.dumps(output_schema, sort_keys=True)
     assert bundle.prompt_file.is_file()
     audit = provider.audit_for_request("q1-review-1")
     assert len(audit) == 1
@@ -499,6 +505,46 @@ def test_codex_subprocess_uses_versioned_transport_timeout(
 
     assert result is not None
     assert captured_timeout == [0.8]
+
+
+def test_codex_nonzero_exit_is_a_transport_failure(
+    sqlite_database,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_url, _, factory = sqlite_database
+    ControlPlaneService(factory).select_provider(
+        CommanderProvider.CODEX_SOL_MAX,
+        expected_version=0,
+        now=NOW,
+    )
+
+    def failed_run(
+        command: tuple[str, ...],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        del command, kwargs
+        return subprocess.CompletedProcess([], 2, "", "sensitive stderr")
+
+    monkeypatch.setattr(
+        "trading.runtime.q1_provider.subprocess.run",
+        failed_run,
+    )
+    provider = Q1SelectedCommanderProvider(
+        factory,
+        settings=_settings(
+            database_url,
+            tmp_path,
+            real_llm_enabled=True,
+        ),
+        transport_config=_transport_config(),
+        repo_root=tmp_path,
+    )
+
+    assert provider(_request()) is None
+    audit = provider.audit_for_request("q1-review-1")[-1]
+    assert audit.status is Q1ProviderAuditStatus.TRANSPORT_FAILED
+    assert "sensitive stderr" not in json.dumps(audit.as_payload())
 
 
 def test_provider_audit_mapping_and_attempt_history_are_bounded(

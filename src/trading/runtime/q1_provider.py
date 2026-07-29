@@ -14,6 +14,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, cast
 
+from pydantic import JsonValue
 from sqlalchemy.orm import Session, sessionmaker
 
 from trading.control.contracts import SelectionSnapshot
@@ -413,7 +414,7 @@ def export_q1_commander_bundle(
     transport_config: Q1LlmTransportConfig,
 ) -> Q1CommanderBundle:
     normalized_request = _validate_and_normalize_request(request)
-    output_schema = Q1LlmOverlayDecision.model_json_schema()
+    output_schema = _strict_q1_output_schema()
     bundle_manifest = {
         "schema_version": Q1_BUNDLE_SCHEMA_VERSION,
         "selection": selection.model_dump(mode="json"),
@@ -502,6 +503,48 @@ def export_q1_commander_bundle(
     )
 
 
+def _strict_q1_output_schema() -> dict[str, JsonValue]:
+    """Return the model-facing strict schema for the Q1 overlay.
+
+    Pydantic omits fields with defaults from ``required``. Codex Structured
+    Outputs instead requires every declared property at every object level.
+    The generated document is still validated by ``Q1LlmOverlayDecision``
+    after transport, so this adapter only tightens the model-facing schema.
+    """
+
+    normalized = _strict_q1_schema_node(
+        cast(
+            dict[str, JsonValue],
+            Q1LlmOverlayDecision.model_json_schema(),
+        )
+    )
+    if not isinstance(normalized, dict):
+        raise ValueError("Q1 Structured Output schema root must be an object")
+    return normalized
+
+
+def _strict_q1_schema_node(value: JsonValue) -> JsonValue:
+    if isinstance(value, list):
+        return [_strict_q1_schema_node(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    result: dict[str, JsonValue] = {
+        key: _strict_q1_schema_node(item)
+        for key, item in value.items()
+        if key != "default"
+    }
+    if result.get("type") == "object":
+        properties = result.get("properties")
+        if not isinstance(properties, dict):
+            raise ValueError(
+                "Q1 Structured Output objects require fixed properties"
+            )
+        result["additionalProperties"] = False
+        result["required"] = list(properties)
+    return result
+
+
 def run_q1_codex_bundle(
     bundle: Q1CommanderBundle,
 ) -> Mapping[str, object] | None:
@@ -525,7 +568,9 @@ def run_q1_codex_bundle(
         check=False,
     )
     if completed.returncode != 0:
-        return None
+        raise RuntimeError(
+            f"Codex Q1 transport exited with code {completed.returncode}"
+        )
     return _load_output(bundle.output_file)
 
 
