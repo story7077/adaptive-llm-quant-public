@@ -84,6 +84,9 @@ shadow:
     sensitivity_10_bps: "10"
     basis_points_per_unit_return: "10000"
     maximum_quote_age_seconds: 15
+    maximum_multi_symbol_quote_skew_seconds: 2
+    displayed_size_unit_shares: 100
+    adv_lookback_completed_sessions: 20
     weight_tolerance: "0.000001"
     real_order_routing: false
 

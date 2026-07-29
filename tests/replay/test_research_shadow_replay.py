@@ -36,6 +36,9 @@ def _run_complete_sequence() -> tuple[str, ...]:
         sensitivity_10_bps=Decimal("10"),
         basis_points_per_unit_return=Decimal("10000"),
         maximum_quote_age_seconds=15,
+        maximum_multi_symbol_quote_skew_seconds=2,
+        displayed_size_unit_shares=100,
+        adv_lookback_completed_sessions=20,
         weight_tolerance=Decimal("0.000001"),
         real_order_routing=False,
     )

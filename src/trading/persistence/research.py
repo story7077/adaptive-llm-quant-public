@@ -33,6 +33,7 @@ from trading.persistence.models import (
     ResearchReplayArtifactRow,
     ResearchShadowArmRegistrationRow,
     ResearchShadowPerformanceSummaryRow,
+    RunRow,
     TrustedPromotionEvaluationRow,
 )
 from trading.research.candidate_artifact import CandidateArtifactBundleV1
@@ -87,10 +88,21 @@ from trading.research.promotion_evidence import (
     build_promotion_evidence,
     evaluate_trusted_promotion_evidence,
 )
+from trading.research.prospective_shadow import (
+    PROSPECTIVE_SHADOW_SOURCE_AGGREGATE,
+    TRUSTED_SHADOW_CYCLE_EVENT,
+    ProspectiveShadowCycleSourceV1,
+)
 from trading.research.replay import DeterministicReplayArtifactV1
 from trading.research.shadow import (
     ShadowArmIdentity,
     require_matched_shadow_contract,
+)
+from trading.research.shadow_runtime import (
+    SHADOW_RUNTIME_VERSION,
+    MatchedShadowCycleResultV1,
+    ShadowPairRuntimeSpecV1,
+    summarize_matched_shadow_results,
 )
 
 
@@ -3621,12 +3633,106 @@ class ResearchRepository:
             )
         )
         event_hashes = tuple(row.payload_hash for row in events)
+        provenance_ids: list[str] = []
+        cycle_results: list[MatchedShadowCycleResultV1] = []
+        for event in events:
+            if (
+                event.event_type != TRUSTED_SHADOW_CYCLE_EVENT
+                or event.causation_id is None
+            ):
+                raise ResearchPersistenceError(
+                    "shadow summary contains unattested daily evidence"
+                )
+            source_row = session.get(DomainEventRow, event.causation_id)
+            if (
+                source_row is None
+                or source_row.aggregate_type
+                != PROSPECTIVE_SHADOW_SOURCE_AGGREGATE
+                or source_row.aggregate_id != summary.run_id
+                or source_row.event_type != "PROSPECTIVE_SOURCE_VERIFIED"
+                or _stored_time(source_row.available_at)
+                > summary.data_available_cutoff
+            ):
+                raise ResearchPersistenceError(
+                    "shadow summary lost its prospective source evidence"
+                )
+            try:
+                source = ProspectiveShadowCycleSourceV1.model_validate(
+                    source_row.payload_json
+                )
+                cycle = MatchedShadowCycleResultV1.model_validate(
+                    event.payload_json
+                )
+            except ValueError as exc:
+                raise ResearchPersistenceError(
+                    "shadow summary source evidence is invalid"
+                ) from exc
+            if (
+                source.provenance_id != source_row.event_id
+                or source.provenance_hash != source_row.payload_hash
+                or source.run_id != summary.run_id
+                or source.shadow_pair_id != summary.shadow_pair_id
+                or source.challenger_id != summary.challenger_id
+                or source.prospective_request_id
+                != source_row.correlation_id
+                or source.prospective_execution_id
+                != source_row.causation_id
+                or source.champion_target_hash
+                != cycle.champion.target.target_hash
+                or source.challenger_target_hash
+                != cycle.challenger.target.target_hash
+                or source.quote_bundle_hash != cycle.quote_bundle.bundle_hash
+                or source.quote_manifest_hash
+                != cycle.quote_bundle.quote_manifest_hash
+                or cycle.result_hash != event.payload_hash
+            ):
+                raise ResearchPersistenceError(
+                    "shadow summary prospective source binding mismatch"
+                )
+            provenance_ids.append(source.provenance_id)
+            cycle_results.append(cycle)
         if (
             event_hashes != summary.daily_evidence_hashes
             or len(events) != summary.forward_sessions
-            or any(row.event_type != "MATCHED_PAPER_CYCLE_COMMITTED" for row in events)
+            or len(provenance_ids) != len(set(provenance_ids))
         ):
             raise ResearchPersistenceError("shadow summary does not match immutable daily evidence")
+        run = session.get(RunRow, summary.run_id)
+        if (
+            run is None
+            or run.experiment_version != SHADOW_RUNTIME_VERSION
+            or run.result_manifest is None
+        ):
+            raise ResearchPersistenceError(
+                "shadow summary lacks its versioned runtime contract"
+            )
+        try:
+            spec = ShadowPairRuntimeSpecV1.model_validate(run.result_manifest)
+            if run.result_hash != spec.spec_hash:
+                raise ValueError("shadow runtime spec row hash mismatch")
+            replay_hash = canonical_hash(
+                {
+                    "schema_version": "research_shadow_replay_v1",
+                    "run_id": summary.run_id,
+                    "spec_hash": spec.spec_hash,
+                    "cycle_hashes": [
+                        item.result_hash for item in cycle_results
+                    ],
+                }
+            )
+            expected_summary = summarize_matched_shadow_results(
+                spec=spec,
+                results=tuple(cycle_results),
+                replay_hash=replay_hash,
+            )
+        except ValueError as exc:
+            raise ResearchPersistenceError(
+                "shadow summary runtime evidence is invalid"
+            ) from exc
+        if expected_summary.summary_hash != summary.source_summary.summary_hash:
+            raise ResearchPersistenceError(
+                "shadow summary metrics do not match immutable cycles"
+            )
 
     @staticmethod
     def _validate_promotion_evidence_binding(

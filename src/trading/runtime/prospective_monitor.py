@@ -19,6 +19,7 @@ def run_continuous_prospective_monitor[T](
     on_observation: Callable[[T, int], None],
     poll_seconds: int,
     maximum_observations: int | None = None,
+    on_poll: Callable[[], None] | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
     """Collect every pending parent decision in order and wait for new ones."""
@@ -31,6 +32,8 @@ def run_continuous_prospective_monitor[T](
         )
     observation_count = 0
     while True:
+        if on_poll is not None:
+            on_poll()
         try:
             result = collect()
         except ProspectiveCandidateError as exc:

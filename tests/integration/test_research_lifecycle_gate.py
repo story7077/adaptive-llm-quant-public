@@ -13,11 +13,10 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
-from trading.domain.hashing import canonical_hash, stable_id
+from trading.domain.hashing import canonical_hash
 from trading.persistence.models import (
     AlgorithmProposalRow,
     ChallengerManifestRow,
-    DomainEventRow,
     FalsificationReportRow,
     OosLockboxResultRow,
     ResearchCandidateArtifactRow,
@@ -42,7 +41,10 @@ from trading.research.candidate_artifact import (
     CandidateRuntimeV1,
     build_candidate_artifact_bundle,
 )
-from trading.research.config import load_research_config
+from trading.research.config import (
+    load_research_config,
+    shadow_paper_parameters,
+)
 from trading.research.contracts import (
     AlgorithmProposalV1,
     ChallengerManifestV1,
@@ -94,6 +96,9 @@ from trading.research.promotion_evidence import (
     build_promotion_evidence,
     build_trusted_shadow_performance_summary,
     evaluate_trusted_promotion_evidence,
+)
+from trading.research.prospective_shadow import (
+    build_prospective_shadow_cycle_source,
 )
 from trading.research.replay import DeterministicReplayArtifactV1
 from trading.research.shadow import ShadowArmIdentity, ShadowExecutionContract
@@ -565,7 +570,10 @@ def _trusted_promotion_contract() -> PromotionEvaluationContractV1:
     )
 
 
-def _advance_to_trusted_shadow_running(factory):
+def _advance_to_trusted_shadow_running(
+    factory,
+    repository_root: Path,
+):
     repository = _seed_challenger(factory)
     assert repository.record_replay_artifact(_replay())
     assert repository.record_falsification_report(_report())
@@ -605,74 +613,131 @@ def _advance_to_trusted_shadow_running(factory):
     champion_registration = by_role["CHAMPION"]
     challenger_registration = by_role["CHALLENGER"]
     shadow_pair_id = champion_registration.shadow_pair_id
-    run_id = "trusted-shadow-run-1"
-    daily_hashes: list[str] = []
-    with factory.begin() as session:
-        for index in range(63):
-            available_at = NOW + timedelta(days=index + 1)
-            event_payload = {
-                "run_id": run_id,
-                "shadow_pair_id": shadow_pair_id,
-                "session_index": index + 1,
-                "matched_daily_return_difference": "0.0005",
-            }
-            event_hash = canonical_hash(event_payload)
-            daily_hashes.append(event_hash)
-            session.add(
-                DomainEventRow(
-                    event_id=stable_id(
-                        "trusted-shadow-daily-event",
-                        shadow_pair_id,
-                        index + 1,
-                    ),
-                    aggregate_type="RESEARCH_MATCHED_SHADOW_CYCLE",
-                    aggregate_id=run_id,
-                    event_type="MATCHED_PAPER_CYCLE_COMMITTED",
-                    event_version="v1",
-                    occurred_at=available_at,
-                    available_at=available_at,
-                    payload_json=event_payload,
-                    payload_hash=event_hash,
-                    causation_id=None,
-                    correlation_id=shadow_pair_id,
-                    idempotency_key=stable_id(
-                        "trusted-shadow-daily-idempotency",
-                        shadow_pair_id,
-                        index + 1,
-                    ),
-                    created_at=available_at,
-                )
-            )
-    source_payload = {
-        "schema_version": "matched_shadow_performance_summary_v1",
-        "run_id": run_id,
-        "shadow_pair_id": shadow_pair_id,
-        "common_sessions": 63,
-        "champion_cumulative_return": Decimal("0.030"),
-        "challenger_cumulative_return": Decimal("0.065"),
-        "mean_matched_daily_return_difference": Decimal("0.0005"),
-        "champion_turnover_usd": Decimal("10000"),
-        "challenger_turnover_usd": Decimal("12000"),
-        "champion_commission_usd": Decimal("10"),
-        "challenger_commission_usd": Decimal("12"),
-        "champion_execution_cost_usd": Decimal("20"),
-        "challenger_execution_cost_usd": Decimal("24"),
-        "champion_sensitivity_5bp_cost_usd": Decimal("30"),
-        "challenger_sensitivity_5bp_cost_usd": Decimal("36"),
-        "champion_sensitivity_10bp_cost_usd": Decimal("40"),
-        "challenger_sensitivity_10bp_cost_usd": Decimal("48"),
-        "champion_average_exposures": {"QQQ": Decimal("0.50")},
-        "challenger_average_exposures": {"QQQ": Decimal("0.45")},
-        "replay_hash": "b" * 64,
-        "profitability_claimed": False,
-    }
-    source_summary = MatchedShadowPerformanceSummaryV1.model_validate(
-        {
-            **source_payload,
-            "summary_hash": canonical_hash(source_payload),
-        }
+    research_config = load_research_config(repository_root / "config")
+    shadow_repository = ResearchShadowRuntimeRepository(factory)
+    initialized = shadow_repository.initialize_from_lifecycle(
+        challenger_id="challenger-1",
+        champion_artifact_hash="d" * 64,
+        paper_parameters=shadow_paper_parameters(research_config),
+        code_version="shadow-test-v1",
+        created_at=NOW,
     )
-    cutoff = NOW + timedelta(days=63)
+    spec = initialized.spec
+    run_id = spec.run_id
+    daily_hashes: list[str] = []
+    cutoff = NOW
+    for index in range(63):
+        decision_time = NOW + timedelta(days=index + 1)
+        cutoff = decision_time + timedelta(seconds=1)
+        midpoint = Decimal("100") + Decimal(index)
+        quote_source_hash = canonical_hash(
+            ("trusted-shadow-quote", index + 1)
+        )
+        quote_bundle = build_matched_quote_bundle(
+            market_input_manifest_hash=spec.market_input_manifest_hash,
+            as_of=cutoff,
+            quotes=(
+                ShadowQuoteV1(
+                    quote_id=f"trusted-shadow-quote-{index + 1:03d}",
+                    instrument_id="QQQ",
+                    event_time=cutoff,
+                    available_at=cutoff,
+                    bid_price=midpoint - Decimal("0.01"),
+                    ask_price=midpoint + Decimal("0.01"),
+                    bid_size_shares=Decimal("1000000"),
+                    ask_size_shares=Decimal("1000000"),
+                    adv_shares=Decimal("10000000"),
+                    source_hash=quote_source_hash,
+                ),
+            ),
+        )
+        common_target = {
+            "spec": spec,
+            "decision_time": decision_time,
+            "signal_data_cutoff": decision_time - timedelta(minutes=1),
+            "valid_until": decision_time + timedelta(minutes=20),
+            "quote_manifest_hash": quote_bundle.quote_manifest_hash,
+        }
+        champion_target = build_shadow_target_decision(
+            target_id=f"trusted-champion-target-{index + 1:03d}",
+            role=ShadowArmRole.CHAMPION,
+            target_weights={"USD_CASH": Decimal("1")},
+            **common_target,
+        )
+        challenger_target = build_shadow_target_decision(
+            target_id=f"trusted-challenger-target-{index + 1:03d}",
+            role=ShadowArmRole.CHALLENGER,
+            target_weights={
+                "QQQ": Decimal("1"),
+                "USD_CASH": Decimal("0"),
+            },
+            **common_target,
+        )
+        response_hash = canonical_hash(
+            ("trusted-shadow-response", index + 1)
+        )
+        prospective_request_id = (
+            f"trusted-shadow-request-{index + 1:03d}"
+        )
+        provenance = build_prospective_shadow_cycle_source(
+            run_id=run_id,
+            shadow_pair_id=shadow_pair_id,
+            challenger_id="challenger-1",
+            prospective_request_id=prospective_request_id,
+            request_evidence_hash=canonical_hash(
+                ("trusted-shadow-request-evidence", index + 1)
+            ),
+            request_recorded_at=decision_time,
+            prospective_execution_id=(
+                f"trusted-shadow-execution-{index + 1:03d}"
+            ),
+            prospective_execution_hash=canonical_hash(
+                ("trusted-shadow-execution", index + 1)
+            ),
+            execution_recorded_at=decision_time,
+            runtime_attestation_hash=canonical_hash(
+                ("trusted-shadow-runtime", index + 1)
+            ),
+            security_contract_hash=canonical_hash(
+                ("trusted-shadow-security", index + 1)
+            ),
+            primary_response_hash=response_hash,
+            replay_response_hash=response_hash,
+            parent_run_id="trusted-shadow-parent-run",
+            parent_portfolio_decision_id=(
+                f"trusted-shadow-parent-decision-{index + 1:03d}"
+            ),
+            parent_decision_hash=canonical_hash(
+                ("trusted-shadow-parent-decision", index + 1)
+            ),
+            parent_input_manifest_hash=canonical_hash(
+                ("trusted-shadow-parent-input", index + 1)
+            ),
+            parent_signal_data_cutoff=decision_time - timedelta(minutes=1),
+            candidate_signal_data_cutoff=decision_time - timedelta(minutes=1),
+            candidate_artifact_hash=CANDIDATE_ARTIFACT_HASH,
+            prospective_source_manifest_hash=canonical_hash(
+                ("trusted-shadow-source-manifest", index + 1)
+            ),
+            champion_target=champion_target,
+            challenger_target=challenger_target,
+            quote_bundle=quote_bundle,
+            quote_source_hash_by_symbol={"QQQ": quote_source_hash},
+            adv_source_bar_ids_by_symbol={
+                "QQQ": (f"trusted-shadow-adv-{index + 1:03d}",)
+            },
+            decision_available_at=decision_time,
+            recorded_at=cutoff,
+        )
+        result = shadow_repository.append_prospective_matched_cycle(
+            run_id=run_id,
+            champion_target=champion_target,
+            challenger_target=challenger_target,
+            quote_bundle=quote_bundle,
+            provenance=provenance,
+        )
+        daily_hashes.append(result.result_hash)
+    source_summary = shadow_repository.performance_summary(run_id)
     summary = build_trusted_shadow_performance_summary(
         summary_id="trusted-shadow-summary-1",
         challenger_id="challenger-1",
@@ -1250,6 +1315,7 @@ def test_manual_approval_is_separate_and_never_mutates_champion(
 
 def test_trusted_promotion_requires_immutable_evidence_and_manual_designation(
     sqlite_database,
+    repository_root: Path,
 ) -> None:
     _, engine, factory = sqlite_database
     (
@@ -1258,7 +1324,7 @@ def test_trusted_promotion_requires_immutable_evidence_and_manual_designation(
         summary,
         contract,
         cutoff,
-    ) = _advance_to_trusted_shadow_running(factory)
+    ) = _advance_to_trusted_shadow_running(factory, repository_root)
 
     first_summary = service.record_shadow_performance_summary(summary)
     repeated_summary = service.record_shadow_performance_summary(summary)
@@ -1404,6 +1470,7 @@ def test_trusted_promotion_requires_immutable_evidence_and_manual_designation(
 
 def test_forged_promotion_metric_cannot_enter_trusted_evaluation(
     sqlite_database,
+    repository_root: Path,
 ) -> None:
     _, _, factory = sqlite_database
     (
@@ -1412,7 +1479,52 @@ def test_forged_promotion_metric_cannot_enter_trusted_evaluation(
         summary,
         contract,
         cutoff,
-    ) = _advance_to_trusted_shadow_running(factory)
+    ) = _advance_to_trusted_shadow_running(factory, repository_root)
+    forged_source_payload = summary.source_summary.model_dump(
+        mode="python",
+        exclude={"summary_hash"},
+    )
+    forged_source_payload["challenger_cumulative_return"] = (
+        summary.source_summary.challenger_cumulative_return
+        + Decimal("0.10")
+    )
+    forged_source = MatchedShadowPerformanceSummaryV1.model_validate(
+        {
+            **forged_source_payload,
+            "summary_hash": canonical_hash(forged_source_payload),
+        }
+    )
+    forged_summary = build_trusted_shadow_performance_summary(
+        summary_id="trusted-shadow-summary-forged-source",
+        challenger_id=summary.challenger_id,
+        current_champion_version=summary.current_champion_version,
+        candidate_version=summary.candidate_version,
+        candidate_artifact_hash=summary.candidate_artifact_hash,
+        champion_registration_hash=summary.champion_registration_hash,
+        challenger_registration_hash=summary.challenger_registration_hash,
+        execution_contract_hash=summary.execution_contract_hash,
+        source_summary=forged_source,
+        daily_evidence_hashes=summary.daily_evidence_hashes,
+        independent_trades=summary.independent_trades,
+        annualized_net_excess_return_after_cost=(
+            summary.annualized_net_excess_return_after_cost
+        ),
+        matched_annualized_difference=summary.matched_annualized_difference,
+        economic_effect=summary.economic_effect,
+        maximum_drawdown=summary.maximum_drawdown,
+        tail_loss=summary.tail_loss,
+        annualized_turnover=summary.annualized_turnover,
+        estimated_capacity_usd=summary.estimated_capacity_usd,
+        regime_pass_fraction=summary.regime_pass_fraction,
+        runtime_error_rate=summary.runtime_error_rate,
+        data_available_cutoff=summary.data_available_cutoff,
+        created_at=summary.created_at,
+    )
+    with pytest.raises(
+        ResearchLifecycleError,
+        match="shadow summary metrics do not match immutable cycles",
+    ):
+        service.record_shadow_performance_summary(forged_summary)
     service.record_shadow_performance_summary(summary)
     evidence = repository.build_trusted_promotion_evidence(
         challenger_id="challenger-1",
@@ -1448,6 +1560,7 @@ def test_forged_promotion_metric_cannot_enter_trusted_evaluation(
 
 def test_concurrent_champion_designation_commits_exactly_one(
     sqlite_database,
+    repository_root: Path,
 ) -> None:
     _, _, factory = sqlite_database
     (
@@ -1456,7 +1569,7 @@ def test_concurrent_champion_designation_commits_exactly_one(
         summary,
         contract,
         cutoff,
-    ) = _advance_to_trusted_shadow_running(factory)
+    ) = _advance_to_trusted_shadow_running(factory, repository_root)
     service.record_shadow_performance_summary(summary)
     evaluated_at = cutoff + timedelta(minutes=1)
     service.evaluate_trusted_promotion(
@@ -1926,18 +2039,23 @@ def test_trusted_oos_v2_to_independent_shadow_operations(
         }
     )
     preview = operations.preview_cycle(cycle_input)
-    committed = operations.commit_cycle(cycle_input)
-    repeated = operations.commit_cycle(cycle_input)
-    assert preview.result_hash == committed.cycle.result_hash
-    assert repeated.cycle.result_hash == committed.cycle.result_hash
-    assert repeated.replay_hash == committed.replay_hash
+    assert preview.run_id == spec.run_id
+    with pytest.raises(
+        OosShadowOperationError,
+        match="UNATTESTED_MANUAL_SHADOW_CYCLE_COMMIT_DISABLED",
+    ):
+        operations.commit_cycle(cycle_input)
 
     status = ResearchShadowRuntimeRepository(factory).status(
         run_id=spec.run_id
     )
     latest = status["latest"]
     assert isinstance(latest, dict)
-    assert latest["cycle_count"] == 1
+    assert latest["cycle_count"] == 0
+    source_trust = latest["source_trust"]
+    assert isinstance(source_trust, dict)
+    assert source_trust["trusted_cycle_count"] == 0
+    assert source_trust["manual_cycle_commit_enabled"] is False
     assert latest["settlement_model"] == "SAME_CYCLE_PAPER_CASH_V1"
     assert latest["unsettled_receivables_supported"] is False
     assert status["automatic_promotion_enabled"] is False

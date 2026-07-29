@@ -53,6 +53,9 @@ class ShadowPaperParametersV1(DomainModel):
     sensitivity_10_bps: Decimal = Field(gt=0)
     basis_points_per_unit_return: Decimal = Field(gt=0)
     maximum_quote_age_seconds: int = Field(gt=0)
+    maximum_multi_symbol_quote_skew_seconds: int = Field(gt=0)
+    displayed_size_unit_shares: int = Field(gt=0)
+    adv_lookback_completed_sessions: int = Field(gt=1)
     weight_tolerance: Decimal = Field(gt=0)
     real_order_routing: Literal[False] = False
 

@@ -73,6 +73,9 @@ def test_oos_and_shadow_runtime_numerics_are_versioned_and_hashed() -> None:
     assert shadow.commission_rate == Decimal("0.001")
     assert shadow.displayed_participation_rate == Decimal("0.10")
     assert shadow.maximum_quote_age_seconds == 15
+    assert shadow.maximum_multi_symbol_quote_skew_seconds == 2
+    assert shadow.displayed_size_unit_shares == 100
+    assert shadow.adv_lookback_completed_sessions == 20
     assert shadow.real_order_routing is False
 
     changed_oos = bundle.config.oos.model_copy(

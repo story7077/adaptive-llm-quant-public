@@ -224,6 +224,7 @@ uv run python -m trading.cli research select --commander CODEX_SOL_MAX
 uv run python -m trading.cli research meta-policy build --help
 uv run python -m trading.cli research oos-v2 --help
 uv run python -m trading.cli research shadow-runtime status
+uv run python -m trading.cli research shadow-runtime prospective-cycle --help
 ```
 
 The UI can be started on a loopback address:
@@ -237,9 +238,10 @@ version-pinned process already owns market data and paper runtime. The
 status-only surface starts no workers and rejects all non-read HTTP methods.
 
 The Research tab displays Commander selection, Scout state, evidence,
-proposals, Challenger status, OOS results, shadow readiness, promotion
-eligibility, and publication links. A local external model environment must
-pass its own fail-closed preflight before live research is accepted.
+proposals, Challenger status, OOS results, trusted versus unattested shadow
+cycles, source-provenance readiness, promotion eligibility, and publication
+links. A local external model environment must pass its own fail-closed
+preflight before live research is accepted.
 
 ## Data, credentials, and public examples
 

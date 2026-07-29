@@ -26,8 +26,14 @@ from trading.persistence.models import (
     ResearchShadowArmRegistrationRow,
     ShadowArmRow,
 )
-from trading.persistence.research import ResearchRepository
+from trading.persistence.research import (
+    ResearchPersistenceError,
+    ResearchRepository,
+)
 from trading.persistence.research_shadow import ResearchShadowRuntimeRepository
+from trading.research.promotion_evidence import (
+    build_trusted_shadow_performance_summary,
+)
 from trading.research.shadow import ShadowExecutionContract
 from trading.research.shadow_runtime import (
     ShadowArmRole,
@@ -57,6 +63,9 @@ def _parameters() -> ShadowPaperParametersV1:
         sensitivity_10_bps=Decimal("10"),
         basis_points_per_unit_return=Decimal("10000"),
         maximum_quote_age_seconds=15,
+        maximum_multi_symbol_quote_skew_seconds=2,
+        displayed_size_unit_shares=100,
+        adv_lookback_completed_sessions=20,
         weight_tolerance=Decimal("0.000001"),
         real_order_routing=False,
     )
@@ -346,6 +355,54 @@ def test_lifecycle_registered_pair_persists_independent_matched_paper_books(
     assert summary.replay_hash == replay_hash
     assert summary.common_sessions == 1
     assert summary.profitability_claimed is False
+    source_trust = repository.source_trust_status(initialized.spec.run_id)
+    assert source_trust["trusted_cycle_count"] == 0
+    assert source_trust["unattested_cycle_count"] == 1
+    assert source_trust["source_provenance_ready"] is False
+    with factory() as session:
+        registrations = {
+            row.arm_role: row
+            for row in session.scalars(
+                select(ResearchShadowArmRegistrationRow)
+            )
+        }
+    promotion_summary = build_trusted_shadow_performance_summary(
+        summary_id="unattested-shadow-summary",
+        challenger_id="challenger-1",
+        current_champion_version="1.0.0",
+        candidate_version="1.1.0",
+        candidate_artifact_hash=CHALLENGER_ARTIFACT_HASH,
+        champion_registration_hash=canonical_hash(
+            registrations["CHAMPION"].payload_json
+        ),
+        challenger_registration_hash=canonical_hash(
+            registrations["CHALLENGER"].payload_json
+        ),
+        execution_contract_hash=(
+            registrations["CHAMPION"].execution_contract_hash
+        ),
+        source_summary=summary,
+        daily_evidence_hashes=(first.result_hash,),
+        independent_trades=1,
+        annualized_net_excess_return_after_cost=0.0,
+        matched_annualized_difference=0.0,
+        economic_effect=0.0,
+        maximum_drawdown=0.0,
+        tail_loss=0.0,
+        annualized_turnover=0.0,
+        estimated_capacity_usd=0.0,
+        regime_pass_fraction=0.0,
+        runtime_error_rate=0.0,
+        data_available_cutoff=bundle.as_of,
+        created_at=bundle.as_of,
+    )
+    with pytest.raises(
+        ResearchPersistenceError,
+        match="shadow summary contains unattested daily evidence",
+    ):
+        ResearchRepository(factory).record_shadow_performance_summary(
+            promotion_summary
+        )
 
 
 def test_runtime_refuses_pair_without_explicit_lifecycle_shadow_start(
