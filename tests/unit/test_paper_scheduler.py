@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import trading.runtime.scheduler as scheduler_module
 from trading.data.alpaca_reference import MarketSession
 from trading.persistence.models import RunRow
 from trading.runtime.forward_paper import ForwardPaperConflict
@@ -211,4 +212,70 @@ def test_reclaimed_cycle_rejects_stale_worker_completion(sqlite_database) -> Non
         input_manifest={"attempt": "new"},
         output_manifest={"result": "new"},
         now=scheduled_at + timedelta(minutes=3),
+    )
+
+
+def test_claim_uses_authoritative_database_clock(
+    monkeypatch,
+    sqlite_database,
+) -> None:
+    _, _, factory = sqlite_database
+    base = datetime(2026, 7, 29, 13, 30, tzinfo=UTC)
+    scheduled_at = base + timedelta(seconds=1)
+    authority = {"now": base}
+    with factory.begin() as session:
+        session.add(
+            RunRow(
+                run_id="paper-database-clock",
+                mode="PAPER",
+                experiment_version="test",
+                config_manifest_hash="a" * 64,
+                code_commit="test",
+                started_at=base,
+                ended_at=None,
+                status="RUNNING",
+                result_manifest={},
+                result_hash=None,
+            )
+        )
+    store = PaperCycleStore(factory)
+    store.ensure_slots(
+        run_id="paper-database-clock",
+        slots=(PaperCycleSlot("NAV", scheduled_at),),
+        now=base,
+    )
+    monkeypatch.setattr(
+        scheduler_module,
+        "_lease_check_now",
+        lambda _session, _fallback: authority["now"],
+    )
+
+    # A fast host must not claim before the database clock reaches the slot.
+    assert (
+        store.claim_next(
+            run_id="paper-database-clock",
+            now=base + timedelta(seconds=5),
+            grace=timedelta(minutes=5),
+            owner="worker-fast-host",
+        )
+        is None
+    )
+
+    # Once the database clock is due, a slow host may claim. Stored lease
+    # timestamps must use the same authoritative instant.
+    authority["now"] = base + timedelta(seconds=2)
+    claimed = store.claim_next(
+        run_id="paper-database-clock",
+        now=base,
+        grace=timedelta(minutes=5),
+        lease=timedelta(minutes=1),
+        owner="worker-slow-host",
+    )
+
+    assert claimed is not None
+    assert claimed.started_at is not None
+    assert claimed.lease_expires_at is not None
+    assert claimed.started_at.replace(tzinfo=UTC) == authority["now"]
+    assert claimed.lease_expires_at.replace(tzinfo=UTC) == (
+        authority["now"] + timedelta(minutes=1)
     )

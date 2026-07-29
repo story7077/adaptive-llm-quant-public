@@ -588,6 +588,10 @@ BLOCKED_BY_DATA와 BLOCKED_BY_PRICE_GUARD는 잔량과 유효시간이 남으면
 - pending 집합에서 사라지는 모든 주문은 terminal event를 가져야 한다.
 - event sequence, remaining quantity, cumulative fill/commission snapshot은
   순수 reducer가 매 event마다 검증한다.
+- PostgreSQL에서는 cycle due 판정, 만료 lease reclaim, missed-window 판정,
+  새 lease 시각을 모두 DB `clock_timestamp()` 기준으로 계산한다. 빠른 host
+  clock이 `scheduled_at` 이전 cycle을 조기 claim할 수 없다. SQLite replay는
+  주입된 clock을 유지한다.
 - cycle lease owner, attempt, PostgreSQL DB clock fence가 맞지 않는 stale
   worker는 event·fill·snapshot·risk/policy 결과를 append하지 못한다.
 

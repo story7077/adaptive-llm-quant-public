@@ -180,10 +180,16 @@ class PaperCycleStore:
         owner: str | None = None,
         kinds: frozenset[str] | None = None,
     ) -> PaperCycleRow | None:
-        instant = require_aware_utc(now)
+        requested_now = require_aware_utc(now)
         lease_owner = owner or _lease_owner()
         while True:
             with self._session_factory.begin() as session:
+                # PostgreSQL is the lease authority. A host clock that is ahead
+                # must not make a cycle due early, reclaim another worker's
+                # lease early, or timestamp a claim in the future. SQLite keeps
+                # the caller-supplied clock so deterministic tests and replays
+                # remain injectable.
+                instant = _lease_check_now(session, requested_now)
                 predicates = [
                     PaperCycleRow.run_id == run_id,
                     PaperCycleRow.scheduled_at <= instant,
