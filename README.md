@@ -19,8 +19,9 @@ particular ticker, sector, or trading style.
 > - WebGPT/AGBrowse and Codex execution require separate user-managed local
 >   environments; browser state, credentials, and private datasets are not bundled.
 > - The first live-built `Q1-DET 2.0.0` Challenger remains `PROPOSED`.
->   Its prospective target-state observations are forward research evidence,
->   not an independent shadow portfolio, OOS pass, or promotion evidence.
+>   Its prospective target-state observations and subsequently matured
+>   next-close outcomes are forward research evidence, not an independent
+>   shadow portfolio, falsification pass, OOS pass, or promotion evidence.
 > - A sealed V2 Candidate can enter the typed outcome ledger as a `DISCOVERY`
 >   action plus technical test result. This is chronological audit lineage
 >   only: it is never meta-training evidence and cannot advance falsification,
@@ -32,6 +33,15 @@ economically meaningful after point-in-time validation, costs, execution delays,
 capacity limits, regime splits, out-of-sample evaluation, and independent shadow
 forward observation. It is a research objective, not a claim about current or
 future returns.
+
+Prospective Candidate results are admitted only from a predeclared forward
+timeline. A decision is bound to completed PIT inputs, the Candidate target is
+sealed independently, and its return is later measured from the next session's
+adjusted close through the following session's adjusted close. The outcome
+source cutoff is fixed in advance, so a revision first observed after that
+cutoff cannot rewrite the result. At least 126 common forward sessions and 504
+instrument observations are required merely to make the later falsification
+input eligible for assembly.
 
 The engineering record for the first tool-backed cycle is
 [First Live Research Cycle — 2026-07-29 KST](docs/research/first-live-cycle-2026-07-29.md).

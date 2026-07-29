@@ -76,6 +76,10 @@ from trading.persistence.prospective import (
     ProspectiveCandidateRepository,
     ProspectivePersistenceError,
 )
+from trading.persistence.prospective_outcomes import (
+    ProspectiveOutcomePersistenceError,
+    ProspectiveOutcomeRepository,
+)
 from trading.persistence.research import ResearchPersistenceError, ResearchRepository
 from trading.persistence.research_scheduler import ResearchSchedulerRepository
 from trading.replay.engine import replay_full
@@ -152,6 +156,13 @@ from trading.research.prospective import (
     ProspectiveCandidateError,
     load_prospective_candidate_config,
 )
+from trading.research.prospective_outcomes import (
+    PROSPECTIVE_OUTCOME_CONFIG_FILE,
+    ProspectiveOutcomeConfigBundle,
+    ProspectiveOutcomeError,
+    load_prospective_outcome_config,
+    prospective_outcome_market_symbols,
+)
 from trading.research.v2_contracts import (
     ResearchDecisionV2,
     ResearchRequestV2,
@@ -181,6 +192,15 @@ from trading.runtime.prospective_candidate import (
 from trading.runtime.prospective_monitor import (
     PROSPECTIVE_WAIT_ERROR_CODES,
     run_continuous_prospective_monitor,
+)
+from trading.runtime.prospective_outcome_monitor import (
+    PROSPECTIVE_OUTCOME_WAIT_ERROR_CODES,
+    run_continuous_prospective_outcome_monitor,
+)
+from trading.runtime.prospective_outcomes import (
+    ProspectiveOutcomeCollectionResult,
+    ProspectiveOutcomeCollector,
+    prospective_outcome_status,
 )
 from trading.runtime.q1_alpaca_paper import Q1AlpacaPaperCanaryService
 from trading.runtime.q1_config import (
@@ -244,7 +264,7 @@ research_app.add_typer(research_memory_app, name="memory")
 research_app.add_typer(research_meta_policy_app, name="meta-policy")
 research_app.add_typer(research_meta_oos_app, name="meta-oos")
 
-EXPECTED_DATABASE_REVISION = "0018_candidate_prospective_v1"
+EXPECTED_DATABASE_REVISION = "0019_candidate_prospective_outcomes_v1"
 app.add_typer(webgpt_app, name="webgpt")
 
 
@@ -413,6 +433,9 @@ def validate_config(
         alpaca_paper = load_alpaca_paper_config_bundle(settings.config_dir)
         research = load_research_config(settings.config_dir)
         prospective = load_prospective_candidate_config(settings.config_dir)
+        prospective_outcomes = load_prospective_outcome_config(
+            settings.config_dir
+        )
         operational_config(q1)
         _emit(
             {
@@ -427,6 +450,9 @@ def validate_config(
                         "CANDIDATE_PROSPECTIVE_V1": (
                             prospective.manifest_hash
                         ),
+                        "CANDIDATE_PROSPECTIVE_OUTCOMES_V1": (
+                            prospective_outcomes.manifest_hash
+                        ),
                     }
                 ),
                 "files": sorted(
@@ -438,6 +464,7 @@ def validate_config(
                         RESEARCH_CONFIG_FILE,
                         FACTORIAL_CONFIG_FILE,
                         PROSPECTIVE_CONFIG_FILE,
+                        PROSPECTIVE_OUTCOME_CONFIG_FILE,
                         prospective.config.strategy_config_path,
                     }
                 ),
@@ -466,6 +493,15 @@ def validate_config(
                         "files": [
                             PROSPECTIVE_CONFIG_FILE,
                             prospective.config.strategy_config_path,
+                        ],
+                    },
+                    "CANDIDATE_PROSPECTIVE_OUTCOMES_V1": {
+                        "manifest_hash": (
+                            prospective_outcomes.manifest_hash
+                        ),
+                        "files": [
+                            PROSPECTIVE_OUTCOME_CONFIG_FILE,
+                            prospective_outcomes.config.cost_model.config_path,
                         ],
                     },
                 },
@@ -864,11 +900,24 @@ def research_status() -> None:
     prospective_config = load_prospective_candidate_config(
         settings.config_dir
     )
+    prospective_outcome_config = load_prospective_outcome_config(
+        settings.config_dir
+    )
     research_repository = ResearchRepository(factory)
     persisted_status = research_repository.status()
     meta_controller_status = MetaControllerRepository(factory).status()
     portfolio_sharpe_status = research_repository.portfolio_sharpe().status()
     meta_oos_status = MetaOosRepository(factory).status()
+    prospective_status = prospective_candidate_status(
+        ProspectiveCandidateRepository(factory),
+        config=prospective_config,
+    )
+    prospective_latest = prospective_status.get("latest")
+    prospective_challenger_id = (
+        prospective_latest.get("challenger_id")
+        if isinstance(prospective_latest, dict)
+        else None
+    )
     payload = {
         **persisted_status,
         "recursive_improvement": recursive_improvement_status(
@@ -884,9 +933,15 @@ def research_status() -> None:
             repository=ResearchSchedulerRepository(factory),
             config=research_config,
         ).status(),
-        "prospective_candidate": prospective_candidate_status(
-            ProspectiveCandidateRepository(factory),
-            config=prospective_config,
+        "prospective_candidate": prospective_status,
+        "prospective_outcomes": prospective_outcome_status(
+            ProspectiveOutcomeRepository(factory),
+            config=prospective_outcome_config,
+            challenger_id=(
+                str(prospective_challenger_id)
+                if prospective_challenger_id is not None
+                else None
+            ),
         ),
         "real_order_routing": False,
     }
@@ -1811,6 +1866,174 @@ def research_prospective_monitor(
             "challenger_id": challenger_id,
             "observations_recorded": observed,
             "challenger_status_advanced": False,
+            "shadow_started": False,
+            "automatic_promotion_enabled": False,
+            "broker_access_permitted": False,
+            "real_order_routing": False,
+        }
+    )
+
+
+@research_app.command("prospective-outcome-collect")
+def research_prospective_outcome_collect(
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+) -> None:
+    """Append the oldest mature, source-bound Candidate forward outcome."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        result = _collect_prospective_outcome(
+            settings=settings,
+            engine=engine,
+            challenger_id=challenger_id,
+        )
+    except ProspectiveOutcomeError as exc:
+        if str(exc) in PROSPECTIVE_OUTCOME_WAIT_ERROR_CODES:
+            _emit(
+                {
+                    "schema_version": (
+                        "candidate_prospective_outcome_wait_v1"
+                    ),
+                    "status": str(exc),
+                    "challenger_id": challenger_id,
+                    "outcome_recorded": False,
+                    "challenger_status_advanced": False,
+                    "falsification_started": False,
+                    "oos_started": False,
+                    "shadow_started": False,
+                    "automatic_promotion_enabled": False,
+                    "broker_access_permitted": False,
+                    "real_order_routing": False,
+                }
+            )
+            raise typer.Exit(3) from None
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    except (
+        ProspectiveOutcomePersistenceError,
+        ProspectivePersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(_prospective_outcome_result_payload(result))
+
+
+@research_app.command("prospective-outcome-monitor")
+def research_prospective_outcome_monitor(
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+    maximum_outcomes: Annotated[
+        int | None,
+        typer.Option("--maximum-outcomes", min=1),
+    ] = None,
+) -> None:
+    """Continuously append mature forward outcomes without lifecycle effects."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    prospective = load_prospective_candidate_config(settings.config_dir)
+    outcome_config = load_prospective_outcome_config(settings.config_dir)
+    engine = create_database_engine(settings.database_url)
+    collector = ProspectiveOutcomeCollector(
+        make_session_factory(engine),
+        config=outcome_config,
+    )
+    _emit_json_line(
+        {
+            "schema_version": (
+                "candidate_prospective_outcome_monitor_status_v1"
+            ),
+            "status": "PROSPECTIVE_OUTCOME_MONITOR_RUNNING",
+            "challenger_id": challenger_id,
+            "maximum_outcomes": maximum_outcomes,
+            "poll_seconds": outcome_config.config.operations.poll_seconds,
+            "history_refresh_cooldown_seconds": (
+                outcome_config.config.operations
+                .history_refresh_cooldown_seconds
+            ),
+            "outcome_recorded": False,
+            "challenger_status_advanced": False,
+            "falsification_started": False,
+            "oos_started": False,
+            "shadow_started": False,
+            "automatic_promotion_enabled": False,
+            "broker_access_permitted": False,
+            "real_order_routing": False,
+        }
+    )
+    try:
+
+        def collect() -> ProspectiveOutcomeCollectionResult:
+            return collector.collect_next(challenger_id=challenger_id)
+
+        def refresh_history() -> None:
+            refresh = _refresh_prospective_outcome_history(
+                settings=settings,
+                engine=engine,
+                prospective_config=prospective,
+                outcome_config=outcome_config,
+            )
+            _emit_json_line(
+                {
+                    "schema_version": (
+                        "candidate_prospective_outcome_history_refresh_v1"
+                    ),
+                    "status": "OUTCOME_HISTORY_REFRESHED",
+                    "challenger_id": challenger_id,
+                    **refresh,
+                    "broker_access_permitted": False,
+                    "real_order_routing": False,
+                }
+            )
+
+        def emit_outcome(
+            result: ProspectiveOutcomeCollectionResult,
+            sequence: int,
+        ) -> None:
+            _emit_json_line(
+                {
+                    **_prospective_outcome_result_payload(result),
+                    "schema_version": (
+                        "candidate_prospective_outcome_monitor_observation_v1"
+                    ),
+                    "monitor_outcome_sequence": sequence,
+                    "monitor_state": "MONITORING",
+                }
+            )
+
+        recorded = run_continuous_prospective_outcome_monitor(
+            collect=collect,
+            on_outcome=emit_outcome,
+            poll_seconds=outcome_config.config.operations.poll_seconds,
+            history_refresh_cooldown_seconds=(
+                outcome_config.config.operations
+                .history_refresh_cooldown_seconds
+            ),
+            refresh_history=refresh_history,
+            maximum_outcomes=maximum_outcomes,
+        )
+    except (
+        ProspectiveOutcomeError,
+        ProspectiveOutcomePersistenceError,
+        ProspectivePersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit_json_line(
+        {
+            "schema_version": (
+                "candidate_prospective_outcome_monitor_status_v1"
+            ),
+            "status": "PROSPECTIVE_OUTCOME_MONITOR_STOPPED_AT_REQUESTED_LIMIT",
+            "challenger_id": challenger_id,
+            "outcomes_recorded": recorded,
+            "challenger_status_advanced": False,
+            "falsification_started": False,
+            "oos_started": False,
             "shadow_started": False,
             "automatic_promotion_enabled": False,
             "broker_access_permitted": False,
@@ -3228,6 +3451,156 @@ def _prospective_result_payload(
         "oos_started": False,
         "evidence_recorded": True,
         "challenger_status_advanced": False,
+        "shadow_started": False,
+        "automatic_promotion_enabled": False,
+        "broker_access_permitted": False,
+        "real_order_routing": False,
+    }
+
+
+def _collect_prospective_outcome(
+    *,
+    settings: Settings,
+    engine: Any,
+    challenger_id: str,
+    outcome_config: ProspectiveOutcomeConfigBundle | None = None,
+) -> ProspectiveOutcomeCollectionResult:
+    config = outcome_config or load_prospective_outcome_config(
+        settings.config_dir
+    )
+    return ProspectiveOutcomeCollector(
+        make_session_factory(engine),
+        config=config,
+    ).collect_next(challenger_id=challenger_id)
+
+
+def _refresh_prospective_outcome_history(
+    *,
+    settings: Settings,
+    engine: Any,
+    prospective_config: ProspectiveCandidateConfigBundle,
+    outcome_config: ProspectiveOutcomeConfigBundle,
+) -> dict[str, Any]:
+    symbols = prospective_outcome_market_symbols(
+        outcome_config,
+        candidate_symbols=prospective_config.config.reference_universe,
+    )
+
+    async def refresh() -> dict[str, Any]:
+        client = AlpacaRestClient(
+            credentials=_alpaca_credentials(settings),
+            raw_store=ImmutableRawStore(settings.raw_store),
+            base_url=settings.alpaca_data_url,
+        )
+        try:
+            result = await MarketHistoryService(
+                repository=MarketDataRepository(
+                    make_session_factory(engine)
+                ),
+                client=client,
+                symbols=symbols,
+            ).backfill_daily(lookback_days=500)
+            return {
+                "timeframe": result.timeframe,
+                "start": result.start.isoformat(),
+                "end": result.end.isoformat(),
+                "symbols": list(symbols),
+                "fetched": result.fetched,
+                "inserted": result.inserted,
+            }
+        finally:
+            await client.aclose()
+
+    return asyncio.run(refresh())
+
+
+def _prospective_outcome_result_payload(
+    result: ProspectiveOutcomeCollectionResult,
+) -> dict[str, Any]:
+    evidence = result.evidence
+    if evidence is None:
+        failure = result.failure
+        if failure is None:
+            raise ProspectiveOutcomeError(
+                "PROSPECTIVE_OUTCOME_RESULT_INVALID"
+            )
+        return {
+            "status": "PROSPECTIVE_FORWARD_OUTCOME_TERMINAL_FAILURE",
+            "failure_id": failure.failure_id,
+            "failure_created": result.created,
+            "prospective_request_id": failure.prospective_request_id,
+            "execution_id": failure.execution_id,
+            "challenger_id": failure.challenger_id,
+            "candidate_artifact_hash": (
+                failure.candidate_artifact_hash
+            ),
+            "implementation_calendar_session_id": (
+                failure.implementation_calendar_session_id
+            ),
+            "evaluation_calendar_session_id": (
+                failure.evaluation_calendar_session_id
+            ),
+            "outcome_data_cutoff": (
+                failure.outcome_data_cutoff.isoformat()
+            ),
+            "error_code": failure.error_code,
+            "config_manifest_hash": failure.config_manifest_hash,
+            "failure_hash": failure.failure_hash,
+            "outcome_recorded": False,
+            "terminal_failure_recorded": True,
+            "challenger_status_advanced": False,
+            "falsification_started": False,
+            "oos_started": False,
+            "shadow_started": False,
+            "automatic_promotion_enabled": False,
+            "broker_access_permitted": False,
+            "real_order_routing": False,
+        }
+    return {
+        "status": "PROSPECTIVE_FORWARD_OUTCOME_RECORDED",
+        "outcome_id": evidence.outcome_id,
+        "outcome_created": result.created,
+        "prospective_request_id": evidence.prospective_request_id,
+        "execution_id": evidence.execution_id,
+        "challenger_id": evidence.challenger_id,
+        "candidate_artifact_hash": evidence.candidate_artifact_hash,
+        "decision_calendar_session_id": (
+            evidence.decision_calendar_session_id
+        ),
+        "implementation_calendar_session_id": (
+            evidence.implementation_calendar_session_id
+        ),
+        "evaluation_calendar_session_id": (
+            evidence.evaluation_calendar_session_id
+        ),
+        "decision_time": evidence.decision_time.isoformat(),
+        "implementation_close_at": (
+            evidence.implementation_close_at.isoformat()
+        ),
+        "evaluation_close_at": evidence.evaluation_close_at.isoformat(),
+        "outcome_data_cutoff": evidence.outcome_data_cutoff.isoformat(),
+        "outcome_available_at": evidence.outcome_available_at.isoformat(),
+        "candidate_target_weights": evidence.candidate_target_weights,
+        "baseline_target_weights": evidence.baseline_target_weights,
+        "forward_returns": evidence.forward_returns,
+        "market_return": evidence.market_return,
+        "sector_return": evidence.sector_return,
+        "known_factor_returns": [
+            item.model_dump(mode="json")
+            for item in evidence.known_factor_returns
+        ],
+        "regime": evidence.regime,
+        "source_bar_ids": [
+            item.bar_id for item in evidence.source_bars
+        ],
+        "source_manifest_hash": evidence.source_manifest_hash,
+        "config_manifest_hash": evidence.config_manifest_hash,
+        "cost_model_hash": evidence.cost_model_hash,
+        "outcome_hash": evidence.outcome_hash,
+        "outcome_recorded": True,
+        "challenger_status_advanced": False,
+        "falsification_started": False,
+        "oos_started": False,
         "shadow_started": False,
         "automatic_promotion_enabled": False,
         "broker_access_permitted": False,

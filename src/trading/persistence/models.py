@@ -1591,6 +1591,147 @@ class ResearchCandidateProspectiveExecutionRow(Base):
     )
 
 
+class ResearchCandidateProspectiveOutcomeRow(Base):
+    __tablename__ = "research_candidate_prospective_outcomes"
+    __table_args__ = (
+        UniqueConstraint(
+            "prospective_request_id",
+            name="uq_candidate_prospective_outcome_request",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_candidate_prospective_outcome_paper_only",
+        ),
+    )
+
+    outcome_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    prospective_request_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_candidate_prospective_requests.prospective_request_id",
+            ondelete="RESTRICT",
+        )
+    )
+    execution_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_candidate_prospective_executions.execution_id",
+            ondelete="RESTRICT",
+        )
+    )
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey("challenger_manifests.challenger_id", ondelete="RESTRICT")
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    execution_hash: Mapped[str] = mapped_column(String(64))
+    decision_calendar_session_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "market_calendar_sessions.calendar_session_id",
+            ondelete="RESTRICT",
+        )
+    )
+    implementation_calendar_session_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "market_calendar_sessions.calendar_session_id",
+            ondelete="RESTRICT",
+        )
+    )
+    evaluation_calendar_session_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "market_calendar_sessions.calendar_session_id",
+            ondelete="RESTRICT",
+        )
+    )
+    calendar_version: Mapped[str] = mapped_column(String(80))
+    market_dataset_version: Mapped[str] = mapped_column(String(120))
+    decision_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    outcome_data_cutoff: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    outcome_available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    config_manifest_hash: Mapped[str] = mapped_column(String(64))
+    source_manifest_hash: Mapped[str] = mapped_column(String(64))
+    cost_model_hash: Mapped[str] = mapped_column(String(64))
+    outcome_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class ResearchCandidateProspectiveOutcomeFailureRow(Base):
+    __tablename__ = "research_candidate_prospective_outcome_failures"
+    __table_args__ = (
+        UniqueConstraint(
+            "prospective_request_id",
+            name="uq_candidate_prospective_outcome_failure_request",
+        ),
+        CheckConstraint(
+            "error_code = 'PROSPECTIVE_OUTCOME_DATA_WINDOW_MISSED'",
+            name="ck_candidate_prospective_outcome_failure_code",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_candidate_prospective_outcome_failure_paper_only",
+        ),
+    )
+
+    failure_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    prospective_request_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_candidate_prospective_requests.prospective_request_id",
+            ondelete="RESTRICT",
+        )
+    )
+    execution_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_candidate_prospective_executions.execution_id",
+            ondelete="RESTRICT",
+        )
+    )
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey("challenger_manifests.challenger_id", ondelete="RESTRICT")
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    execution_hash: Mapped[str] = mapped_column(String(64))
+    implementation_calendar_session_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "market_calendar_sessions.calendar_session_id",
+            ondelete="RESTRICT",
+        )
+    )
+    evaluation_calendar_session_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "market_calendar_sessions.calendar_session_id",
+            ondelete="RESTRICT",
+        )
+    )
+    outcome_data_cutoff: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True)
+    )
+    error_code: Mapped[str] = mapped_column(String(160))
+    config_manifest_hash: Mapped[str] = mapped_column(String(64))
+    failure_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class ResearchExperimentActionRow(Base):
     __tablename__ = "research_experiment_actions"
     __table_args__ = (
@@ -2268,6 +2409,8 @@ APPEND_ONLY_MODEL_TYPES = (
     ResearchCandidateArtifactRow,
     ResearchCandidateProspectiveRequestRow,
     ResearchCandidateProspectiveExecutionRow,
+    ResearchCandidateProspectiveOutcomeRow,
+    ResearchCandidateProspectiveOutcomeFailureRow,
     ResearchExperimentActionRow,
     ResearchExperimentOutcomeEventRow,
     ResearchMemorySnapshotRow,

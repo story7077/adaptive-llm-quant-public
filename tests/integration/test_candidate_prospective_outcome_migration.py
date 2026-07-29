@@ -15,48 +15,50 @@ from trading.persistence.db import (
     upgrade_database,
 )
 
-REVISION = "0018_candidate_prospective_v1"
-HEAD_REVISION = "0019_candidate_prospective_outcomes_v1"
-DOWN_REVISION = "0017_chronological_meta_oos_v1"
+REVISION = "0019_candidate_prospective_outcomes_v1"
+DOWN_REVISION = "0018_candidate_prospective_v1"
 TABLES = (
-    "research_candidate_prospective_requests",
-    "research_candidate_prospective_executions",
+    "research_candidate_prospective_outcomes",
+    "research_candidate_prospective_outcome_failures",
 )
 
 
-def test_candidate_prospective_migration_downgrade_and_reupgrade(
+def test_candidate_prospective_outcome_migration_roundtrip(
     tmp_path: Path,
 ) -> None:
     database_url = (
-        f"sqlite+pysqlite:///{(tmp_path / 'candidate-prospective.db').as_posix()}"
+        f"sqlite+pysqlite:///{(tmp_path / 'prospective-outcome.db').as_posix()}"
     )
     upgrade_database(database_url)
     engine = create_database_engine(database_url)
-    assert current_revision(engine) == HEAD_REVISION
+    assert current_revision(engine) == REVISION
     assert set(TABLES).issubset(inspect(engine).get_table_names())
-    for table in TABLES:
-        columns = {
-            column["name"]: column
-            for column in inspect(engine).get_columns(table)
-        }
-        assert columns["recorded_at"]["nullable"] is False
-        assert columns["recorded_at"]["default"] is not None
+    columns = {
+        column["name"]: column
+        for column in inspect(engine).get_columns(TABLES[0])
+    }
+    assert columns["recorded_at"]["nullable"] is False
+    assert columns["recorded_at"]["default"] is not None
+    assert columns["outcome_data_cutoff"]["nullable"] is False
+    assert columns["calendar_version"]["nullable"] is False
     engine.dispose()
 
     downgrade_database(database_url, DOWN_REVISION)
     downgraded = create_database_engine(database_url)
     assert current_revision(downgraded) == DOWN_REVISION
-    assert not set(TABLES).intersection(inspect(downgraded).get_table_names())
+    assert not set(TABLES).intersection(
+        inspect(downgraded).get_table_names()
+    )
     downgraded.dispose()
 
     upgrade_database(database_url)
     upgraded = create_database_engine(database_url)
-    assert current_revision(upgraded) == HEAD_REVISION
+    assert current_revision(upgraded) == REVISION
     assert set(TABLES).issubset(inspect(upgraded).get_table_names())
     upgraded.dispose()
 
 
-def test_candidate_prospective_postgresql_offline_ddl_is_append_only() -> None:
+def test_candidate_prospective_outcome_postgresql_ddl_is_append_only() -> None:
     config = alembic_config(
         "postgresql+psycopg://placeholder:placeholder@localhost/placeholder"
     )
@@ -68,10 +70,12 @@ def test_candidate_prospective_postgresql_offline_ddl_is_append_only() -> None:
             sql=True,
         )
     sql = output.getvalue()
+
     for table in TABLES:
         assert f"CREATE TABLE {table}" in sql
         assert f"trg_{table}_append_only" in sql
-        assert "recorded_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL" in sql
-    assert "uq_candidate_prospective_parent_decision" in sql
-    assert "ck_candidate_prospective_request_paper_only" in sql
-    assert "ck_candidate_prospective_execution_paper_only" in sql
+    assert "uq_candidate_prospective_outcome_request" in sql
+    assert "ck_candidate_prospective_outcome_paper_only" in sql
+    assert "uq_candidate_prospective_outcome_failure_request" in sql
+    assert "ck_candidate_prospective_outcome_failure_paper_only" in sql
+    assert "recorded_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL" in sql

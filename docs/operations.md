@@ -147,7 +147,56 @@ The monitor is still an evidence collector, not a shadow service. It has no
 broker access and cannot advance the Challenger, start shadow, request OOS, or
 promote a strategy.
 
-Inspect `prospective_candidate` in:
+### Prospective future-outcome collection
+
+Migration `0019_candidate_prospective_outcomes_v1` adds one append-only future
+outcome per successful prospective request. The host-owned contract is:
+
+- the decision remains bound to the original parent decision and PIT input
+  manifest;
+- the implementation mark is the next actual market session's adjusted close;
+- the evaluation mark is the following actual market session's adjusted close;
+- both future sessions must have been present in the versioned calendar by the
+  original decision time;
+- the outcome data cutoff is the evaluation close plus the configured 120
+  minutes;
+- only adjusted daily-bar revisions with `available_at` at or before that
+  fixed cutoff are eligible;
+- source bar IDs, payload hashes, availability times, calendar IDs, cost model,
+  ADV, market/sector returns, known factors, regime, and both Candidate and
+  parent target states are retained in the immutable evidence.
+
+The two-hour window is a versioned data-finalization allowance, not a license
+to backfill a missed observation. While the window is open, the outcome monitor
+may refresh Alpaca IEX adjusted daily market data at the configured cooldown.
+If the required bars were not recorded before the cutoff, the request gets an
+append-only terminal `PROSPECTIVE_OUTCOME_DATA_WINDOW_MISSED` failure; a later
+download cannot repair or rewrite that past result. The terminal failure is
+excluded from readiness counts and allows the chronological monitor to proceed
+to later requests without silently skipping the failed request.
+
+Run the outcome monitor independently from the target monitor:
+
+```powershell
+uv run python -m trading.cli research prospective-outcome-monitor `
+  --challenger-id <REGISTERED_CHALLENGER_ID>
+```
+
+For a single due request, use:
+
+```powershell
+uv run python -m trading.cli research prospective-outcome-collect `
+  --challenger-id <REGISTERED_CHALLENGER_ID>
+```
+
+The monitor's Alpaca access is market-data-only. It cannot call a broker order
+endpoint, create a paper order, advance a Challenger lifecycle state, assemble
+or pass falsification, request OOS, register shadow, or promote a strategy.
+After 126 common sessions and 504 instrument observations, status changes only
+to `FALSIFICATION_INPUT_READY`; the separately versioned host-owned variant and
+falsification assembler must still run and pass before OOS can be requested.
+
+Inspect `prospective_candidate` and `prospective_outcomes` in:
 
 ```powershell
 uv run python -m trading.cli research status
@@ -156,8 +205,9 @@ Invoke-RestMethod http://127.0.0.1:8765/api/research/status
 
 `WAITING_FOR_PARENT_DECISION` means nothing was fabricated or backfilled.
 `PROSPECTIVE_TARGET_RECORDED` means one immutable target-state observation was
-recorded; it still does not authorize falsification, OOS, shadow, promotion, or
-trading.
+recorded. `ACCUMULATING_FORWARD_OUTCOMES` reports matured outcome and terminal
+failure counts. Neither status authorizes falsification, OOS, shadow,
+promotion, or trading.
 
 ## Synthetic smoke test
 
