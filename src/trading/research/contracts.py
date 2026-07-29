@@ -193,11 +193,10 @@ class AlgorithmProposalV1(DomainModel):
 
     @model_validator(mode="after")
     def validate_proposal_hash(self) -> Self:
-        if (
-            self.proposed_strategy_id == self.parent_strategy_id
-            and self.proposed_strategy_version == self.parent_strategy_version
-        ):
-            raise ValueError("a proposal cannot overwrite its parent strategy version")
+        if self.proposed_strategy_version == self.parent_strategy_version:
+            raise ValueError(
+                "proposed strategy version must differ from parent strategy version"
+            )
         payload = self.model_dump(mode="python", exclude={"proposal_hash"})
         if canonical_hash(payload) != self.proposal_hash:
             raise ValueError("proposal_hash mismatch")

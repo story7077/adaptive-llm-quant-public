@@ -338,6 +338,10 @@ def test_prompt_is_hash_bound_and_has_no_api_or_order_fallback() -> None:
     assert "must not edit a Champion" in prompt
     assert "must not" in prompt and "create an order" in prompt
     assert "Do not default to semiconductors, SOXL, or SOXS" in prompt
+    assert (
+        "proposed_strategy_version must differ from parent_strategy_version"
+        in prompt
+    )
     assert COMMANDER_CREATED_AT_SENTINEL in prompt
     assert COMMANDER_HASH_SENTINEL in prompt
 
