@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -11,9 +11,10 @@ from trading.experiments.ai_guard_factorial_runtime import (
     initialize_factorial_paper_arms,
 )
 from trading.persistence.factorial import FactorialPaperExperimentRepository
+from trading.persistence.models import MarketStreamStatusRow
 from trading.research.config import load_research_config
 from trading.settings import Settings
-from trading.ui.app import create_app
+from trading.ui.app import _status_only_process_status, create_app
 
 
 def test_operator_ui_selects_provider_and_processes_json(
@@ -324,3 +325,99 @@ def test_q1_operator_ui_reports_versioned_paper_safety_status(
         assert payload["process"]["worker_state"] == (
             "STATUS_ONLY_PAPER_RUNTIME_DISABLED"
         )
+
+
+def test_status_only_ui_is_read_only_and_does_not_claim_runtime_ownership(
+    sqlite_database,
+    repository_root,
+    tmp_path,
+) -> None:
+    database_url, _, factory = sqlite_database
+    settings = Settings(
+        database_url=database_url,
+        config_dir=repository_root / "config",
+        raw_store=tmp_path / "raw",
+        real_broker_enabled=False,
+        real_llm_enabled=False,
+        production_unlock=False,
+        market_data_enabled=False,
+        paper_runtime_enabled=True,
+        paper_algorithm_version=Q1_ALGORITHM_VERSION,
+    )
+
+    with factory() as session:
+        assert session.query(MarketStreamStatusRow).count() == 0
+
+    with TestClient(
+        create_app(
+            settings=settings,
+            session_factory=factory,
+            status_only=True,
+        )
+    ) as client:
+        research = client.get("/api/research/status")
+        assert research.status_code == 200
+        assert research.json()["operator_surface_mode"] == (
+            "STATUS_ONLY_READ_ONLY"
+        )
+        assert research.json()["real_order_routing"] is False
+
+        paper = client.get("/api/paper/status")
+        assert paper.status_code == 200
+        assert paper.json()["operator_surface_mode"] == (
+            "STATUS_ONLY_READ_ONLY"
+        )
+        assert paper.json()["process"] == {
+            "task_running": False,
+            "worker_state": "EXTERNAL_RUNTIME_NOT_INITIALIZED",
+            "managed_by_this_process": False,
+            "status_source": "PERSISTED_RUNTIME_HEARTBEAT",
+            "heartbeat_fresh": False,
+        }
+
+        blocked = client.post(
+            "/api/research/commander",
+            json={
+                "commander": "WEBGPT_SOL_PRO",
+                "expected_version": 0,
+            },
+        )
+        assert blocked.status_code == 405
+        assert blocked.json()["detail"] == (
+            "status-only operator UI is read-only"
+        )
+
+    with factory() as session:
+        assert session.query(MarketStreamStatusRow).count() == 0
+
+
+def test_status_only_ui_derives_external_worker_health_from_heartbeat() -> None:
+    now = datetime(2026, 7, 29, 3, 30, tzinfo=UTC)
+    scheduler = {
+        "runtime": {
+            "state": "PENDING_BOOTSTRAP",
+            "heartbeat_at": (
+                now - timedelta(seconds=5)
+            ).isoformat().replace("+00:00", "Z"),
+        }
+    }
+
+    assert _status_only_process_status(
+        scheduler,
+        now=now,
+        stale_after_seconds=30,
+    ) == {
+        "task_running": True,
+        "worker_state": "EXTERNAL_RUNTIME_PENDING_BOOTSTRAP",
+        "managed_by_this_process": False,
+        "status_source": "PERSISTED_RUNTIME_HEARTBEAT",
+        "heartbeat_fresh": True,
+    }
+
+    stale = _status_only_process_status(
+        scheduler,
+        now=now + timedelta(seconds=31),
+        stale_after_seconds=30,
+    )
+    assert stale["task_running"] is False
+    assert stale["worker_state"] == "EXTERNAL_RUNTIME_HEARTBEAT_STALE"

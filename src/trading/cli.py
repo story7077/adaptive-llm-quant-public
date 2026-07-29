@@ -2848,6 +2848,14 @@ def ui_serve(
         "--algorithm-version",
         help="Explicit paper algorithm shown by the operator UI.",
     ),
+    status_only: bool = typer.Option(
+        False,
+        "--status-only",
+        help=(
+            "Serve a read-only status surface without starting or stopping "
+            "market-data or paper workers."
+        ),
+    ),
 ) -> None:
     host = _require_loopback_host(host)
     import uvicorn
@@ -2860,7 +2868,7 @@ def ui_serve(
         paper_algorithm_version=_paper_algorithm_version(algorithm_version),
     )
     uvicorn.run(
-        create_app(settings=active),
+        create_app(settings=active, status_only=status_only),
         host=host,
         port=port,
         log_level="info",

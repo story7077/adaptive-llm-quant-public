@@ -225,6 +225,10 @@ The UI can be started on a loopback address:
 uv run python -m trading.cli ui serve --host 127.0.0.1 --port 8765
 ```
 
+Use `--status-only` on a different loopback port when an existing
+version-pinned process already owns market data and paper runtime. The
+status-only surface starts no workers and rejects all non-read HTTP methods.
+
 The Research tab displays Commander selection, Scout state, evidence,
 proposals, Challenger status, OOS results, shadow readiness, promotion
 eligibility, and publication links. A local external model environment must
