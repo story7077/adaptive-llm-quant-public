@@ -65,7 +65,7 @@ class FakeLocator {
         if (this.selector.includes('#prompt-textarea')) return true;
         if (this.selector === '[data-testid="accounts-profile-button"]') return true;
         if (this.selector === '[data-testid="composer-intelligence-picker-content"]') {
-            return this.page.menuOpened;
+            return false;
         }
         if (this.selector === 'exact-text') return this.page.menuOpened;
         if (this.selector.includes('aria-haspopup="menu"')) return true;
@@ -88,6 +88,9 @@ class FakeLocator {
 
     async evaluateAll() {
         if (this.selector === '[role="menu"]') return 0;
+        if (this.selector === '[data-testid="composer-intelligence-picker-content"]') {
+            return this.page.menuOpened;
+        }
         if (this.selector.startsWith('[role="menuitemradio"]')) {
             return this.page.menuOpened ? ['GPT-5.6 Sol', 'Very high'] : [];
         }

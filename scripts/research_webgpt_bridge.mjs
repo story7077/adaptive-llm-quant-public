@@ -369,7 +369,16 @@ async function exactLabelIsChecked(locator) {
 }
 
 async function intelligencePickerVisible(page) {
-    return page.locator(INTELLIGENCE_PICKER).isVisible().catch(() => false);
+    return page.locator(INTELLIGENCE_PICKER).evaluateAll((pickers) => pickers
+        .some((picker) => {
+            const style = window.getComputedStyle(picker);
+            const rect = picker.getBoundingClientRect();
+            return style.visibility !== 'hidden'
+                && style.display !== 'none'
+                && rect.width > 0
+                && rect.height > 0;
+        }))
+        .catch(() => false);
 }
 
 async function closeIntelligencePicker(page) {
@@ -419,9 +428,11 @@ async function openIntelligencePicker(page) {
     for (let index = count - 1; index >= 0; index -= 1) {
         const trigger = triggers.nth(index);
         if (!(await trigger.isVisible().catch(() => false))) continue;
-        await trigger.click({ timeout: 3_000 }).catch(() => undefined);
-        await page.waitForTimeout(250);
-        if (await intelligencePickerVisible(page)) return;
+        await trigger.click({ timeout: 3_000, force: true }).catch(() => undefined);
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+            await page.waitForTimeout(100);
+            if (await intelligencePickerVisible(page)) return;
+        }
     }
     throw new BridgeFailure('model_selector_unavailable');
 }
