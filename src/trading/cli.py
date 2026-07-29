@@ -191,6 +191,10 @@ from trading.research.prospective_outcomes import (
     load_prospective_outcome_config,
     prospective_outcome_market_symbols,
 )
+from trading.research.prospective_shadow import (
+    ProspectiveShadowCycleSourceV1,
+)
+from trading.research.shadow_runtime import MatchedShadowCycleResultV1
 from trading.research.v2_contracts import (
     ResearchDecisionV2,
     ResearchRequestV2,
@@ -237,6 +241,12 @@ from trading.runtime.prospective_outcomes import (
     ProspectiveOutcomeCollectionResult,
     ProspectiveOutcomeCollector,
     prospective_outcome_status,
+)
+from trading.runtime.prospective_shadow import (
+    PROSPECTIVE_SHADOW_WAIT_ERROR_CODES,
+    PreparedProspectiveShadowCycle,
+    ProspectiveShadowOperationError,
+    TrustedProspectiveShadowOperations,
 )
 from trading.runtime.q1_alpaca_paper import Q1AlpacaPaperCanaryService
 from trading.runtime.q1_config import (
@@ -1675,7 +1685,7 @@ def research_shadow_runtime_cycle(
         typer.Option("--dry-run/--commit"),
     ] = True,
 ) -> None:
-    """Preview or append one artifact-bound matched paper cycle."""
+    """Preview an unattested cycle; manual commit is deliberately unavailable."""
 
     settings = Settings.from_env(repo_root())
     _require_research_paper_only(settings)
@@ -1713,33 +1723,96 @@ def research_shadow_runtime_cycle(
                 "real_order_routing": False,
             }
         else:
-            completed = service.commit_cycle(cycle_input)
-            cycle = completed.cycle
-            payload = {
-                "mode": "COMMIT",
-                "status": "MATCHED_PAPER_CYCLE_COMMITTED",
-                "input_id": cycle_input.input_id,
-                "input_hash": completed.input_hash,
-                "run_id": cycle.run_id,
-                "cycle_result_hash": cycle.result_hash,
-                "replay_hash": completed.replay_hash,
-                "champion_summary": (
-                    cycle.champion.daily_summary.model_dump(
-                        mode="json"
-                    )
-                ),
-                "challenger_summary": (
-                    cycle.challenger.daily_summary.model_dump(
-                        mode="json"
-                    )
-                ),
-                "committed": True,
-                "automatic_promotion_enabled": False,
-                "real_order_routing": False,
-            }
+            raise OosShadowOperationError(
+                "UNATTESTED_MANUAL_SHADOW_CYCLE_COMMIT_DISABLED"
+            )
     except (
         OosShadowOperationError,
         ResearchFileRuntimeError,
+        ResearchShadowPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(payload)
+
+
+@research_shadow_runtime_app.command("prospective-cycle")
+def research_shadow_runtime_prospective_cycle(
+    run_id: Annotated[str, typer.Option("--run-id")],
+    prospective_request_id: Annotated[
+        str | None,
+        typer.Option("--prospective-request-id"),
+    ] = None,
+    as_of: Annotated[
+        str | None,
+        typer.Option("--as-of"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--commit"),
+    ] = True,
+) -> None:
+    """Derive and run one matched cycle from host-attested prospective evidence."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        service = TrustedProspectiveShadowOperations(
+            make_session_factory(engine),
+            prospective_config=load_prospective_candidate_config(
+                settings.config_dir
+            ),
+        )
+        timestamp = (
+            None
+            if as_of is None
+            else _research_timestamp(as_of, "--as-of")
+        )
+        request_id = prospective_request_id or service.next_eligible_request_id(
+            run_id=run_id,
+            as_of=timestamp,
+        )
+        if request_id is None:
+            payload = {
+                "mode": "DRY_RUN" if dry_run else "COMMIT",
+                "status": "NO_ELIGIBLE_POST_ACTIVATION_PROSPECTIVE_REQUEST",
+                "run_id": run_id,
+                "committed": False,
+                "trusted_for_promotion_evidence": False,
+                "automatic_promotion_enabled": False,
+                "real_order_routing": False,
+            }
+        elif dry_run:
+            prepared, cycle = service.preview(
+                run_id=run_id,
+                prospective_request_id=request_id,
+                as_of=timestamp,
+            )
+            payload = _prospective_shadow_cycle_payload(
+                prepared=prepared,
+                cycle=cycle,
+                replay_hash=None,
+                mode="DRY_RUN",
+                committed=False,
+            )
+        else:
+            completed = service.commit(
+                run_id=run_id,
+                prospective_request_id=request_id,
+                as_of=timestamp,
+            )
+            payload = _prospective_shadow_cycle_payload(
+                prepared=completed.prepared,
+                cycle=completed.cycle,
+                replay_hash=completed.replay_hash,
+                mode="COMMIT",
+                committed=True,
+            )
+    except (
+        ProspectiveShadowOperationError,
         ResearchShadowPersistenceError,
         ValueError,
     ) as exc:
@@ -2194,6 +2267,10 @@ def research_prospective_monitor(
     _require_research_paper_only(settings)
     prospective = load_prospective_candidate_config(settings.config_dir)
     engine = create_database_engine(settings.database_url)
+    shadow_bridge = TrustedProspectiveShadowOperations(
+        make_session_factory(engine),
+        prospective_config=prospective,
+    )
     _emit_json_line(
         {
             "schema_version": "candidate_prospective_monitor_status_v1",
@@ -2240,18 +2317,46 @@ def research_prospective_monitor(
                     "monitor_state": "MONITORING",
                 }
             )
+            commit_shadow_cycle()
+
+        def commit_shadow_cycle() -> None:
+            try:
+                completed = shadow_bridge.commit_next_for_challenger(
+                    challenger_id=challenger_id
+                )
+            except ProspectiveShadowOperationError as exc:
+                if str(exc) in PROSPECTIVE_SHADOW_WAIT_ERROR_CODES:
+                    return
+                raise
+            if completed is None:
+                return
+            _emit_json_line(
+                {
+                    **_prospective_shadow_cycle_payload(
+                        prepared=completed.prepared,
+                        cycle=completed.cycle,
+                        replay_hash=completed.replay_hash,
+                        mode="AUTOMATIC_POST_GATE",
+                        committed=True,
+                    ),
+                    "monitor_state": "MONITORING",
+                }
+            )
 
         observed = run_continuous_prospective_monitor(
             collect=collect,
             on_observation=emit_observation,
             poll_seconds=prospective.config.operations.watch_poll_seconds,
             maximum_observations=maximum_observations,
+            on_poll=commit_shadow_cycle,
         )
     except (
         CommanderCandidateError,
         ProspectiveCandidateError,
         ProspectivePersistenceError,
+        ProspectiveShadowOperationError,
         ResearchPersistenceError,
+        ResearchShadowPersistenceError,
         ValueError,
     ) as exc:
         raise typer.BadParameter(_safe_research_error(exc)) from None
@@ -2705,6 +2810,9 @@ def research_schema() -> None:
             ),
             "matched_shadow_cycle_commit_v1": (
                 MatchedShadowCycleCommitV1.model_json_schema()
+            ),
+            "prospective_shadow_cycle_source_v1": (
+                ProspectiveShadowCycleSourceV1.model_json_schema()
             ),
             "algorithm_proposal_v2": AlgorithmProposalV2.model_json_schema(),
             "experiment_outcome_event_v1": (
@@ -3990,6 +4098,50 @@ def _prospective_result_payload(
         "shadow_started": False,
         "automatic_promotion_enabled": False,
         "broker_access_permitted": False,
+        "real_order_routing": False,
+    }
+
+
+def _prospective_shadow_cycle_payload(
+    *,
+    prepared: PreparedProspectiveShadowCycle,
+    cycle: MatchedShadowCycleResultV1,
+    replay_hash: str | None,
+    mode: str,
+    committed: bool,
+) -> dict[str, Any]:
+    provenance = prepared.provenance
+    return {
+        "schema_version": "prospective_shadow_cycle_operation_v1",
+        "mode": mode,
+        "status": (
+            "TRUSTED_PROSPECTIVE_MATCHED_PAPER_CYCLE_COMMITTED"
+            if committed
+            else "TRUSTED_PROSPECTIVE_MATCHED_PAPER_CYCLE_READY"
+        ),
+        "run_id": provenance.run_id,
+        "shadow_pair_id": provenance.shadow_pair_id,
+        "challenger_id": provenance.challenger_id,
+        "prospective_request_id": provenance.prospective_request_id,
+        "prospective_execution_hash": (
+            provenance.prospective_execution_hash
+        ),
+        "parent_portfolio_decision_id": (
+            provenance.parent_portfolio_decision_id
+        ),
+        "parent_decision_hash": provenance.parent_decision_hash,
+        "primary_response_hash": provenance.primary_response_hash,
+        "replay_response_hash": provenance.replay_response_hash,
+        "provenance_id": provenance.provenance_id,
+        "provenance_hash": provenance.provenance_hash,
+        "champion_target_hash": provenance.champion_target_hash,
+        "challenger_target_hash": provenance.challenger_target_hash,
+        "quote_bundle_hash": provenance.quote_bundle_hash,
+        "cycle_result_hash": cycle.result_hash,
+        "replay_hash": replay_hash,
+        "committed": committed,
+        "trusted_for_promotion_evidence": committed,
+        "automatic_promotion_enabled": False,
         "real_order_routing": False,
     }
 

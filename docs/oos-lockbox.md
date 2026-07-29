@@ -164,6 +164,14 @@ paper-only Champion/Challenger pair, and transitions the Challenger to
 returns the immutable prior result without consuming a second budget unit;
 changed bindings fail closed.
 
+After explicit activation, the trusted prospective-to-shadow bridge accepts
+only Candidate requests recorded after the runtime's immutable creation time.
+It derives the Champion target from the persisted Q1 parent decision, the
+Challenger target from identical isolated primary/replay responses, and
+execution inputs from fresh persisted quotes plus exact PIT ADV bars. Manual
+target JSON can be previewed for deterministic research but cannot be committed
+or used as promotion evidence.
+
 ## Default decision contract
 
 The production contract requires at least 126 common sessions and applies the

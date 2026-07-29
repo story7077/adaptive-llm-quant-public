@@ -21,6 +21,7 @@ def test_monitor_waits_and_emits_each_observation_once_in_order() -> None:
     )
     observed: list[tuple[int, str]] = []
     sleeps: list[float] = []
+    polls: list[int] = []
 
     def collect() -> str:
         item = sequence.popleft()
@@ -33,6 +34,7 @@ def test_monitor_waits_and_emits_each_observation_once_in_order() -> None:
         on_observation=lambda item, index: observed.append((index, item)),
         poll_seconds=7,
         maximum_observations=2,
+        on_poll=lambda: polls.append(len(polls) + 1),
         sleep=sleeps.append,
     )
 
@@ -42,6 +44,7 @@ def test_monitor_waits_and_emits_each_observation_once_in_order() -> None:
         (2, "parent-decision-2"),
     ]
     assert sleeps == [7.0, 7.0]
+    assert polls == [1, 2, 3, 4]
 
 
 def test_monitor_fails_closed_on_non_waiting_candidate_error() -> None:

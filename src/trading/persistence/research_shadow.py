@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, cast
 
@@ -30,6 +30,12 @@ from trading.persistence.models import (
     ResearchShadowArmRegistrationRow,
     RunRow,
     ShadowArmRow,
+)
+from trading.research.prospective_shadow import (
+    PROSPECTIVE_SHADOW_SOURCE_AGGREGATE,
+    TRUSTED_SHADOW_CYCLE_EVENT,
+    UNATTESTED_SHADOW_CYCLE_EVENT,
+    ProspectiveShadowCycleSourceV1,
 )
 from trading.research.shadow import ShadowExecutionContract
 from trading.research.shadow_runtime import (
@@ -215,6 +221,48 @@ class ResearchShadowRuntimeRepository:
         challenger_target: ShadowTargetDecisionV1,
         quote_bundle: MatchedQuoteBundleV1,
     ) -> MatchedShadowCycleResultV1:
+        """Append an explicitly untrusted fixture/research cycle.
+
+        This path remains useful for deterministic paper-runtime testing, but its
+        events cannot enter promotion-facing evidence.
+        """
+
+        return self._append_matched_cycle(
+            run_id=run_id,
+            champion_target=champion_target,
+            challenger_target=challenger_target,
+            quote_bundle=quote_bundle,
+            provenance=None,
+        )
+
+    def append_prospective_matched_cycle(
+        self,
+        *,
+        run_id: str,
+        champion_target: ShadowTargetDecisionV1,
+        challenger_target: ShadowTargetDecisionV1,
+        quote_bundle: MatchedQuoteBundleV1,
+        provenance: ProspectiveShadowCycleSourceV1,
+    ) -> MatchedShadowCycleResultV1:
+        """Atomically append host-attested sources and their matched cycle."""
+
+        return self._append_matched_cycle(
+            run_id=run_id,
+            champion_target=champion_target,
+            challenger_target=challenger_target,
+            quote_bundle=quote_bundle,
+            provenance=provenance,
+        )
+
+    def _append_matched_cycle(
+        self,
+        *,
+        run_id: str,
+        champion_target: ShadowTargetDecisionV1,
+        challenger_target: ShadowTargetDecisionV1,
+        quote_bundle: MatchedQuoteBundleV1,
+        provenance: ProspectiveShadowCycleSourceV1 | None,
+    ) -> MatchedShadowCycleResultV1:
         cycle_event_id = stable_id(
             "research-shadow-cycle",
             run_id,
@@ -243,6 +291,11 @@ class ResearchShadowRuntimeRepository:
                     raise ResearchShadowPersistenceError(
                         "shadow cycle idempotency binding mismatch"
                     )
+                self._validate_existing_cycle_provenance(
+                    session,
+                    event=existing,
+                    provenance=provenance,
+                )
                 return result
             self._require_lifecycle_shadow_start(
                 session,
@@ -267,6 +320,15 @@ class ResearchShadowRuntimeRepository:
                 challenger_target=challenger_target,
                 quote_bundle=quote_bundle,
             )
+            if provenance is not None:
+                self._validate_provenance_binding(
+                    spec=spec,
+                    champion_target=champion_target,
+                    challenger_target=challenger_target,
+                    quote_bundle=quote_bundle,
+                    provenance=provenance,
+                )
+                self._persist_provenance(session, provenance)
             for arm_result in (result.champion, result.challenger):
                 self._persist_arm_cycle(
                     session,
@@ -279,7 +341,11 @@ class ResearchShadowRuntimeRepository:
                     event_id=cycle_event_id,
                     aggregate_type="RESEARCH_MATCHED_SHADOW_CYCLE",
                     aggregate_id=spec.run_id,
-                    event_type="MATCHED_PAPER_CYCLE_COMMITTED",
+                    event_type=(
+                        TRUSTED_SHADOW_CYCLE_EVENT
+                        if provenance is not None
+                        else UNATTESTED_SHADOW_CYCLE_EVENT
+                    ),
                     event_version="v1",
                     occurred_at=quote_bundle.as_of,
                     available_at=quote_bundle.as_of,
@@ -288,7 +354,9 @@ class ResearchShadowRuntimeRepository:
                         canonical_data(result.model_dump(mode="python")),
                     ),
                     payload_hash=result.result_hash,
-                    causation_id=None,
+                    causation_id=(
+                        None if provenance is None else provenance.provenance_id
+                    ),
                     correlation_id=spec.shadow_pair_id,
                     idempotency_key=stable_id(
                         "research-shadow-cycle-idempotency",
@@ -299,6 +367,123 @@ class ResearchShadowRuntimeRepository:
                 )
             )
             return result
+
+    @staticmethod
+    def _validate_provenance_binding(
+        *,
+        spec: ShadowPairRuntimeSpecV1,
+        champion_target: ShadowTargetDecisionV1,
+        challenger_target: ShadowTargetDecisionV1,
+        quote_bundle: MatchedQuoteBundleV1,
+        provenance: ProspectiveShadowCycleSourceV1,
+    ) -> None:
+        if (
+            provenance.run_id != spec.run_id
+            or provenance.shadow_pair_id != spec.shadow_pair_id
+            or provenance.challenger_id != spec.challenger_id
+            or provenance.champion_target_hash != champion_target.target_hash
+            or provenance.challenger_target_hash != challenger_target.target_hash
+            or provenance.quote_bundle_hash != quote_bundle.bundle_hash
+            or provenance.quote_manifest_hash != quote_bundle.quote_manifest_hash
+            or provenance.quote_as_of != quote_bundle.as_of
+            or provenance.quote_id_by_symbol
+            != {
+                item.instrument_id: item.quote_id
+                for item in quote_bundle.quotes
+            }
+            or provenance.quote_source_hash_by_symbol
+            != {
+                item.instrument_id: item.source_hash
+                for item in quote_bundle.quotes
+            }
+            or provenance.decision_available_at != champion_target.decision_time
+            or provenance.decision_available_at != challenger_target.decision_time
+        ):
+            raise ResearchShadowPersistenceError(
+                "prospective shadow provenance binding mismatch"
+            )
+
+    @staticmethod
+    def _persist_provenance(
+        session: Session,
+        provenance: ProspectiveShadowCycleSourceV1,
+    ) -> None:
+        existing = session.get(DomainEventRow, provenance.provenance_id)
+        if existing is not None:
+            if (
+                existing.aggregate_type != PROSPECTIVE_SHADOW_SOURCE_AGGREGATE
+                or existing.aggregate_id != provenance.run_id
+                or existing.event_type != "PROSPECTIVE_SOURCE_VERIFIED"
+                or existing.payload_hash != provenance.provenance_hash
+                or existing.causation_id
+                != provenance.prospective_execution_id
+                or existing.correlation_id
+                != provenance.prospective_request_id
+            ):
+                raise ResearchShadowPersistenceError(
+                    "prospective shadow provenance conflict"
+                )
+            return
+        session.add(
+            DomainEventRow(
+                event_id=provenance.provenance_id,
+                aggregate_type=PROSPECTIVE_SHADOW_SOURCE_AGGREGATE,
+                aggregate_id=provenance.run_id,
+                event_type="PROSPECTIVE_SOURCE_VERIFIED",
+                event_version="v1",
+                occurred_at=provenance.quote_as_of,
+                available_at=provenance.recorded_at,
+                payload_json=cast(
+                    dict[str, Any],
+                    canonical_data(provenance.model_dump(mode="python")),
+                ),
+                payload_hash=provenance.provenance_hash,
+                causation_id=provenance.prospective_execution_id,
+                correlation_id=provenance.prospective_request_id,
+                idempotency_key=stable_id(
+                    "prospective-shadow-source-idempotency",
+                    provenance.provenance_id,
+                ),
+                created_at=provenance.recorded_at,
+            )
+        )
+
+    @staticmethod
+    def _validate_existing_cycle_provenance(
+        session: Session,
+        *,
+        event: DomainEventRow,
+        provenance: ProspectiveShadowCycleSourceV1 | None,
+    ) -> None:
+        expected_event_type = (
+            TRUSTED_SHADOW_CYCLE_EVENT
+            if provenance is not None
+            else UNATTESTED_SHADOW_CYCLE_EVENT
+        )
+        if event.event_type != expected_event_type:
+            raise ResearchShadowPersistenceError(
+                "shadow cycle trust classification mismatch"
+            )
+        if provenance is None:
+            if event.causation_id is not None:
+                raise ResearchShadowPersistenceError(
+                    "unattested shadow cycle unexpectedly has provenance"
+                )
+            return
+        source = session.get(DomainEventRow, provenance.provenance_id)
+        if (
+            event.causation_id != provenance.provenance_id
+            or source is None
+            or source.aggregate_type != PROSPECTIVE_SHADOW_SOURCE_AGGREGATE
+            or source.aggregate_id != provenance.run_id
+            or source.event_type != "PROSPECTIVE_SOURCE_VERIFIED"
+            or source.payload_hash != provenance.provenance_hash
+            or source.causation_id != provenance.prospective_execution_id
+            or source.correlation_id != provenance.prospective_request_id
+        ):
+            raise ResearchShadowPersistenceError(
+                "trusted shadow cycle lost its source provenance"
+            )
 
     def preview_matched_cycle(
         self,
@@ -449,6 +634,7 @@ class ResearchShadowRuntimeRepository:
 
         spec = _spec_from_run(run)
         results = self.cycle_results(spec.run_id)
+        source_trust = self.source_trust_status(spec.run_id)
         replay_hash = self.deterministic_replay_hash(spec.run_id)
         if results:
             champion_state = results[-1].champion.next_state
@@ -511,6 +697,7 @@ class ResearchShadowRuntimeRepository:
                     if summary is None
                     else summary.model_dump(mode="json")
                 ),
+                "source_trust": source_trust,
                 "settlement_model": (
                     "SAME_CYCLE_PAPER_CASH_V1"
                 ),
@@ -522,12 +709,97 @@ class ResearchShadowRuntimeRepository:
             "real_order_routing": False,
         }
 
+    def source_trust_status(self, run_id: str) -> dict[str, Any]:
+        self.load_spec(run_id)
+        with self._session_factory() as session:
+            trusted = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(DomainEventRow)
+                    .where(
+                        DomainEventRow.aggregate_type
+                        == "RESEARCH_MATCHED_SHADOW_CYCLE",
+                        DomainEventRow.aggregate_id == run_id,
+                        DomainEventRow.event_type
+                        == TRUSTED_SHADOW_CYCLE_EVENT,
+                    )
+                )
+                or 0
+            )
+            unattested = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(DomainEventRow)
+                    .where(
+                        DomainEventRow.aggregate_type
+                        == "RESEARCH_MATCHED_SHADOW_CYCLE",
+                        DomainEventRow.aggregate_id == run_id,
+                        DomainEventRow.event_type
+                        != TRUSTED_SHADOW_CYCLE_EVENT,
+                    )
+                )
+                or 0
+            )
+            latest_source = session.scalar(
+                select(DomainEventRow)
+                .where(
+                    DomainEventRow.aggregate_type
+                    == PROSPECTIVE_SHADOW_SOURCE_AGGREGATE,
+                    DomainEventRow.aggregate_id == run_id,
+                )
+                .order_by(
+                    desc(DomainEventRow.available_at),
+                    desc(DomainEventRow.event_id),
+                )
+                .limit(1)
+            )
+        return {
+            "schema_version": "research_shadow_source_trust_status_v1",
+            "trusted_cycle_count": trusted,
+            "unattested_cycle_count": unattested,
+            "source_provenance_ready": trusted > 0 and unattested == 0,
+            "manual_cycle_commit_enabled": False,
+            "latest_provenance": (
+                None
+                if latest_source is None
+                else {
+                    "provenance_id": latest_source.event_id,
+                    "provenance_hash": latest_source.payload_hash,
+                    "prospective_request_id": latest_source.correlation_id,
+                    "available_at": _aware(
+                        latest_source.available_at
+                    ).isoformat(),
+                }
+            ),
+            "automatic_promotion_enabled": False,
+            "real_order_routing": False,
+        }
+
     def load_spec(self, run_id: str) -> ShadowPairRuntimeSpecV1:
         with self._session_factory() as session:
             run = session.get(RunRow, run_id)
             if run is None:
                 raise ResearchShadowPersistenceError("unknown shadow run")
             return _spec_from_run(run)
+
+    def latest_states(
+        self,
+        run_id: str,
+    ) -> tuple[ShadowArmStateV1, ShadowArmStateV1]:
+        spec = self.load_spec(run_id)
+        with self._session_factory() as session:
+            return (
+                self._latest_state(
+                    session,
+                    run_id=run_id,
+                    arm_id=spec.champion.arm_id,
+                ),
+                self._latest_state(
+                    session,
+                    run_id=run_id,
+                    arm_id=spec.challenger.arm_id,
+                ),
+            )
 
     def cycle_results(
         self,
@@ -1063,6 +1335,10 @@ def _same_runtime_binding(
         and not existing.real_order_routing
         and not requested.real_order_routing
     )
+
+
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _arm_status(

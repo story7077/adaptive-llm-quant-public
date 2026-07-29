@@ -272,6 +272,12 @@ arms must be independent but share the same execution contract. This produces a
 matched comparison rather than a comparison contaminated by different prices,
 costs, starting capital, or liquidity assumptions.
 
+After explicit activation, only post-activation prospective evidence may feed
+shadow performance. The trusted host binds each cycle to the actual Q1 parent
+decision, deterministic Candidate primary/replay output, fresh persisted
+quotes, and exact PIT ADV bars. Arbitrary target JSON and all legacy generic
+cycles are classified as unattested and cannot enter promotion evidence.
+
 The durable generic paper implementation, target binding, conservative fill
 rules, and deterministic replay procedure are specified in
 [`docs/research/shadow-paper-runtime.md`](research/shadow-paper-runtime.md).

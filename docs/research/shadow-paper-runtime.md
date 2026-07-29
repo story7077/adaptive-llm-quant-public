@@ -37,21 +37,41 @@ initializing the independent paper runtime. If initialization is interrupted,
 repeating the identical plan repairs the missing runtime idempotently; a
 different key or Champion binding is rejected.
 
-A trusted target producer must create both artifact-bound target decisions and
-one common quote bundle. The CLI never accepts returns, P&L, fills, or broker
-instructions:
+A promotion-facing cycle can be derived only by the trusted host from:
+
+- a persisted post-activation `Q1-DET` strategic portfolio decision;
+- the exact prospective Candidate request and successful isolated execution;
+- identical primary and replay Candidate responses;
+- the OOS-approved Candidate artifact and versioned local configuration;
+- fresh `CONNECTED` market-stream quotes recorded after the decision became
+  available; and
+- the exact completed PIT daily bars used for 20-session ADV.
+
+The operator may preview a selected or oldest eligible request and then commit
+the host-derived cycle:
 
 ```powershell
-uv run python -m trading.cli research shadow-runtime cycle `
-  --input .local/research/shadow/matched-cycle.json
-uv run python -m trading.cli research shadow-runtime cycle `
-  --input .local/research/shadow/matched-cycle.json `
+uv run python -m trading.cli research shadow-runtime prospective-cycle `
+  --run-id <RUN_ID>
+uv run python -m trading.cli research shadow-runtime prospective-cycle `
+  --run-id <RUN_ID> `
   --commit
 ```
 
-The first command is a pure preview. Commit appends both arms in one database
+`research prospective-monitor` uses the same bridge automatically after a
+matching `SHADOW_RUNNING` runtime exists. Evidence recorded before shadow
+activation is excluded, so historical prospective observations cannot be
+backfilled as forward shadow performance.
+
+The legacy `shadow-runtime cycle --input ...` command remains a pure
+deterministic preview for research and fixtures. Its `--commit` path is
+disabled with `UNATTESTED_MANUAL_SHADOW_CYCLE_COMMIT_DISABLED`. Arbitrary
+target/quote JSON can never become promotion-facing evidence.
+
+Trusted commit appends the host provenance and both arm results in one database
 transaction. The same decision time is an idempotency fence: an exact retry
-returns the persisted cycle, while different targets or quotes fail closed.
+returns the persisted cycle, while different targets, quotes, or provenance
+fail closed.
 Inspect and replay without writing:
 
 ```powershell
@@ -109,7 +129,8 @@ The adapter reuses the existing generic paper tables:
 - `portfolio_decisions`, `order_intents`, `order_events`, and `fills`;
 - `ledger_transactions` and `ledger_postings`;
 - `nav_snapshots` and `arm_state_snapshots`; and
-- `domain_events` for one immutable matched-cycle record.
+- `domain_events` for one immutable prospective-source record and its causal
+  matched-cycle record.
 
 Stable IDs, append-only rows, and the common decision timestamp make retries
 idempotent. A retry with different targets or quotes is rejected. Replay starts
@@ -117,10 +138,18 @@ from both cash-only initial states and recomputes every stored cycle; any result
 hash mismatch fails the replay.
 
 Daily summaries contain matched return differences, actual exposures,
-turnover, commissions, base execution cost, and cost sensitivities. The
-aggregate summary is descriptive evidence for a later trusted promotion gate.
-It sets `profitability_claimed=false` and makes no profitability or statistical
+turnover, commissions, base execution cost, and cost sensitivities. Promotion
+validation accepts only
+`TRUSTED_PROSPECTIVE_MATCHED_PAPER_CYCLE_COMMITTED` events, follows each event's
+causal provenance record, and recomputes the aggregate summary and replay hash
+from the immutable cycles. Legacy or manually produced cycles are reported as
+unattested and rejected from promotion evidence. The aggregate summary sets
+`profitability_claimed=false` and makes no profitability or statistical
 significance claim.
+
+Status and the Research UI expose trusted and unattested cycle counts,
+`source_provenance_ready`, the latest provenance hash, and
+`manual_cycle_commit_enabled=false`.
 
 ## Current schema constraint
 

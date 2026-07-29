@@ -519,18 +519,9 @@ class TrustedOosShadowOperations:
         self,
         request: MatchedShadowCycleCommitV1,
     ) -> MatchedShadowCycleCommitResult:
-        cycle = self._shadow.append_matched_cycle(
-            run_id=request.run_id,
-            champion_target=request.champion_target,
-            challenger_target=request.challenger_target,
-            quote_bundle=request.quote_bundle,
-        )
-        return MatchedShadowCycleCommitResult(
-            input_hash=request.input_hash,
-            cycle=cycle,
-            replay_hash=self._shadow.deterministic_replay_hash(
-                request.run_id
-            ),
+        del request
+        raise OosShadowOperationError(
+            "UNATTESTED_MANUAL_SHADOW_CYCLE_COMMIT_DISABLED"
         )
 
     def _validate_oos_bindings(

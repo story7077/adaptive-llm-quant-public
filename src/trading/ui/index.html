@@ -717,6 +717,12 @@
           <div class="eyebrow">Independent Shadow Runtime</div>
           <h2 id="researchShadowState">NOT INITIALIZED</h2>
           <p id="researchShadowReadiness">OOS PASS와 명시적 start 대기</p>
+          <div class="q1-status-grid">
+            <div class="q1-status-card"><span>TRUSTED CYCLES</span><strong id="researchShadowTrusted">0</strong></div>
+            <div class="q1-status-card"><span>UNATTESTED</span><strong id="researchShadowUnattested">0</strong></div>
+            <div class="q1-status-card"><span>PROVENANCE</span><strong id="researchShadowProvenance">WAITING</strong></div>
+            <div class="q1-status-card"><span>MANUAL COMMIT</span><strong id="researchShadowManualCommit">DISABLED</strong></div>
+          </div>
           <pre id="researchShadowRuntime">독립 arm 없음</pre>
         </article>
         <article class="panel panel-pad">
@@ -1762,10 +1768,21 @@
       $("researchOos").textContent = JSON.stringify(data.oos_results || [], null, 2);
       const shadowRuntime = data.shadow_runtime || {};
       const latestShadow = shadowRuntime.latest || {};
+      const sourceTrust = latestShadow.source_trust || {};
       $("researchShadowState").textContent = shadowRuntime.status || "NOT_INITIALIZED";
       $("researchShadowReadiness").textContent = latestShadow.run_id
-        ? `${latestShadow.cycle_count || 0} matched cycles · ${latestShadow.run_id}`
+        ? `${sourceTrust.trusted_cycle_count || 0} trusted / ${latestShadow.cycle_count || 0} total · ${latestShadow.run_id}`
         : "OOS PASS와 명시적 start 대기";
+      $("researchShadowTrusted").textContent = sourceTrust.trusted_cycle_count || 0;
+      $("researchShadowUnattested").textContent = sourceTrust.unattested_cycle_count || 0;
+      $("researchShadowProvenance").textContent = sourceTrust.unattested_cycle_count
+        ? "UNATTESTED"
+        : sourceTrust.source_provenance_ready
+          ? "VERIFIED"
+          : "WAITING";
+      $("researchShadowManualCommit").textContent = sourceTrust.manual_cycle_commit_enabled
+        ? "ENABLED"
+        : "DISABLED";
       $("researchShadowRuntime").textContent = JSON.stringify({
         runtime_version: shadowRuntime.runtime_version || null,
         run_count: shadowRuntime.run_count || 0,

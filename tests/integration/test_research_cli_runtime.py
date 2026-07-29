@@ -773,6 +773,7 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
     assert "oos_v2_shadow_plan_v1" in schema
     assert "shadow_activation_plan_v1" in schema
     assert "matched_shadow_cycle_commit_v1" in schema
+    assert "prospective_shadow_cycle_source_v1" in schema
     assert schema["automatic_promotion_enabled"] is False
     assert schema["real_order_routing"] is False
 
@@ -787,6 +788,12 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
         "shadow-runtime",
     ):
         assert command in help_result.output
+    shadow_help = runner.invoke(
+        app,
+        ["research", "shadow-runtime", "--help"],
+    )
+    assert shadow_help.exit_code == 0, shadow_help.output
+    assert "prospective-cycle" in shadow_help.output
 
     rejected = runner.invoke(
         app,

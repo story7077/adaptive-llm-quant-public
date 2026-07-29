@@ -514,18 +514,31 @@ uv run python -m trading.cli research shadow-runtime activate `
   --commit
 ```
 
-Matched cycles likewise preview by default and accept only exact target/quote
-contracts from a trusted producer:
+Promotion-facing matched cycles are derived from the post-activation Q1 parent
+decision, successful deterministic Candidate execution, actual persisted
+quotes, and PIT ADV bars. Preview and commit the host-derived inputs:
 
 ```powershell
-uv run python -m trading.cli research shadow-runtime cycle `
-  --input .local/research/shadow/matched-cycle.json
-uv run python -m trading.cli research shadow-runtime cycle `
-  --input .local/research/shadow/matched-cycle.json `
+uv run python -m trading.cli research shadow-runtime prospective-cycle `
+  --run-id <RUN_ID>
+uv run python -m trading.cli research shadow-runtime prospective-cycle `
+  --run-id <RUN_ID> `
   --commit
 uv run python -m trading.cli research shadow-runtime status
 uv run python -m trading.cli research shadow-runtime replay --run-id <RUN_ID>
 ```
+
+The continuously running `research prospective-monitor` checks the same bridge
+on every poll and immediately after recording a Candidate response. It commits
+only when the matching Challenger is already `SHADOW_RUNNING`; pre-activation
+requests are never eligible.
+
+`shadow-runtime cycle --input ...` is retained for an unattested deterministic
+preview only. Manual commit is disabled and returns
+`UNATTESTED_MANUAL_SHADOW_CYCLE_COMMIT_DISABLED`. Status and the Research UI
+show trusted/unattested counts and the latest source provenance. A trusted
+performance summary is recomputed from immutable cycle events; supplied
+summary metrics are not accepted as authority.
 
 This runtime is paper-only and independent per arm, but V1 uses same-cycle paper
 cash rather than T+1 unsettled receivables. The status and Research UI expose
