@@ -671,6 +671,44 @@ returned `RESULT_ADOPTED`; the Challenger event count remained one and the
 Commander and Builder invocation counts remained one each. Automatic
 promotion and real broker routing stayed false.
 
+### v8 pre-session replay and Research retry handoff
+
+Public PR
+[#33](https://github.com/story7077/adaptive-llm-quant-public/pull/33)
+merged as `4ec1a2c30dca1540773c61dcef7e4e699d9fe919`. It removed an
+ambiguous status fallback that could project the newest unrelated Challenger
+before the first prospective request existed. The status CLI and read-only UI
+now resolve the unique configured strategy/version that also has a sealed
+Candidate artifact, or fail closed when the binding is missing or ambiguous.
+
+The deployed status surface consequently binds target, outcome, and evaluation
+monitoring to `challenger-c0bb5e7ebe50e442a6e39250`. It reports
+`ACCUMULATING_FORWARD_OUTCOMES`, `WAITING_FOR_FORWARD_OUTCOMES`, `0/126`
+successful sessions, and `NOT_INITIALIZED` for the independent shadow runtime.
+The rejected IWM Challenger remains independently visible as `TEST_FAILED`;
+none of its records were modified.
+
+At `2026-07-29T17:43Z`, two read-only v8 replay invocations and one verify
+invocation returned the same deterministic hash:
+
+`0d6154969e25b922de1913ff72f590d71784da0958ef2075e4de9fa9678af340`
+
+All three results were `INCOMPLETE_EVENT_STREAM`. Only
+`initial_state_economics_valid` and
+`complete_session_record_set_present` were false because the run had not yet
+reached its scheduled session bootstrap. This is the expected pre-bootstrap
+state, not a successful completed-session replay. The next session bootstrap
+remained `2026-07-30T13:30:00Z`, followed by the first strategic cycle at
+`2026-07-30T14:00:00Z`.
+
+The pending Research retry remains a fenced second attempt. Its latest
+read-only headed-Chrome/AGBrowse bridge preflight returned
+`provider_temporarily_rate_limited` before any prompt or model invocation. A
+supervised local watcher polls the same fail-closed preflight and may claim the
+specific append-only receipt only after the bridge again verifies the required
+model and reasoning profile. It does not use an API fallback, a different
+ChatGPT model, automatic promotion, or broker routing.
+
 ## Validation
 
 Post-cycle failure-gate validation:
