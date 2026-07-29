@@ -30,6 +30,9 @@ from trading.research.prospective import (
     build_prospective_request_evidence,
     load_prospective_candidate_config,
 )
+from trading.runtime.prospective_candidate import (
+    resolve_prospective_challenger_id,
+)
 from trading.strategies.challengers.q1_det_v2_0_0.decision import decide
 
 DECISION_TIME = datetime(2026, 7, 29, 14, 0, 5, tzinfo=UTC)
@@ -404,3 +407,78 @@ def test_downside_features_bind_both_asset_and_qqq_availability(
     assert delayed_feature.value == pytest.approx(baseline_feature.value)
     assert delayed_feature.source_hash != baseline_feature.source_hash
     assert delayed.request.request_hash != baseline.request.request_hash
+
+
+def test_prospective_status_fallback_selects_matching_built_candidate() -> None:
+    resolved = resolve_prospective_challenger_id(
+        prospective_status={
+            "latest": None,
+            "strategy_id": "Q1-DET",
+            "strategy_version": "2.0.0",
+        },
+        persisted_status={
+            "challengers": [
+                {
+                    "challenger_id": "challenger-newer-unrelated",
+                    "strategy_id": "IWM-RCG",
+                    "strategy_version": "2.0.0",
+                },
+                {
+                    "challenger_id": "challenger-q1-built",
+                    "strategy_id": "Q1-DET",
+                    "strategy_version": "2.0.0",
+                },
+            ],
+            "candidate_artifacts": [
+                {"challenger_id": "challenger-q1-built"},
+            ],
+        },
+    )
+
+    assert resolved == "challenger-q1-built"
+
+
+def test_prospective_status_prefers_bound_request_candidate() -> None:
+    resolved = resolve_prospective_challenger_id(
+        prospective_status={
+            "latest": {"challenger_id": "challenger-bound-request"},
+            "strategy_id": "Q1-DET",
+            "strategy_version": "2.0.0",
+        },
+        persisted_status={
+            "challengers": [],
+            "candidate_artifacts": [],
+        },
+    )
+
+    assert resolved == "challenger-bound-request"
+
+
+def test_prospective_status_fails_closed_when_candidate_is_ambiguous() -> None:
+    resolved = resolve_prospective_challenger_id(
+        prospective_status={
+            "latest": None,
+            "strategy_id": "Q1-DET",
+            "strategy_version": "2.0.0",
+        },
+        persisted_status={
+            "challengers": [
+                {
+                    "challenger_id": "challenger-q1-a",
+                    "strategy_id": "Q1-DET",
+                    "strategy_version": "2.0.0",
+                },
+                {
+                    "challenger_id": "challenger-q1-b",
+                    "strategy_id": "Q1-DET",
+                    "strategy_version": "2.0.0",
+                },
+            ],
+            "candidate_artifacts": [
+                {"challenger_id": "challenger-q1-a"},
+                {"challenger_id": "challenger-q1-b"},
+            ],
+        },
+    )
+
+    assert resolved is None
