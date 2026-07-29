@@ -48,7 +48,9 @@ from trading.research.prospective import (
     ProspectiveSourceBarV1,
     ProspectiveSourceManifestV1,
     build_successful_execution_evidence,
+    load_prospective_candidate_config,
 )
+from trading.runtime.prospective_candidate import ProspectiveCandidateCollector
 
 NOW = datetime(2026, 7, 29, 14, 0, 5, tzinfo=UTC)
 CONFIG_FILES = [
@@ -388,19 +390,7 @@ def _seed_dependencies(
         )
 
 
-def test_prospective_request_and_execution_are_idempotent_append_only(
-    sqlite_database: tuple[str, Engine, sessionmaker[Session]],
-) -> None:
-    _, engine, factory = sqlite_database
-    artifact = _artifact()
-    _seed_dependencies(factory, artifact)
-    request = _request_evidence(artifact)
-    repository = ProspectiveCandidateRepository(factory)
-
-    assert repository.store_request(request)
-    assert not repository.store_request(request)
-    assert repository.request(request.prospective_request_id) == request
-
+def _successful_execution(artifact, request: ProspectiveRequestEvidenceV1):
     attestation = CandidateRuntimeAttestationV1(
         schema_version="candidate_runtime_attestation_v1",
         isolation_kind="native_windows_codex_sandbox",
@@ -440,13 +430,99 @@ def test_prospective_request_and_execution_are_idempotent_append_only(
         ),
         diagnostics={"review_due": True},
     )
-    execution = build_successful_execution_evidence(
+    return build_successful_execution_evidence(
         request_evidence=request,
         attestation=attestation,
         security=security,
         primary_response=response,
         replay_response=response,
     )
+
+
+def _seed_additional_parent_decision(
+    factory: sessionmaker[Session],
+    *,
+    suffix: str,
+    scheduled_at: datetime,
+) -> str:
+    cycle_id = f"cycle-persistence-{suffix}"
+    decision_id = f"parent-decision-persistence-{suffix}"
+    with factory.begin() as session:
+        session.add(
+            PaperCycleRow(
+                cycle_id=cycle_id,
+                run_id="parent-run-persistence",
+                cycle_kind="Q1_STRATEGIC",
+                scheduled_at=scheduled_at,
+                data_available_cutoff=scheduled_at,
+                status="COMPLETED",
+                idempotency_key=cycle_id,
+                lease_owner=None,
+                lease_expires_at=None,
+                attempt_count=1,
+                input_manifest_hash=canonical_hash(
+                    {"cycle_id": cycle_id, "kind": "input"}
+                ),
+                output_manifest_hash=canonical_hash(
+                    {"cycle_id": cycle_id, "kind": "output"}
+                ),
+                started_at=scheduled_at,
+                completed_at=scheduled_at + timedelta(seconds=5),
+                last_error_code=None,
+                last_error_detail=None,
+                created_at=scheduled_at,
+                updated_at=scheduled_at + timedelta(seconds=5),
+            )
+        )
+        session.flush()
+        session.add(
+            PortfolioDecisionRow(
+                portfolio_decision_id=decision_id,
+                run_id="parent-run-persistence",
+                arm_id="Q1-DET",
+                source_cycle_id=cycle_id,
+                input_state_sequence=1,
+                decision_time=scheduled_at + timedelta(seconds=5),
+                algorithm_version="q1_math_core_v1",
+                scheduled_at=scheduled_at,
+                signal_data_cutoff=scheduled_at,
+                portfolio_state_as_of=scheduled_at + timedelta(seconds=1),
+                quote_as_of=scheduled_at + timedelta(seconds=1),
+                decision_created_at=scheduled_at + timedelta(seconds=5),
+                valid_until=scheduled_at + timedelta(minutes=20),
+                calendar_session_id="calendar-persistence",
+                config_manifest_hash="a" * 64,
+                code_version="test-code",
+                model_version="test-model",
+                source_manifest_hash=canonical_hash(
+                    {"decision_id": decision_id, "kind": "source"}
+                ),
+                input_manifest_hash=canonical_hash(
+                    {"decision_id": decision_id, "kind": "input"}
+                ),
+                payload_json={},
+                decision_hash=canonical_hash(
+                    {"decision_id": decision_id, "kind": "decision"}
+                ),
+            )
+        )
+    return decision_id
+
+
+def test_prospective_request_and_execution_are_idempotent_append_only(
+    sqlite_database: tuple[str, Engine, sessionmaker[Session]],
+) -> None:
+    _, engine, factory = sqlite_database
+    artifact = _artifact()
+    _seed_dependencies(factory, artifact)
+    request = _request_evidence(artifact)
+    repository = ProspectiveCandidateRepository(factory)
+
+    assert repository.store_request(request)
+    assert not repository.store_request(request)
+    assert repository.request(request.prospective_request_id) == request
+
+    execution = _successful_execution(artifact, request)
 
     assert repository.store_execution(execution)
     assert not repository.store_execution(execution)
@@ -492,3 +568,50 @@ def test_prospective_request_and_execution_are_idempotent_append_only(
                 pytest.raises(DBAPIError, match="append-only"),
             ):
                 connection.execute(text(statement))
+
+
+def test_collector_selects_oldest_decision_without_successful_evidence(
+    sqlite_database: tuple[str, Engine, sessionmaker[Session]],
+    repository_root,
+) -> None:
+    _, _, factory = sqlite_database
+    artifact = _artifact()
+    _seed_dependencies(factory, artifact)
+    late = _seed_additional_parent_decision(
+        factory,
+        suffix="late",
+        scheduled_at=NOW + timedelta(days=2),
+    )
+    early = _seed_additional_parent_decision(
+        factory,
+        suffix="early",
+        scheduled_at=NOW + timedelta(days=1),
+    )
+    collector = ProspectiveCandidateCollector(
+        factory,
+        config=load_prospective_candidate_config(
+            repository_root / "config"
+        ),
+    )
+
+    assert collector.next_pending_parent_decision_id(
+        parent_run_id="parent-run-persistence",
+        challenger_id=artifact.challenger_id,
+    ) == "parent-decision-persistence"
+
+    request = _request_evidence(artifact)
+    repository = ProspectiveCandidateRepository(factory)
+    assert repository.store_request(request)
+    assert collector.next_pending_parent_decision_id(
+        parent_run_id="parent-run-persistence",
+        challenger_id=artifact.challenger_id,
+    ) == "parent-decision-persistence"
+    assert repository.store_execution(
+        _successful_execution(artifact, request)
+    )
+
+    assert collector.next_pending_parent_decision_id(
+        parent_run_id="parent-run-persistence",
+        challenger_id=artifact.challenger_id,
+    ) == early
+    assert early != late

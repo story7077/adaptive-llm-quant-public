@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, exists, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from trading.data.q1_pit import Q1PointInTimeMarketData
@@ -19,6 +19,8 @@ from trading.persistence.models import (
     MarketCalendarSessionRow,
     PaperCycleRow,
     PortfolioDecisionRow,
+    ResearchCandidateProspectiveExecutionRow,
+    ResearchCandidateProspectiveRequestRow,
     StrategyEvaluationAnchorRow,
 )
 from trading.persistence.prospective import (
@@ -89,6 +91,7 @@ class ProspectiveCandidateCollector:
         self._validate_challenger(artifact)
         parent = self._parent_decision(
             parent_run_id=parent_run_id,
+            challenger_id=challenger_id,
             parent_portfolio_decision_id=parent_portfolio_decision_id,
         )
         existing = self._repository.request_for_parent(
@@ -234,35 +237,15 @@ class ProspectiveCandidateCollector:
         self,
         *,
         parent_run_id: str,
+        challenger_id: str,
         parent_portfolio_decision_id: str | None,
     ) -> Q1StrategyDecision:
         with self._session_factory() as session:
-            statement = (
-                select(PortfolioDecisionRow)
-                .join(
-                    PaperCycleRow,
-                    PaperCycleRow.cycle_id
-                    == PortfolioDecisionRow.source_cycle_id,
-                )
-                .where(
-                    PortfolioDecisionRow.run_id == parent_run_id,
-                    PortfolioDecisionRow.arm_id == Q1ArmId.Q1_DET.value,
-                    PortfolioDecisionRow.algorithm_version
-                    == Q1_ALGORITHM_VERSION,
-                    PaperCycleRow.cycle_kind == "Q1_STRATEGIC",
-                    PaperCycleRow.status == "COMPLETED",
-                )
-            )
-            if parent_portfolio_decision_id is not None:
-                statement = statement.where(
-                    PortfolioDecisionRow.portfolio_decision_id
-                    == parent_portfolio_decision_id
-                )
-            row = session.scalar(
-                statement.order_by(
-                    desc(PortfolioDecisionRow.scheduled_at),
-                    desc(PortfolioDecisionRow.portfolio_decision_id),
-                ).limit(1)
+            row = self._select_parent_decision_row(
+                session,
+                parent_run_id=parent_run_id,
+                challenger_id=challenger_id,
+                parent_portfolio_decision_id=parent_portfolio_decision_id,
             )
         if row is None:
             raise ProspectiveCandidateError("PARENT_DECISION_NOT_AVAILABLE")
@@ -279,6 +262,82 @@ class ProspectiveCandidateCollector:
         ):
             raise ProspectiveCandidateError("PARENT_DECISION_BINDING_INVALID")
         return decision
+
+    def next_pending_parent_decision_id(
+        self,
+        *,
+        parent_run_id: str,
+        challenger_id: str,
+    ) -> str | None:
+        """Return the oldest completed decision lacking successful evidence."""
+
+        with self._session_factory() as session:
+            row = self._select_parent_decision_row(
+                session,
+                parent_run_id=parent_run_id,
+                challenger_id=challenger_id,
+                parent_portfolio_decision_id=None,
+            )
+            return None if row is None else row.portfolio_decision_id
+
+    @staticmethod
+    def _select_parent_decision_row(
+        session: Session,
+        *,
+        parent_run_id: str,
+        challenger_id: str,
+        parent_portfolio_decision_id: str | None,
+    ) -> PortfolioDecisionRow | None:
+        statement = (
+            select(PortfolioDecisionRow)
+            .join(
+                PaperCycleRow,
+                PaperCycleRow.cycle_id
+                == PortfolioDecisionRow.source_cycle_id,
+            )
+            .where(
+                PortfolioDecisionRow.run_id == parent_run_id,
+                PortfolioDecisionRow.arm_id == Q1ArmId.Q1_DET.value,
+                PortfolioDecisionRow.algorithm_version
+                == Q1_ALGORITHM_VERSION,
+                PaperCycleRow.cycle_kind == "Q1_STRATEGIC",
+                PaperCycleRow.status == "COMPLETED",
+            )
+        )
+        if parent_portfolio_decision_id is not None:
+            statement = statement.where(
+                PortfolioDecisionRow.portfolio_decision_id
+                == parent_portfolio_decision_id
+            )
+            ordering = (
+                desc(PortfolioDecisionRow.scheduled_at),
+                desc(PortfolioDecisionRow.portfolio_decision_id),
+            )
+        else:
+            successful_parent_exists = exists(
+                select(
+                    ResearchCandidateProspectiveExecutionRow.execution_id
+                )
+                .join(
+                    ResearchCandidateProspectiveRequestRow,
+                    ResearchCandidateProspectiveRequestRow.prospective_request_id
+                    == ResearchCandidateProspectiveExecutionRow.prospective_request_id,
+                )
+                .where(
+                    ResearchCandidateProspectiveRequestRow.challenger_id
+                    == challenger_id,
+                    ResearchCandidateProspectiveRequestRow.parent_portfolio_decision_id
+                    == PortfolioDecisionRow.portfolio_decision_id,
+                    ResearchCandidateProspectiveExecutionRow.status
+                    == ProspectiveExecutionStatus.SUCCEEDED,
+                )
+            )
+            statement = statement.where(~successful_parent_exists)
+            ordering = (
+                PortfolioDecisionRow.scheduled_at,
+                PortfolioDecisionRow.portfolio_decision_id,
+            )
+        return session.scalar(statement.order_by(*ordering).limit(1))
 
     def _evaluation_anchor(self, parent_run_id: str) -> StrategyEvaluationAnchor:
         with self._session_factory() as session:

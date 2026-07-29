@@ -123,6 +123,30 @@ committed. The collector fails closed if the Commander artifact, aggregate
 config hash, approved strategy file hash, runtime, entrypoint, security
 contract, PIT input, or replay output differs.
 
+For unattended chronological collection after the first observation, run:
+
+```powershell
+uv run python -m trading.cli research prospective-monitor `
+  --parent-run-id <Q1_PAPER_RUN_ID> `
+  --challenger-id <REGISTERED_CHALLENGER_ID> `
+  --commander-root <LOCAL_COMMANDER_REPOSITORY> `
+  --commander-run <LOCAL_FINALIZED_RESEARCH_RUN>
+```
+
+The monitor consumes the oldest completed `Q1-DET` strategic decision that
+does not yet have a successful Candidate execution. This prevents a restart or
+multi-session outage from silently skipping intermediate decisions. A stored
+request with only failed executions remains pending and is retried
+idempotently; a successful execution is never repeated. When no decision is
+pending, the process waits at the versioned poll interval without creating a
+row. It emits one JSON-lines record per new observation and runs until
+explicitly stopped. Use `--maximum-observations <N>` only for a bounded
+operational run.
+
+The monitor is still an evidence collector, not a shadow service. It has no
+broker access and cannot advance the Challenger, start shadow, request OOS, or
+promote a strategy.
+
 Inspect `prospective_candidate` in:
 
 ```powershell

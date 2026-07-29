@@ -178,6 +178,10 @@ from trading.runtime.prospective_candidate import (
     ProspectiveCollectionResult,
     prospective_candidate_status,
 )
+from trading.runtime.prospective_monitor import (
+    PROSPECTIVE_WAIT_ERROR_CODES,
+    run_continuous_prospective_monitor,
+)
 from trading.runtime.q1_alpaca_paper import Q1AlpacaPaperCanaryService
 from trading.runtime.q1_config import (
     llm_transport_config,
@@ -1684,10 +1688,7 @@ def research_prospective_watch(
                 _emit(_prospective_result_payload(result))
                 return
             except ProspectiveCandidateError as exc:
-                if str(exc) not in {
-                    "PARENT_DECISION_NOT_AVAILABLE",
-                    "EVALUATION_ANCHOR_NOT_AVAILABLE",
-                }:
+                if str(exc) not in PROSPECTIVE_WAIT_ERROR_CODES:
                     raise typer.BadParameter(
                         _safe_research_error(exc)
                     ) from None
@@ -1714,6 +1715,108 @@ def research_prospective_watch(
         raise typer.BadParameter(_safe_research_error(exc)) from None
     finally:
         engine.dispose()
+
+
+@research_app.command("prospective-monitor")
+def research_prospective_monitor(
+    parent_run_id: Annotated[str, typer.Option("--parent-run-id")],
+    challenger_id: Annotated[str, typer.Option("--challenger-id")],
+    commander_root: Annotated[
+        Path,
+        typer.Option("--commander-root", exists=True, file_okay=False),
+    ],
+    commander_run: Annotated[
+        Path,
+        typer.Option("--commander-run", exists=True, file_okay=False),
+    ],
+    maximum_observations: Annotated[
+        int | None,
+        typer.Option("--maximum-observations", min=1),
+    ] = None,
+) -> None:
+    """Continuously collect every unprocessed Q1 strategic decision in order."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    prospective = load_prospective_candidate_config(settings.config_dir)
+    engine = create_database_engine(settings.database_url)
+    _emit_json_line(
+        {
+            "schema_version": "candidate_prospective_monitor_status_v1",
+            "status": "PROSPECTIVE_MONITOR_RUNNING",
+            "parent_run_id": parent_run_id,
+            "challenger_id": challenger_id,
+            "maximum_observations": maximum_observations,
+            "watch_poll_seconds": (
+                prospective.config.operations.watch_poll_seconds
+            ),
+            "evidence_recorded": False,
+            "challenger_status_advanced": False,
+            "shadow_started": False,
+            "automatic_promotion_enabled": False,
+            "broker_access_permitted": False,
+            "real_order_routing": False,
+        }
+    )
+    try:
+
+        def collect() -> ProspectiveCollectionResult:
+            return _collect_prospective_candidate(
+                settings=settings,
+                engine=engine,
+                parent_run_id=parent_run_id,
+                challenger_id=challenger_id,
+                commander_root=commander_root,
+                commander_run=commander_run,
+                parent_decision_id=None,
+                prospective_config=prospective,
+            )
+
+        def emit_observation(
+            result: ProspectiveCollectionResult,
+            sequence: int,
+        ) -> None:
+            _emit_json_line(
+                {
+                    **_prospective_result_payload(result),
+                    "schema_version": (
+                        "candidate_prospective_monitor_observation_v1"
+                    ),
+                    "monitor_observation_sequence": sequence,
+                    "monitor_state": "MONITORING",
+                }
+            )
+
+        observed = run_continuous_prospective_monitor(
+            collect=collect,
+            on_observation=emit_observation,
+            poll_seconds=prospective.config.operations.watch_poll_seconds,
+            maximum_observations=maximum_observations,
+        )
+    except (
+        CommanderCandidateError,
+        ProspectiveCandidateError,
+        ProspectivePersistenceError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit_json_line(
+        {
+            "schema_version": "candidate_prospective_monitor_status_v1",
+            "status": "PROSPECTIVE_MONITOR_STOPPED_AT_REQUESTED_LIMIT",
+            "parent_run_id": parent_run_id,
+            "challenger_id": challenger_id,
+            "observations_recorded": observed,
+            "challenger_status_advanced": False,
+            "shadow_started": False,
+            "automatic_promotion_enabled": False,
+            "broker_access_permitted": False,
+            "real_order_routing": False,
+        }
+    )
 
 
 @research_app.command("promotion-evaluate")
@@ -3151,6 +3254,17 @@ def _safe_research_error(exc: Exception) -> str:
 
 def _emit(payload: dict[str, Any]) -> None:
     typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _emit_json_line(payload: dict[str, Any]) -> None:
+    typer.echo(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":
