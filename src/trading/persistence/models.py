@@ -1732,6 +1732,99 @@ class ResearchCandidateProspectiveOutcomeFailureRow(Base):
     )
 
 
+class ResearchCandidateEvaluationDatasetV2Row(Base):
+    __tablename__ = "research_candidate_evaluation_datasets_v2"
+    __table_args__ = (
+        CheckConstraint(
+            "base_session_count >= 126",
+            name="ck_candidate_evaluation_dataset_v2_sessions",
+        ),
+        CheckConstraint(
+            "scenario_count >= base_session_count",
+            name="ck_candidate_evaluation_dataset_v2_scenarios",
+        ),
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_candidate_evaluation_dataset_v2_paper_only",
+        ),
+    )
+
+    dataset_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "challenger_manifests.challenger_id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    source_manifest_hash: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+    )
+    config_manifest_hash: Mapped[str] = mapped_column(String(64))
+    base_session_count: Mapped[int] = mapped_column(Integer)
+    scenario_count: Mapped[int] = mapped_column(Integer)
+    dataset_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class ResearchCandidateEvaluationTraceV2Row(Base):
+    __tablename__ = "research_candidate_evaluation_traces_v2"
+    __table_args__ = (
+        CheckConstraint(
+            "real_order_routing = false",
+            name="ck_candidate_evaluation_trace_v2_paper_only",
+        ),
+    )
+
+    trace_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_candidate_evaluation_datasets_v2.dataset_id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+    challenger_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "challenger_manifests.challenger_id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+    candidate_artifact_hash: Mapped[str] = mapped_column(String(64))
+    source_manifest_hash: Mapped[str] = mapped_column(String(64))
+    evaluation_contract_hash: Mapped[str] = mapped_column(String(64))
+    replay_artifact_hash: Mapped[str] = mapped_column(
+        ForeignKey(
+            "research_replay_artifacts.artifact_hash",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+    trace_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    real_order_routing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class ResearchExperimentActionRow(Base):
     __tablename__ = "research_experiment_actions"
     __table_args__ = (
@@ -2411,6 +2504,8 @@ APPEND_ONLY_MODEL_TYPES = (
     ResearchCandidateProspectiveExecutionRow,
     ResearchCandidateProspectiveOutcomeRow,
     ResearchCandidateProspectiveOutcomeFailureRow,
+    ResearchCandidateEvaluationDatasetV2Row,
+    ResearchCandidateEvaluationTraceV2Row,
     ResearchExperimentActionRow,
     ResearchExperimentOutcomeEventRow,
     ResearchMemorySnapshotRow,

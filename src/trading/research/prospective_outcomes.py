@@ -690,21 +690,43 @@ def build_prospective_outcome_evidence(
         "evaluation_close_at": require_aware_utc(evaluation_close_at),
         "outcome_data_cutoff": require_aware_utc(outcome_data_cutoff),
         "outcome_available_at": outcome_available_at,
-        "evaluation_nav_usd": evaluation_nav_usd,
+        "evaluation_nav_usd": float(evaluation_nav_usd),
         "candidate_current_weights": dict(
-            sorted(candidate_current_weights.items())
+            sorted(
+                (symbol, float(weight))
+                for symbol, weight in candidate_current_weights.items()
+            )
         ),
         "candidate_target_weights": dict(
-            sorted(candidate_target_weights.items())
+            sorted(
+                (symbol, float(weight))
+                for symbol, weight in candidate_target_weights.items()
+            )
         ),
         "baseline_current_weights": dict(
-            sorted(baseline_current_weights.items())
+            sorted(
+                (symbol, float(weight))
+                for symbol, weight in baseline_current_weights.items()
+            )
         ),
         "baseline_target_weights": dict(
-            sorted(baseline_target_weights.items())
+            sorted(
+                (symbol, float(weight))
+                for symbol, weight in baseline_target_weights.items()
+            )
         ),
-        "forward_returns": dict(sorted(forward_returns.items())),
-        "adv_usd": dict(sorted(adv_usd.items())),
+        "forward_returns": dict(
+            sorted(
+                (symbol, float(value))
+                for symbol, value in forward_returns.items()
+            )
+        ),
+        "adv_usd": dict(
+            sorted(
+                (symbol, float(value))
+                for symbol, value in adv_usd.items()
+            )
+        ),
         "adv_lookback_completed_sessions": (
             config.config.capacity.adv_lookback_completed_sessions
         ),
@@ -713,8 +735,8 @@ def build_prospective_outcome_evidence(
         "known_factor_sources": (
             config.config.market_context.known_factors
         ),
-        "market_return": market_return,
-        "sector_return": sector_return,
+        "market_return": float(market_return),
+        "sector_return": float(sector_return),
         "known_factor_returns": tuple(
             sorted(known_factor_returns, key=lambda item: item.factor_id)
         ),

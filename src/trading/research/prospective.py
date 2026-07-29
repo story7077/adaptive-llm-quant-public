@@ -708,57 +708,24 @@ def _instrument(
     config: ProspectiveCandidateConfigV1,
 ) -> CandidateInstrumentInputV1:
     features = config.features
-    downside_beta, downside_count = _downside_beta(
-        series,
-        qqq_series,
-        sessions=features.downside_beta_sessions,
-        minimum_variance=features.minimum_variance,
-    )
-    price_features = {
-        f"total_return_{features.total_return_short_sessions}": (
-            _total_return(series, features.total_return_short_sessions)
-        ),
-        f"total_return_{features.total_return_long_sessions}": (
-            _total_return(series, features.total_return_long_sessions)
-        ),
-        f"moving_average_gap_{features.moving_average_sessions}": (
-            _moving_average_gap(series, features.moving_average_sessions)
-        ),
-        f"realized_volatility_{features.realized_volatility_sessions}": (
-            _realized_volatility(
-                series,
-                sessions=features.realized_volatility_sessions,
-                annualization_sessions=features.annualization_sessions,
-                ddof=features.realized_volatility_ddof,
-            )
-        ),
-        f"downside_beta_{features.downside_beta_sessions}_qqq": (
-            downside_beta
-        ),
-        f"downside_observation_count_{features.downside_beta_sessions}": float(
-            downside_count
-        ),
-    }
-    candidate_features: list[CandidateFeatureValueV1] = []
-    for name, value in sorted(price_features.items()):
-        window = _feature_window(name, features)
-        indexes = range(len(series.session_dates) - window, len(series.session_dates))
-        candidate_features.append(
-            _bar_feature(
-                name=name,
-                value=value,
-                series=series,
-                indexes=indexes,
-                source_revision=features.source_revision,
-                formula_version=config.producer_version,
-                additional_series=(
-                    (qqq_series,)
-                    if name.startswith("downside_")
-                    and qqq_series.symbol != series.symbol
-                    else ()
-                ),
-            )
+    candidate_features = list(
+        build_candidate_price_features(
+            series=series,
+            qqq_series=qqq_series,
+            short_return_sessions=features.total_return_short_sessions,
+            long_return_sessions=features.total_return_long_sessions,
+            moving_average_sessions=features.moving_average_sessions,
+            realized_volatility_sessions=(
+                features.realized_volatility_sessions
+            ),
+            downside_beta_sessions=features.downside_beta_sessions,
+            annualization_sessions=features.annualization_sessions,
+            realized_volatility_ddof=features.realized_volatility_ddof,
+            minimum_variance=features.minimum_variance,
+            source_revision=features.source_revision,
+            formula_version=config.producer_version,
         )
+    )
     latest_indexes = range(
         len(series.session_dates) - 1,
         len(series.session_dates),
@@ -815,6 +782,95 @@ def _instrument(
         instrument_is_non_survivor=config.membership.instrument_is_non_survivor,
         features=tuple(sorted(candidate_features, key=lambda item: item.name)),
     )
+
+
+def build_candidate_price_features(
+    *,
+    series: CompletedDailySeries,
+    qqq_series: CompletedDailySeries,
+    short_return_sessions: int,
+    long_return_sessions: int,
+    moving_average_sessions: int,
+    realized_volatility_sessions: int,
+    downside_beta_sessions: int,
+    annualization_sessions: int,
+    realized_volatility_ddof: int,
+    minimum_variance: float,
+    source_revision: int,
+    formula_version: str,
+) -> tuple[CandidateFeatureValueV1, ...]:
+    """Build source-bound PIT price features for a host-owned variant."""
+
+    if short_return_sessions >= long_return_sessions:
+        raise ProspectiveCandidateError(
+            "PROSPECTIVE_RETURN_WINDOWS_INVALID"
+        )
+    downside_beta, downside_count = _downside_beta(
+        series,
+        qqq_series,
+        sessions=downside_beta_sessions,
+        minimum_variance=minimum_variance,
+    )
+    price_features = {
+        f"total_return_{short_return_sessions}": _total_return(
+            series,
+            short_return_sessions,
+        ),
+        f"total_return_{long_return_sessions}": _total_return(
+            series,
+            long_return_sessions,
+        ),
+        f"moving_average_gap_{moving_average_sessions}": (
+            _moving_average_gap(series, moving_average_sessions)
+        ),
+        f"realized_volatility_{realized_volatility_sessions}": (
+            _realized_volatility(
+                series,
+                sessions=realized_volatility_sessions,
+                annualization_sessions=annualization_sessions,
+                ddof=realized_volatility_ddof,
+            )
+        ),
+        f"downside_beta_{downside_beta_sessions}_qqq": downside_beta,
+        f"downside_observation_count_{downside_beta_sessions}": float(
+            downside_count
+        ),
+    }
+    built: list[CandidateFeatureValueV1] = []
+    for name, value in sorted(price_features.items()):
+        if name.startswith("total_return_"):
+            window = int(name.rsplit("_", 1)[1]) + 1
+        elif name.startswith("moving_average_gap_"):
+            window = moving_average_sessions
+        elif name.startswith("realized_volatility_"):
+            window = realized_volatility_sessions + 1
+        elif name.startswith("downside_"):
+            window = downside_beta_sessions + 1
+        else:
+            raise ProspectiveCandidateError(
+                "PROSPECTIVE_FEATURE_WINDOW_UNKNOWN"
+            )
+        indexes = range(
+            len(series.session_dates) - window,
+            len(series.session_dates),
+        )
+        built.append(
+            _bar_feature(
+                name=name,
+                value=value,
+                series=series,
+                indexes=indexes,
+                source_revision=source_revision,
+                formula_version=formula_version,
+                additional_series=(
+                    (qqq_series,)
+                    if name.startswith("downside_")
+                    and qqq_series.symbol != series.symbol
+                    else ()
+                ),
+            )
+        )
+    return tuple(sorted(built, key=lambda item: item.name))
 
 
 def _total_return(series: CompletedDailySeries, sessions: int) -> float:
@@ -946,21 +1002,6 @@ def _bar_feature(
         revision_was_known_at_cutoff=True,
         source_hash=canonical_hash(source),
     )
-
-
-def _feature_window(
-    name: str,
-    config: ProspectiveFeatureConfigV1,
-) -> int:
-    if name.startswith("total_return_"):
-        return int(name.rsplit("_", 1)[1]) + 1
-    if name.startswith("moving_average_gap_"):
-        return config.moving_average_sessions
-    if name.startswith("realized_volatility_"):
-        return config.realized_volatility_sessions + 1
-    if name.startswith("downside_"):
-        return config.downside_beta_sessions + 1
-    raise ProspectiveCandidateError("PROSPECTIVE_FEATURE_WINDOW_UNKNOWN")
 
 
 def _source_bars(inputs: AlignedDailyInputs) -> tuple[ProspectiveSourceBarV1, ...]:

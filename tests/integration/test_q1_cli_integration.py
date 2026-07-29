@@ -51,7 +51,12 @@ def test_config_validate_all_includes_legacy_and_q1(
         Q1_ALGORITHM_VERSION,
     ]
     assert "q1-math-core.yaml" in payload["files"]
+    assert (
+        "research/candidate-prospective-evaluation.yaml"
+        in payload["files"]
+    )
     assert Q1_ALGORITHM_VERSION in payload["configs"]
+    assert "CANDIDATE_PROSPECTIVE_EVALUATION_V2" in payload["configs"]
 
 
 def test_operator_ui_serve_commands_reject_non_loopback_hosts() -> None:

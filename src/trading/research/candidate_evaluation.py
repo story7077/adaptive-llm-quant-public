@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -15,7 +16,11 @@ from trading.research.candidate_abi import (
     CandidateDecisionResponseV1,
     CandidateExecutor,
 )
-from trading.research.contracts import HASH_PATTERN, IDENTIFIER_PATTERN
+from trading.research.contracts import (
+    HASH_PATTERN,
+    IDENTIFIER_PATTERN,
+    VERSION_PATTERN,
+)
 from trading.research.evaluation_contracts import (
     CandidateEvaluationObservationV1,
     CandidateEvaluationTraceV1,
@@ -197,6 +202,298 @@ class CandidateEvaluationDatasetV1(DomainModel):
         return self
 
 
+class CandidateEvaluationScenarioSourceBindingV2(DomainModel):
+    """Immutable provenance for one scenario in a multi-cutoff dataset."""
+
+    schema_version: Literal[
+        "candidate_evaluation_scenario_source_binding_v2"
+    ] = "candidate_evaluation_scenario_source_binding_v2"
+    scenario_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    scenario_hash: str = Field(pattern=HASH_PATTERN)
+    request_hash: str = Field(pattern=HASH_PATTERN)
+    request_source_manifest_hash: str = Field(pattern=HASH_PATTERN)
+    base_scenario_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    base_request_hash: str = Field(pattern=HASH_PATTERN)
+    base_source_manifest_hash: str = Field(pattern=HASH_PATTERN)
+    calendar_path_hash: str = Field(pattern=HASH_PATTERN)
+    outcome_source_hash: str = Field(pattern=HASH_PATTERN)
+    outcome_available_at: datetime
+    transformation_hash: str = Field(pattern=HASH_PATTERN)
+    binding_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("outcome_available_at", mode="after")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return require_aware_utc(value)
+
+    @model_validator(mode="after")
+    def validate_binding(self) -> Self:
+        payload = self.model_dump(mode="python", exclude={"binding_hash"})
+        if canonical_hash(payload) != self.binding_hash:
+            raise ValueError("candidate evaluation source binding hash mismatch")
+        return self
+
+
+class CandidateEvaluationCohortEntryV2(DomainModel):
+    """One selected forward request and its hidden realized outcome."""
+
+    schema_version: Literal[
+        "candidate_evaluation_cohort_entry_v2"
+    ] = "candidate_evaluation_cohort_entry_v2"
+    prospective_request_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    request_hash: str = Field(pattern=HASH_PATTERN)
+    decision_time: datetime
+    signal_data_cutoff: datetime
+    outcome_source_hash: str = Field(pattern=HASH_PATTERN)
+    outcome_available_at: datetime
+    entry_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator(
+        "decision_time",
+        "signal_data_cutoff",
+        "outcome_available_at",
+        mode="after",
+    )
+    @classmethod
+    def validate_times(cls, value: datetime) -> datetime:
+        return require_aware_utc(value)
+
+    @model_validator(mode="after")
+    def validate_entry(self) -> Self:
+        if not (
+            self.signal_data_cutoff <= self.decision_time
+            < self.outcome_available_at
+        ):
+            raise ValueError(
+                "candidate evaluation cohort timestamps are invalid"
+            )
+        payload = self.model_dump(mode="python", exclude={"entry_hash"})
+        if canonical_hash(payload) != self.entry_hash:
+            raise ValueError("candidate evaluation cohort entry hash mismatch")
+        return self
+
+
+class CandidateEvaluationCohortManifestV2(DomainModel):
+    """Frozen success/failure cohort selected before evaluation begins."""
+
+    schema_version: Literal[
+        "candidate_evaluation_cohort_manifest_v2"
+    ] = "candidate_evaluation_cohort_manifest_v2"
+    selection_policy: str = Field(pattern=IDENTIFIER_PATTERN)
+    required_successful_sessions: int = Field(gt=0)
+    entries: tuple[CandidateEvaluationCohortEntryV2, ...] = Field(
+        min_length=1
+    )
+    terminal_failure_hashes: tuple[str, ...] = ()
+    terminal_request_count: int = Field(gt=0)
+    selection_data_cutoff: datetime
+    manifest_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("selection_data_cutoff", mode="after")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return require_aware_utc(value)
+
+    @field_validator("entries", mode="after")
+    @classmethod
+    def validate_entries(
+        cls,
+        value: tuple[CandidateEvaluationCohortEntryV2, ...],
+    ) -> tuple[CandidateEvaluationCohortEntryV2, ...]:
+        keys = tuple(
+            (item.decision_time, item.prospective_request_id)
+            for item in value
+        )
+        if keys != tuple(sorted(set(keys))):
+            raise ValueError(
+                "candidate evaluation cohort entries must be unique and sorted"
+            )
+        return value
+
+    @field_validator("terminal_failure_hashes", mode="after")
+    @classmethod
+    def validate_failure_hashes(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        if value != tuple(sorted(set(value))):
+            raise ValueError(
+                "candidate evaluation failure hashes must be unique and sorted"
+            )
+        if any(
+            re.fullmatch(HASH_PATTERN, item) is None
+            for item in value
+        ):
+            raise ValueError("candidate evaluation failure hash is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_manifest(self) -> Self:
+        if (
+            len(self.entries) != self.required_successful_sessions
+            or self.terminal_request_count
+            != len(self.entries) + len(self.terminal_failure_hashes)
+            or self.selection_data_cutoff
+            < max(item.outcome_available_at for item in self.entries)
+        ):
+            raise ValueError(
+                "candidate evaluation cohort completeness is invalid"
+            )
+        payload = self.model_dump(mode="python", exclude={"manifest_hash"})
+        if canonical_hash(payload) != self.manifest_hash:
+            raise ValueError(
+                "candidate evaluation cohort manifest hash mismatch"
+            )
+        return self
+
+
+class CandidateEvaluationSourceManifestV2(DomainModel):
+    """Aggregate manifest that preserves every scenario's distinct PIT cutoff."""
+
+    schema_version: Literal[
+        "candidate_evaluation_source_manifest_v2"
+    ] = "candidate_evaluation_source_manifest_v2"
+    producer_version: str = Field(pattern=VERSION_PATTERN)
+    config_manifest_hash: str = Field(pattern=HASH_PATTERN)
+    cohort_manifest: CandidateEvaluationCohortManifestV2
+    bindings: tuple[CandidateEvaluationScenarioSourceBindingV2, ...] = Field(
+        min_length=1
+    )
+    manifest_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("bindings", mode="after")
+    @classmethod
+    def validate_bindings(
+        cls,
+        value: tuple[CandidateEvaluationScenarioSourceBindingV2, ...],
+    ) -> tuple[CandidateEvaluationScenarioSourceBindingV2, ...]:
+        keys = tuple(item.scenario_id for item in value)
+        if keys != tuple(sorted(set(keys))):
+            raise ValueError(
+                "candidate evaluation source bindings must be unique and sorted"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_manifest(self) -> Self:
+        payload = self.model_dump(mode="python", exclude={"manifest_hash"})
+        if canonical_hash(payload) != self.manifest_hash:
+            raise ValueError(
+                "candidate evaluation aggregate source manifest hash mismatch"
+            )
+        return self
+
+
+class CandidateEvaluationDatasetV2(DomainModel):
+    """Multi-cutoff evaluation dataset without changing the V1 contract."""
+
+    schema_version: Literal[
+        "candidate_evaluation_dataset_v2"
+    ] = "candidate_evaluation_dataset_v2"
+    dataset_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    challenger_id: str = Field(pattern=IDENTIFIER_PATTERN)
+    candidate_artifact_hash: str = Field(pattern=HASH_PATTERN)
+    source_manifest: CandidateEvaluationSourceManifestV2
+    eligible_instrument_count: int = Field(gt=0)
+    eligible_non_survivor_count: int = Field(ge=0)
+    scenarios: tuple[CandidateEvaluationScenarioV1, ...] = Field(min_length=1)
+    dataset_hash: str = Field(pattern=HASH_PATTERN)
+
+    @field_validator("scenarios", mode="after")
+    @classmethod
+    def validate_scenarios(
+        cls,
+        value: tuple[CandidateEvaluationScenarioV1, ...],
+    ) -> tuple[CandidateEvaluationScenarioV1, ...]:
+        keys = tuple(
+            (
+                item.request.decision_time,
+                item.request.variant.key,
+                item.scenario_id,
+            )
+            for item in value
+        )
+        if keys != tuple(sorted(set(keys))):
+            raise ValueError("candidate V2 scenarios must be unique and sorted")
+        return value
+
+    @model_validator(mode="after")
+    def validate_dataset(self) -> Self:
+        if self.eligible_non_survivor_count > self.eligible_instrument_count:
+            raise ValueError("eligible non-survivor count exceeds universe")
+        bindings = {
+            item.scenario_id: item for item in self.source_manifest.bindings
+        }
+        if set(bindings) != {item.scenario_id for item in self.scenarios}:
+            raise ValueError(
+                "candidate V2 source bindings differ from scenarios"
+            )
+        base_key = ("BASE", "BASE", "BASE", "BASE", "BASE")
+        base_scenarios = {
+            item.scenario_id: item
+            for item in self.scenarios
+            if item.request.variant.key == base_key
+        }
+        cohort_by_request_hash = {
+            item.request_hash: item
+            for item in self.source_manifest.cohort_manifest.entries
+        }
+        if (
+            len(base_scenarios)
+            != self.source_manifest.cohort_manifest.required_successful_sessions
+            or len(cohort_by_request_hash) != len(base_scenarios)
+        ):
+            raise ValueError(
+                "candidate V2 base scenarios differ from selected cohort"
+            )
+        for scenario in self.scenarios:
+            request = scenario.request
+            binding = bindings[scenario.scenario_id]
+            base = base_scenarios.get(binding.base_scenario_id)
+            cohort = (
+                None
+                if base is None
+                else cohort_by_request_hash.get(base.request.request_hash)
+            )
+            if (
+                request.challenger_id != self.challenger_id
+                or request.candidate_artifact_hash
+                != self.candidate_artifact_hash
+                or binding.scenario_hash != scenario.scenario_hash
+                or binding.request_hash != request.request_hash
+                or binding.request_source_manifest_hash
+                != request.source_data_manifest_hash
+                or base is None
+                or cohort is None
+                or binding.base_request_hash != base.request.request_hash
+                or binding.base_source_manifest_hash
+                != base.request.source_data_manifest_hash
+                or binding.calendar_path_hash
+                != bindings[base.scenario_id].calendar_path_hash
+                or binding.outcome_source_hash
+                != cohort.outcome_source_hash
+                or (
+                    scenario.request.variant.key == base_key
+                    and binding.base_scenario_id != scenario.scenario_id
+                )
+                or binding.outcome_available_at
+                != max(
+                    item.outcome_available_at
+                    for item in scenario.outcomes
+                )
+            ):
+                raise ValueError("candidate V2 scenario binding mismatch")
+        payload = self.model_dump(mode="python", exclude={"dataset_hash"})
+        if canonical_hash(payload) != self.dataset_hash:
+            raise ValueError("candidate evaluation V2 dataset hash mismatch")
+        return self
+
+
+CandidateEvaluationDataset = (
+    CandidateEvaluationDatasetV1 | CandidateEvaluationDatasetV2
+)
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateEvaluationResult:
     trace: CandidateEvaluationTraceV1
@@ -210,7 +507,14 @@ class CandidateExecutionReplayResult:
 
 
 class CandidateEvaluationError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        replay: DeterministicReplayArtifactV1 | None = None,
+    ) -> None:
+        self.replay = replay
+        super().__init__(message)
 
 
 def build_candidate_evaluation_scenario(
@@ -268,9 +572,156 @@ def build_candidate_evaluation_dataset(
     )
 
 
+def build_candidate_evaluation_source_binding_v2(
+    *,
+    scenario: CandidateEvaluationScenarioV1,
+    base_scenario_id: str,
+    base_request_hash: str,
+    base_source_manifest_hash: str,
+    calendar_path_hash: str,
+    outcome_source_hash: str,
+    transformation_hash: str,
+) -> CandidateEvaluationScenarioSourceBindingV2:
+    payload = {
+        "schema_version": (
+            "candidate_evaluation_scenario_source_binding_v2"
+        ),
+        "scenario_id": scenario.scenario_id,
+        "scenario_hash": scenario.scenario_hash,
+        "request_hash": scenario.request.request_hash,
+        "request_source_manifest_hash": (
+            scenario.request.source_data_manifest_hash
+        ),
+        "base_scenario_id": base_scenario_id,
+        "base_request_hash": base_request_hash,
+        "base_source_manifest_hash": base_source_manifest_hash,
+        "calendar_path_hash": calendar_path_hash,
+        "outcome_source_hash": outcome_source_hash,
+        "outcome_available_at": max(
+            item.outcome_available_at for item in scenario.outcomes
+        ),
+        "transformation_hash": transformation_hash,
+    }
+    return CandidateEvaluationScenarioSourceBindingV2.model_validate(
+        {**payload, "binding_hash": canonical_hash(payload)}
+    )
+
+
+def build_candidate_evaluation_cohort_entry_v2(
+    *,
+    prospective_request_id: str,
+    request_hash: str,
+    decision_time: datetime,
+    signal_data_cutoff: datetime,
+    outcome_source_hash: str,
+    outcome_available_at: datetime,
+) -> CandidateEvaluationCohortEntryV2:
+    payload = {
+        "schema_version": "candidate_evaluation_cohort_entry_v2",
+        "prospective_request_id": prospective_request_id,
+        "request_hash": request_hash,
+        "decision_time": decision_time,
+        "signal_data_cutoff": signal_data_cutoff,
+        "outcome_source_hash": outcome_source_hash,
+        "outcome_available_at": outcome_available_at,
+    }
+    return CandidateEvaluationCohortEntryV2.model_validate(
+        {**payload, "entry_hash": canonical_hash(payload)}
+    )
+
+
+def build_candidate_evaluation_cohort_manifest_v2(
+    *,
+    selection_policy: str,
+    required_successful_sessions: int,
+    entries: tuple[CandidateEvaluationCohortEntryV2, ...],
+    terminal_failure_hashes: tuple[str, ...],
+    terminal_request_count: int,
+    selection_data_cutoff: datetime,
+) -> CandidateEvaluationCohortManifestV2:
+    ordered_entries = tuple(
+        sorted(
+            entries,
+            key=lambda item: (
+                item.decision_time,
+                item.prospective_request_id,
+            ),
+        )
+    )
+    payload = {
+        "schema_version": "candidate_evaluation_cohort_manifest_v2",
+        "selection_policy": selection_policy,
+        "required_successful_sessions": required_successful_sessions,
+        "entries": ordered_entries,
+        "terminal_failure_hashes": tuple(
+            sorted(terminal_failure_hashes)
+        ),
+        "terminal_request_count": terminal_request_count,
+        "selection_data_cutoff": selection_data_cutoff,
+    }
+    return CandidateEvaluationCohortManifestV2.model_validate(
+        {**payload, "manifest_hash": canonical_hash(payload)}
+    )
+
+
+def build_candidate_evaluation_source_manifest_v2(
+    *,
+    producer_version: str,
+    config_manifest_hash: str,
+    cohort_manifest: CandidateEvaluationCohortManifestV2,
+    bindings: tuple[CandidateEvaluationScenarioSourceBindingV2, ...],
+) -> CandidateEvaluationSourceManifestV2:
+    ordered = tuple(sorted(bindings, key=lambda item: item.scenario_id))
+    payload = {
+        "schema_version": "candidate_evaluation_source_manifest_v2",
+        "producer_version": producer_version,
+        "config_manifest_hash": config_manifest_hash,
+        "cohort_manifest": cohort_manifest,
+        "bindings": ordered,
+    }
+    return CandidateEvaluationSourceManifestV2.model_validate(
+        {**payload, "manifest_hash": canonical_hash(payload)}
+    )
+
+
+def build_candidate_evaluation_dataset_v2(
+    *,
+    dataset_id: str,
+    challenger_id: str,
+    candidate_artifact_hash: str,
+    source_manifest: CandidateEvaluationSourceManifestV2,
+    eligible_instrument_count: int,
+    eligible_non_survivor_count: int,
+    scenarios: tuple[CandidateEvaluationScenarioV1, ...],
+) -> CandidateEvaluationDatasetV2:
+    ordered = tuple(
+        sorted(
+            scenarios,
+            key=lambda item: (
+                item.request.decision_time,
+                item.request.variant.key,
+                item.scenario_id,
+            ),
+        )
+    )
+    payload = {
+        "schema_version": "candidate_evaluation_dataset_v2",
+        "dataset_id": dataset_id,
+        "challenger_id": challenger_id,
+        "candidate_artifact_hash": candidate_artifact_hash,
+        "source_manifest": source_manifest,
+        "eligible_instrument_count": eligible_instrument_count,
+        "eligible_non_survivor_count": eligible_non_survivor_count,
+        "scenarios": ordered,
+    }
+    return CandidateEvaluationDatasetV2.model_validate(
+        {**payload, "dataset_hash": canonical_hash(payload)}
+    )
+
+
 def evaluate_candidate_twice(
     *,
-    dataset: CandidateEvaluationDatasetV1,
+    dataset: CandidateEvaluationDataset,
     executor: CandidateExecutor,
     replay_executor: CandidateExecutor | None = None,
     evaluation_contract: FalsificationEvaluationContractV1,
@@ -298,7 +749,7 @@ def evaluate_candidate_twice(
         trace_id=trace_id,
         challenger_id=dataset.challenger_id,
         candidate_artifact_hash=dataset.candidate_artifact_hash,
-        data_manifest_hash=dataset.source_data_manifest_hash,
+        data_manifest_hash=_dataset_source_manifest_hash(dataset),
         evaluation_contract=evaluation_contract,
         eligible_instrument_count=dataset.eligible_instrument_count,
         eligible_non_survivor_count=dataset.eligible_non_survivor_count,
@@ -310,7 +761,7 @@ def evaluate_candidate_twice(
 
 def execute_candidate_dataset_twice(
     *,
-    dataset: CandidateEvaluationDatasetV1,
+    dataset: CandidateEvaluationDataset,
     executor: CandidateExecutor,
     replay_executor: CandidateExecutor | None = None,
     config_hash: str,
@@ -328,18 +779,21 @@ def execute_candidate_dataset_twice(
         candidate_artifact_hash=dataset.candidate_artifact_hash,
         config_hash=config_hash,
         code_hash=code_hash,
-        data_manifest_hash=dataset.source_data_manifest_hash,
+        data_manifest_hash=_dataset_source_manifest_hash(dataset),
         first_replay_hash=first_hash,
         second_replay_hash=second_hash,
         created_at=created_at,
     )
     if not replay.deterministic_match:
-        raise CandidateEvaluationError("candidate outputs are not deterministic")
+        raise CandidateEvaluationError(
+            "candidate outputs are not deterministic",
+            replay=replay,
+        )
     return CandidateExecutionReplayResult(responses=first, replay=replay)
 
 
 def _execute_dataset(
-    dataset: CandidateEvaluationDatasetV1,
+    dataset: CandidateEvaluationDataset,
     executor: CandidateExecutor,
 ) -> tuple[CandidateDecisionResponseV1, ...]:
     responses: list[CandidateDecisionResponseV1] = []
@@ -359,12 +813,16 @@ def _execute_dataset(
 
 
 def _execution_hash(
-    dataset: CandidateEvaluationDatasetV1,
+    dataset: CandidateEvaluationDataset,
     responses: tuple[CandidateDecisionResponseV1, ...],
 ) -> str:
     return canonical_hash(
         {
-            "schema_version": "candidate_execution_replay_v1",
+            "schema_version": (
+                "candidate_execution_replay_v1"
+                if isinstance(dataset, CandidateEvaluationDatasetV1)
+                else "candidate_execution_replay_v2"
+            ),
             "dataset_hash": dataset.dataset_hash,
             "request_hashes": [
                 item.request.request_hash for item in dataset.scenarios
@@ -375,7 +833,7 @@ def _execution_hash(
 
 
 def _build_observations(
-    dataset: CandidateEvaluationDatasetV1,
+    dataset: CandidateEvaluationDataset,
     responses: tuple[CandidateDecisionResponseV1, ...],
     contract: FalsificationEvaluationContractV1,
 ) -> tuple[CandidateEvaluationObservationV1, ...]:
@@ -458,6 +916,14 @@ def _build_observations(
                 )
             )
     return tuple(sorted(rows, key=lambda item: item.unique_key))
+
+
+def _dataset_source_manifest_hash(
+    dataset: CandidateEvaluationDataset,
+) -> str:
+    if isinstance(dataset, CandidateEvaluationDatasetV1):
+        return dataset.source_data_manifest_hash
+    return dataset.source_manifest.manifest_hash
 
 
 def _observation_id(scenario_id: str, symbol: str) -> str:

@@ -15,6 +15,7 @@ from trading.research.contracts import (
     AvailableDataCatalogV1,
     AvailableInstrumentV1,
     ChallengerManifestV1,
+    ChallengerStatus,
     CommanderSelectionV1,
     ResearchDecisionV1,
 )
@@ -35,6 +36,9 @@ from trading.research.webgpt_scout import (
     WebResearchQuestion,
     WebScoutRequestV1,
     available_data_catalog_hash,
+)
+from trading.runtime.prospective_evaluation import (
+    ProspectiveEvaluationRunResult,
 )
 
 
@@ -763,6 +767,9 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
     assert "research_request_v2" in schema
     assert "research_decision_v2" in schema
     assert "research_action_plan_v1" in schema
+    assert "candidate_evaluation_dataset_v2" in schema
+    assert "candidate_evaluation_source_manifest_v2" in schema
+    assert "prospective_evaluation_config_v1" in schema
     assert schema["automatic_promotion_enabled"] is False
     assert schema["real_order_routing"] is False
 
@@ -789,6 +796,74 @@ def test_research_cli_exposes_only_trusted_promotion_commands(
     )
     assert rejected.exit_code != 0
     assert "unknown Challenger" in rejected.output
+
+
+def test_prospective_evaluation_cli_waits_fail_closed(
+    sqlite_database,
+    repository_root,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_url, _, _ = sqlite_database
+    _configure_cli(
+        monkeypatch,
+        database_url=database_url,
+        repository_root=repository_root,
+        tmp_path=tmp_path,
+    )
+    commander_root = tmp_path / "commander"
+    commander_run = tmp_path / "commander-run"
+    commander_root.mkdir()
+    commander_run.mkdir()
+    calls: list[dict[str, object]] = []
+
+    def waiting_result(
+        **kwargs: object,
+    ) -> ProspectiveEvaluationRunResult:
+        calls.append(kwargs)
+        return ProspectiveEvaluationRunResult(
+            status="WAITING_FOR_FORWARD_OUTCOMES",
+            challenger_status=ChallengerStatus.PROPOSED,
+            successful_forward_sessions=12,
+            required_forward_sessions=126,
+            terminal_failure_count=1,
+        )
+
+    monkeypatch.setattr(
+        cli_module,
+        "_run_prospective_evaluation",
+        waiting_result,
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "prospective-evaluation-run",
+            "--challenger-id",
+            "challenger-cli-waiting",
+            "--commander-root",
+            str(commander_root),
+            "--commander-run",
+            str(commander_run),
+        ],
+    )
+
+    assert result.exit_code == 3, result.output
+    payload = json.loads(result.output)
+    assert payload["status"] == "WAITING_FOR_FORWARD_OUTCOMES"
+    assert payload["successful_forward_sessions"] == 12
+    assert payload["required_forward_sessions"] == 126
+    assert payload["terminal_failure_count"] == 1
+    assert payload["dataset"] is None
+    assert payload["trace"] is None
+    assert payload["replay"] is None
+    assert payload["falsification"] is None
+    assert payload["oos_started"] is False
+    assert payload["shadow_started"] is False
+    assert payload["automatic_promotion_enabled"] is False
+    assert payload["broker_access_permitted"] is False
+    assert payload["real_order_routing"] is False
+    assert len(calls) == 1
 
 
 def test_atomic_utf8_io_and_repository_local_output_guard(tmp_path) -> None:

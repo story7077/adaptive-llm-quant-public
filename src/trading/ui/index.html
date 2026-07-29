@@ -646,8 +646,8 @@
           <div class="panel-head">
             <div>
               <div class="eyebrow">Prospective Candidate Evidence</div>
-              <h2>Parent decision → sealed target → future outcome</h2>
-              <p>고정된 D+2 outcome cutoff로 실제 미래 수익을 append-only 적재합니다. 아직 독립 shadow나 승격 증거는 아닙니다.</p>
+              <h2>Parent decision → sealed target → future outcome → falsification</h2>
+              <p>첫 126개 성공 forward session과 그 사이 terminal failure를 고정한 뒤, 격리 Candidate를 두 번 재생하고 mandatory 반증까지만 수행합니다.</p>
             </div>
           </div>
           <div class="q1-status-grid">
@@ -657,6 +657,9 @@
             <div class="q1-status-card"><span>VALID TARGETS</span><strong id="researchProspectiveSuccesses">0</strong></div>
             <div class="q1-status-card"><span>OUTCOMES</span><strong id="researchProspectiveOutcomes">0</strong></div>
             <div class="q1-status-card"><span>FALSIFICATION INPUT</span><strong id="researchProspectiveReadiness">NOT READY</strong></div>
+            <div class="q1-status-card"><span>EVALUATION</span><strong id="researchProspectiveEvaluation">WAITING</strong></div>
+            <div class="q1-status-card"><span>SCENARIOS</span><strong id="researchProspectiveScenarios">0</strong></div>
+            <div class="q1-status-card"><span>REPLAY</span><strong id="researchProspectiveReplay">NOT RUN</strong></div>
           </div>
           <pre id="researchProspectiveLatest">parent decision 대기 중</pre>
         </article>
@@ -1671,7 +1674,8 @@
       }, null, 2);
       const prospective = data.prospective_candidate || {};
       const prospectiveOutcomes = data.prospective_outcomes || {};
-      $("researchProspectiveState").textContent = `${prospective.status || "—"} · ${prospectiveOutcomes.status || prospective.outcome_status || "—"}`;
+      const prospectiveEvaluation = data.prospective_evaluation || {};
+      $("researchProspectiveState").textContent = `${prospective.status || "—"} · ${prospectiveOutcomes.status || prospective.outcome_status || "—"} · ${prospectiveEvaluation.status || "—"}`;
       $("researchProspectiveStrategy").textContent = `${prospective.strategy_id || "—"} ${prospective.strategy_version || ""}`;
       $("researchProspectiveRequests").textContent = formatNumber(prospective.request_count ?? 0);
       $("researchProspectiveSuccesses").textContent = `${formatNumber(prospective.success_count ?? 0)} valid · ${formatNumber(prospective.failure_count ?? 0)} failed`;
@@ -1679,12 +1683,18 @@
       $("researchProspectiveReadiness").textContent = prospectiveOutcomes.falsification_input_ready === true
         ? "READY"
         : `${formatNumber(prospectiveOutcomes.outcome_count ?? 0)}/${formatNumber(prospectiveOutcomes.minimum_common_sessions ?? 0)} sessions`;
+      $("researchProspectiveEvaluation").textContent = prospectiveEvaluation.status || "WAITING";
+      $("researchProspectiveScenarios").textContent = formatNumber(prospectiveEvaluation.dataset?.scenario_count ?? 0);
+      $("researchProspectiveReplay").textContent = prospectiveEvaluation.trace?.replay_artifact_hash
+        ? "DETERMINISTIC RECORDED"
+        : "NOT RUN";
       $("researchProspectiveLatest").textContent = JSON.stringify({
         producer_version: prospective.producer_version || null,
         reference_universe: prospective.reference_universe || [],
         state_contract: prospective.state_contract || {},
         latest: prospective.latest || null,
         forward_outcomes: prospectiveOutcomes,
+        prospective_evaluation: prospectiveEvaluation,
         challenger_status_advanced: prospective.challenger_status_advanced,
         shadow_started: prospective.shadow_started,
         automatic_promotion_enabled: prospective.automatic_promotion_enabled,

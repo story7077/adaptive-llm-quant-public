@@ -22,6 +22,11 @@ particular ticker, sector, or trading style.
 >   Its prospective target-state observations and subsequently matured
 >   next-close outcomes are forward research evidence, not an independent
 >   shadow portfolio, falsification pass, OOS pass, or promotion evidence.
+>   A versioned evaluation service is now present, but it remains dormant
+>   until the first 126 successful forward sessions are immutable. It then
+>   assembles the predeclared stateful variants, runs isolated primary/replay
+>   Candidate lanes, records mandatory falsification once, and stops. It does
+>   not request OOS, start shadow, promote, or route an order.
 > - A sealed V2 Candidate can enter the typed outcome ledger as a `DISCOVERY`
 >   action plus technical test result. This is chronological audit lineage
 >   only: it is never meta-training evidence and cannot advance falsification,
@@ -41,7 +46,9 @@ adjusted close through the following session's adjusted close. The outcome
 source cutoff is fixed in advance, so a revision first observed after that
 cutoff cannot rewrite the result. At least 126 common forward sessions and 504
 instrument observations are required merely to make the later falsification
-input eligible for assembly.
+input eligible for assembly. The resulting V2 dataset binds every scenario to
+its own request, calendar path, transformation, forward-outcome source, and
+availability cutoff; future records cannot alter the frozen first-N cohort.
 
 The engineering record for the first tool-backed cycle is
 [First Live Research Cycle — 2026-07-29 KST](docs/research/first-live-cycle-2026-07-29.md).

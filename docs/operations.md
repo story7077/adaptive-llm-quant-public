@@ -209,6 +209,87 @@ recorded. `ACCUMULATING_FORWARD_OUTCOMES` reports matured outcome and terminal
 failure counts. Neither status authorizes falsification, OOS, shadow,
 promotion, or trading.
 
+### Prospective evaluation and mandatory falsification
+
+Migration `0020_candidate_evaluation_dataset_v2` adds two immutable tables:
+
+- `research_candidate_evaluation_datasets_v2` stores the frozen forward cohort,
+  all predeclared scenarios, and the aggregate multi-cutoff source manifest;
+- `research_candidate_evaluation_traces_v2` stores the host-produced evaluation
+  observations and its successful deterministic replay binding.
+
+Both tables reject `UPDATE` and `DELETE` in SQLite and PostgreSQL. One
+Challenger may have only one dataset and one trace.
+
+The producer selects exactly the first 126 successful forward sessions. It
+also freezes every terminal outcome failure observed through that selection
+cutoff. Request coverage must remain at least 90%; a low-coverage cohort fails
+closed instead of quietly discarding missed sessions. Each successful entry is
+revalidated against its stored request hash, distinct versioned market-calendar
+session, exact outcome hash, availability time, and Candidate artifact.
+
+For each selected session the host assembles:
+
+- the exact stored base request;
+- predeclared parameter-neighborhood variants;
+- GLD and TLT data ablations;
+- a calendar-session activation shift;
+- excess-trend, downside-gate, SGOV-only, and static-sleeve placebos;
+- a GLD/TLT label shuffle.
+
+Variant state is chronological: the first variant request starts from the first
+base request's weights, and each later request starts from that variant's own
+prior verified target. Feature-window changes are recomputed from the exact
+PIT daily-bar IDs stored with the original request. The Candidate process never
+receives the future outcome payload.
+
+Run one readiness check and evaluation:
+
+```powershell
+uv run python -m trading.cli research prospective-evaluation-run `
+  --challenger-id <REGISTERED_CHALLENGER_ID> `
+  --commander-root <LOCAL_COMMANDER_REPOSITORY> `
+  --commander-run <LOCAL_FINALIZED_RESEARCH_RUN>
+```
+
+Before 126 successful sessions this exits with status
+`WAITING_FOR_FORWARD_OUTCOMES` and exit code `3`; it does not start the
+Candidate runtime or create a dataset. For an unattended one-shot wait:
+
+```powershell
+uv run python -m trading.cli research prospective-evaluation-monitor `
+  --challenger-id <REGISTERED_CHALLENGER_ID> `
+  --commander-root <LOCAL_COMMANDER_REPOSITORY> `
+  --commander-run <LOCAL_FINALIZED_RESEARCH_RUN>
+```
+
+The monitor polls until the cohort is ready, evaluates it once, records either
+the deterministic-replay failure or the mandatory falsification report, and
+then exits. Primary and replay lanes are separate isolated invocations of the
+registered Candidate from the Commander repository. A retry reuses the same
+immutable dataset and hashes; it cannot create a second result.
+
+Inspect `prospective_evaluation` in `research status` or
+`/api/research/status`. Important states are:
+
+- `WAITING_FOR_CHALLENGER` or `WAITING_FOR_FORWARD_OUTCOMES`;
+- `EVALUATION_DATASET_RECORDED`;
+- `EVALUATION_TRACE_RECORDED`;
+- `MANDATORY_FALSIFICATION_PASSED`;
+- `MANDATORY_FALSIFICATION_FAILED`.
+
+A replay mismatch records `REPLAY_FAILED`. A mandatory failure records
+`TEST_FAILED`. A mandatory pass leaves the Challenger `PROPOSED` and merely
+makes a later, separately authorized locked-OOS request possible. This command
+never opens the OOS lockbox, registers a shadow arm, changes the Champion,
+enables automatic promotion, accesses broker credentials, or creates an order.
+
+Recovery is append-only. Fix an unavailable local Candidate runtime and rerun
+the same command. Do not edit or delete a stored dataset or trace. A source
+binding, coverage, or determinism failure requires a new versioned Challenger
+or a reviewed host-code fix; it must not be bypassed by rebuilding historical
+forward evidence.
+
 ## Synthetic smoke test
 
 The public fixtures contain no real account state:

@@ -111,8 +111,8 @@ class ProspectiveOutcomeRepository:
         if row is None:
             return None
         try:
-            request = ProspectiveCandidateRepository._request_from_row(row[0])
-            execution = ProspectiveCandidateRepository._execution_from_row(
+            request = ProspectiveCandidateRepository.request_from_row(row[0])
+            execution = ProspectiveCandidateRepository.execution_from_row(
                 row[1]
             )
         except ProspectivePersistenceError as exc:
@@ -165,10 +165,10 @@ class ProspectiveOutcomeRepository:
                     raise ProspectiveOutcomePersistenceError(
                         "prospective outcome references unknown evidence"
                     )
-                request = ProspectiveCandidateRepository._request_from_row(
+                request = ProspectiveCandidateRepository.request_from_row(
                     request_row
                 )
-                execution = ProspectiveCandidateRepository._execution_from_row(
+                execution = ProspectiveCandidateRepository.execution_from_row(
                     execution_row
                 )
                 self._validate_evidence_bindings(
@@ -276,10 +276,10 @@ class ProspectiveOutcomeRepository:
                     raise ProspectiveOutcomePersistenceError(
                         "prospective outcome failure references unknown evidence"
                     )
-                request = ProspectiveCandidateRepository._request_from_row(
+                request = ProspectiveCandidateRepository.request_from_row(
                     request_row
                 )
-                execution = ProspectiveCandidateRepository._execution_from_row(
+                execution = ProspectiveCandidateRepository.execution_from_row(
                     execution_row
                 )
                 self._validate_failure_bindings(
@@ -525,7 +525,7 @@ class ProspectiveOutcomeRepository:
                     "prospective outcome prior request is unavailable"
                 )
             prior_request = (
-                ProspectiveCandidateRepository._request_from_row(prior_row)
+                ProspectiveCandidateRepository.request_from_row(prior_row)
             )
             baseline_current = cls._parent_targets(prior_request)
         if (
@@ -751,6 +751,22 @@ class ProspectiveOutcomeRepository:
             ) from exc
         ProspectiveOutcomeRepository._validate_failure_row(row, failure)
         return failure
+
+    @staticmethod
+    def outcome_from_row(
+        row: ResearchCandidateProspectiveOutcomeRow,
+    ) -> ProspectiveOutcomeEvidenceV1:
+        """Validate and expose immutable outcome evidence to trusted hosts."""
+
+        return ProspectiveOutcomeRepository._from_row(row)
+
+    @staticmethod
+    def failure_from_row(
+        row: ResearchCandidateProspectiveOutcomeFailureRow,
+    ) -> ProspectiveOutcomeFailureV1:
+        """Validate and expose terminal outcome failure evidence."""
+
+        return ProspectiveOutcomeRepository._failure_from_row(row)
 
     @staticmethod
     def _validate_row(

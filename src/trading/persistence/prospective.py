@@ -78,9 +78,8 @@ class ProspectiveCandidateRepository:
                     raise ProspectivePersistenceError(
                         "prospective Candidate artifact binding is invalid"
                     )
-                parent = self._locked(
+                parent = self._locked_portfolio_decision(
                     session,
-                    PortfolioDecisionRow,
                     evidence.parent_portfolio_decision_id,
                 )
                 if (
@@ -194,9 +193,8 @@ class ProspectiveCandidateRepository:
                 if existing is not None:
                     self._validate_execution_row(existing, evidence)
                     return False
-                request_row = self._locked(
+                request_row = self._locked_request(
                     session,
-                    ResearchCandidateProspectiveRequestRow,
                     evidence.prospective_request_id,
                 )
                 if request_row is None:
@@ -573,14 +571,27 @@ class ProspectiveCandidateRepository:
             )
 
     @staticmethod
-    def _locked(
+    def _locked_portfolio_decision(
         session: Session,
-        model: type[PortfolioDecisionRow]
-        | type[ResearchCandidateProspectiveRequestRow],
         identity: str,
-    ) -> PortfolioDecisionRow | ResearchCandidateProspectiveRequestRow | None:
-        statement = select(model).where(
-            model.__mapper__.primary_key[0] == identity
+    ) -> PortfolioDecisionRow | None:
+        statement = select(PortfolioDecisionRow).where(
+            PortfolioDecisionRow.portfolio_decision_id == identity
+        )
+        if session.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update()
+        return session.scalar(statement)
+
+    @staticmethod
+    def _locked_request(
+        session: Session,
+        identity: str,
+    ) -> ResearchCandidateProspectiveRequestRow | None:
+        statement = select(
+            ResearchCandidateProspectiveRequestRow
+        ).where(
+            ResearchCandidateProspectiveRequestRow.prospective_request_id
+            == identity
         )
         if session.get_bind().dialect.name == "postgresql":
             statement = statement.with_for_update()
@@ -667,6 +678,22 @@ class ProspectiveCandidateRepository:
             ) from exc
         ProspectiveCandidateRepository._validate_execution_row(row, evidence)
         return evidence
+
+    @staticmethod
+    def request_from_row(
+        row: ResearchCandidateProspectiveRequestRow,
+    ) -> ProspectiveRequestEvidenceV1:
+        """Validate and expose immutable request evidence to trusted hosts."""
+
+        return ProspectiveCandidateRepository._request_from_row(row)
+
+    @staticmethod
+    def execution_from_row(
+        row: ResearchCandidateProspectiveExecutionRow,
+    ) -> ProspectiveExecutionEvidenceV1:
+        """Validate and expose immutable execution evidence to trusted hosts."""
+
+        return ProspectiveCandidateRepository._execution_from_row(row)
 
     @staticmethod
     def _validate_request_row(
