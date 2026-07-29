@@ -127,6 +127,7 @@ from trading.research.config import (
     recursive_improvement_status,
 )
 from trading.research.contracts import (
+    CandidateTestFailureV1,
     ChallengerStatus,
     ResearchCommanderKind,
     ResearchDecisionV1,
@@ -3319,6 +3320,44 @@ def research_challenger_register(
             "strategy_version": manifest.strategy_version,
             "proposal_id": proposal.proposal_id,
             "manifest_hash": manifest.manifest_hash,
+            "real_order_routing": False,
+        }
+    )
+
+
+@research_app.command("candidate-test-failure-record")
+def research_candidate_test_failure_record(
+    failure_file: Annotated[
+        Path,
+        typer.Option("--failure", exists=True, dir_okay=False),
+    ],
+) -> None:
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        failure = load_json_model(
+            failure_file,
+            CandidateTestFailureV1,
+        )
+        result = ResearchLifecycleService(
+            repository=ResearchRepository(make_session_factory(engine)),
+        ).record_candidate_test_failure(failure)
+    except (
+        ResearchFileRuntimeError,
+        ResearchLifecycleError,
+        ResearchPersistenceError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
+    finally:
+        engine.dispose()
+    _emit(
+        {
+            "created": result.created,
+            "challenger_id": result.challenger_id,
+            "status": result.status.value,
+            "failure_hash": result.artifact_hash,
             "real_order_routing": False,
         }
     )

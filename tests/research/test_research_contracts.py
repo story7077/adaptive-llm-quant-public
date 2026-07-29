@@ -9,6 +9,8 @@ from trading.research.contracts import (
     AlgorithmProposalV1,
     AvailableDataCatalogV1,
     AvailableInstrumentV1,
+    CandidateTestCountsV1,
+    CandidateTestFailureV1,
     CommanderSelectionV1,
     ResearchCommanderKind,
     ResearchDecisionKind,
@@ -21,6 +23,81 @@ from trading.research.proposal import (
 )
 
 NOW = datetime(2026, 7, 27, 20, 0, tzinfo=UTC)
+
+
+def _candidate_test_failure(
+    **changes: object,
+) -> CandidateTestFailureV1:
+    payload: dict[str, object] = {
+        "schema_version": "candidate_test_failure_v1",
+        "challenger_id": "challenger-failed-test",
+        "candidate_manifest_hash": "1" * 64,
+        "proposal_hash": "2" * 64,
+        "patch_hash": "3" * 64,
+        "test_manifest_hash": "4" * 64,
+        "runner_code_hash": "5" * 64,
+        "execution_contract_version": "candidate-test-v1",
+        "status": "FAILED",
+        "exit_code": 1,
+        "test_count": CandidateTestCountsV1(
+            collected=2,
+            passed=1,
+            failed=1,
+            skipped=0,
+            errors=0,
+            xfailed=0,
+            xpassed=0,
+            deselected=0,
+        ),
+        "failure_reason_code": "CANDIDATE_TEST_SUITE_FAILED",
+        "candidate_tree_unchanged": True,
+        "candidate_source_projection_unchanged": True,
+        "candidate_test_projection_unchanged": True,
+        "host_abi_test_unchanged": True,
+        "output_limit_exceeded": False,
+        "raw_output_persisted": False,
+        "network_access_permitted": False,
+        "credential_access_permitted": False,
+        "broker_access_permitted": False,
+        "host_principal_persisted": False,
+        "real_order_routing": False,
+        "created_at": NOW,
+    }
+    payload.update(changes)
+    return CandidateTestFailureV1.model_validate(
+        {
+            **payload,
+            "failure_hash": canonical_hash(payload),
+        }
+    )
+
+
+def test_candidate_test_failure_is_hash_bound_and_fail_closed() -> None:
+    failure = _candidate_test_failure()
+
+    assert failure.status == "FAILED"
+    assert failure.real_order_routing is False
+    with pytest.raises(ValueError, match="nonzero exit code"):
+        _candidate_test_failure(exit_code=0)
+    with pytest.raises(ValueError, match="raw_output_persisted"):
+        _candidate_test_failure(raw_output_persisted=True)
+    with pytest.raises(ValueError, match="failure or error"):
+        _candidate_test_failure(
+            test_count={
+                "collected": 1,
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "errors": 0,
+                "xfailed": 0,
+                "xpassed": 0,
+                "deselected": 0,
+            }
+        )
+    invalid_hash = failure.model_dump(mode="python")
+    invalid_hash["failure_hash"] = "f" * 64
+    with pytest.raises(ValueError, match="failure_hash mismatch"):
+        CandidateTestFailureV1.model_validate(invalid_hash)
 
 
 def _catalog(*symbols: str) -> AvailableDataCatalogV1:

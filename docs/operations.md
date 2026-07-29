@@ -704,6 +704,21 @@ universe, turnover, and capacity. A mismatch is rejected before the append-only
 Challenger row is created. These commands do not invoke Codex Builder themselves;
 that invocation remains isolated in the separate Research Commander repository.
 
+If the isolated host test suite returns a normal `FAILED` result, register the
+Challenger first and then record the exact hash-bound failure:
+
+```powershell
+uv run python -m trading.cli research candidate-test-failure-record `
+  --failure .local/research/output/candidate-test-failure.json
+```
+
+`CandidateTestFailureV1` must match the stored Challenger manifest, proposal,
+patch, and test-manifest hashes. It also requires unchanged Candidate/test/ABI
+projections, a nonzero exit, no raw output, no network/credential/broker
+access, and `real_order_routing=false`. The host appends a terminal
+`TEST_FAILED` event containing the typed audit record. It does not register a
+Candidate artifact, run falsification or OOS, or create a shadow arm.
+
 ## UI
 
 Start the loopback UI:

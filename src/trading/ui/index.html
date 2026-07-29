@@ -704,7 +704,7 @@
         <article class="panel wide">
           <div class="panel-head"><div><h2>Algorithm Proposals / Challengers</h2><p>실패 후보도 삭제하지 않습니다.</p></div></div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Challenger</th><th>Strategy Version</th><th>상태</th><th>Build Artifact</th><th>Family</th><th>생성시각</th></tr></thead>
+            <thead><tr><th>Challenger</th><th>Strategy Version</th><th>상태</th><th>사유</th><th>Build Artifact</th><th>Family</th><th>생성시각</th></tr></thead>
             <tbody id="researchChallengers"></tbody>
           </table></div>
         </article>
@@ -1760,11 +1760,12 @@
       $("researchChallengers").innerHTML = challengers.length ? challengers.map(item => `
         <tr><td>${escapeHtml(item.challenger_id)}</td><td>${escapeHtml(item.strategy_id)} ${escapeHtml(item.strategy_version)}</td>
         <td><span class="badge ${escapeHtml(item.current_status)}">${escapeHtml(item.current_status)}</span></td>
+        <td>${escapeHtml(item.latest_status_reason || "—")}</td>
         <td>${artifactByChallenger[item.challenger_id]
           ? `${escapeHtml(artifactByChallenger[item.challenger_id].bundle_hash.slice(0, 12))}… · ${escapeHtml(artifactByChallenger[item.challenger_id].declared_entrypoint)}`
           : "미등록"}</td>
         <td>${escapeHtml(item.experiment_family)}</td><td>${formatDate(item.created_at)}</td></tr>`).join("") :
-        `<tr><td colspan="6" class="empty">등록된 Challenger가 없습니다.</td></tr>`;
+        `<tr><td colspan="7" class="empty">등록된 Challenger가 없습니다.</td></tr>`;
       $("researchOos").textContent = JSON.stringify(data.oos_results || [], null, 2);
       const shadowRuntime = data.shadow_runtime || {};
       const latestShadow = shadowRuntime.latest || {};
