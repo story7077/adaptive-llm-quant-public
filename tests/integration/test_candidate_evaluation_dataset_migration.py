@@ -18,7 +18,7 @@ from trading.persistence.db import (
 )
 
 REVISION = "0020_candidate_evaluation_dataset_v2"
-HEAD_REVISION = "0021_research_execution_lease_v1"
+HEAD_REVISION = "0022_operator_deep_research_work"
 DOWN_REVISION = "0019_candidate_prospective_outcomes_v1"
 TABLES = (
     "research_candidate_evaluation_datasets_v2",

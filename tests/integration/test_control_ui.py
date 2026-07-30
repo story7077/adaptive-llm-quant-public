@@ -96,6 +96,16 @@ def test_operator_ui_selects_provider_and_processes_json(
         assert research_status.json()["operational_algorithm"][
             "mutation_policy"
         ] == "VERSIONED_CHALLENGER_ONLY"
+        assert research_status.json()["web_scout"] == {
+            "required_model": "GPT-5.6 Sol Pro",
+            "required_reasoning": "xhigh",
+            "access_path": "CHATGPT_WEB_AGBROWSE",
+            "status": "NO_ACCEPTED_EVIDENCE",
+            "current_connection_status": (
+                "NOT_PROBED_BY_STATUS_ENDPOINT"
+            ),
+            "latest_accepted_evidence": None,
+        }
         recursive = research_status.json()["recursive_improvement"]
         assert recursive["status"] == "DISABLED_RESEARCH_ONLY_PR4"
         assert recursive["enabled"] is False

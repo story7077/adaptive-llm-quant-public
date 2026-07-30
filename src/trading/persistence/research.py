@@ -78,7 +78,12 @@ if TYPE_CHECKING:
     from trading.persistence.meta_controller import MetaControllerRepository
     from trading.persistence.portfolio_sharpe import PortfolioSharpeRepository
     from trading.research.oos_lockbox import OosEvaluationRequest
-from trading.research.evidence import ResearchEvidenceBundleV1
+from trading.research.evidence import (
+    EVIDENCE_BUNDLE_SCHEMA_VERSION,
+    EXPECTED_WEBGPT_MODEL,
+    EXPECTED_WEBGPT_REASONING,
+    ResearchEvidenceBundleV1,
+)
 from trading.research.promotion import REQUIRED_PROMOTION_CRITERIA
 from trading.research.promotion_evidence import (
     ChampionDesignationV1,
@@ -109,6 +114,32 @@ from trading.research.shadow_runtime import (
 
 class ResearchPersistenceError(RuntimeError):
     pass
+
+
+def _web_scout_evidence_status(
+    event: ResearchCycleEventRow | None,
+) -> dict[str, Any]:
+    if event is None:
+        return {
+            "status": "NO_ACCEPTED_EVIDENCE",
+            "current_connection_status": "NOT_PROBED_BY_STATUS_ENDPOINT",
+            "latest_accepted_evidence": None,
+        }
+    event_payload = cast(dict[str, Any], event.payload_json["payload"])
+    return {
+        "status": "LAST_ACCEPTED_EVIDENCE",
+        "current_connection_status": "NOT_PROBED_BY_STATUS_ENDPOINT",
+        "latest_accepted_evidence": {
+            "research_cycle_id": event.research_cycle_id,
+            "evidence_bundle_hash": event.artifact_hash,
+            "evidence_schema_version": EVIDENCE_BUNDLE_SCHEMA_VERSION,
+            "model_family": EXPECTED_WEBGPT_MODEL,
+            "reasoning_profile": EXPECTED_WEBGPT_REASONING,
+            "source_count": event_payload["source_count"],
+            "claim_count": event_payload["claim_count"],
+            "accepted_at": _stored_time(event.created_at),
+        },
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -3135,6 +3166,21 @@ class ResearchRepository:
                     .limit(history_limit)
                 )
             )
+            latest_web_scout_event = session.scalar(
+                select(ResearchCycleEventRow)
+                .where(
+                    ResearchCycleEventRow.event_type == "EVIDENCE_CAPTURED",
+                    ResearchCycleEventRow.actor_role == "WEB_SCOUT",
+                )
+                .order_by(
+                    desc(ResearchCycleEventRow.created_at),
+                    desc(ResearchCycleEventRow.event_id),
+                )
+                .limit(1)
+            )
+            web_scout_evidence = _web_scout_evidence_status(
+                latest_web_scout_event
+            )
             proposals = list(
                 session.scalars(
                     select(AlgorithmProposalRow)
@@ -3294,6 +3340,7 @@ class ResearchRepository:
             ),
             "recent_cycles": [row.payload_json for row in cycles],
             "evidence_sources": [row.payload_json for row in evidence],
+            "web_scout_evidence": web_scout_evidence,
             "algorithm_proposals": [row.payload_json for row in proposals],
             "challengers": challengers,
             "candidate_artifacts": [row.payload_json for row in candidate_artifacts],

@@ -3,13 +3,18 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from trading.domain.hashing import canonical_hash
 from trading.research.config import ResearchScheduleConfig, load_research_config
 from trading.research.scheduler import (
+    ResearchDispatchTarget,
     ResearchEvidenceMarker,
     ResearchScheduleWorkKind,
     VersionedResearchMarketSession,
     build_due_schedule_plans,
+    build_operator_deep_research_plan,
+    dispatch_target_for,
 )
 
 
@@ -235,3 +240,101 @@ def test_recursive_maintenance_plans_follow_daily_aggregation_order() -> None:
         ResearchScheduleWorkKind.OUTCOME_MATURATION,
         ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION,
     )
+
+
+def test_operator_deep_research_is_deterministic_and_completed_session_bound() -> None:
+    session = _session(
+        identity="operator-session",
+        session_date=date(2026, 7, 30),
+        open_at=datetime(2026, 7, 30, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 30, 20, 0, tzinfo=UTC),
+    )
+    inputs = {
+        "schedule": _schedule(),
+        "config_manifest_hash": "f" * 64,
+        "operator_trigger_id": "q1-v12-2026-07-30-post-session",
+        "operator_reason_code": "FIRST_LIVE_SESSION",
+        "scheduled_for": datetime(2026, 7, 30, 22, 5, tzinfo=UTC),
+        "data_available_cutoff": datetime(
+            2026,
+            7,
+            30,
+            22,
+            0,
+            tzinfo=UTC,
+        ),
+        "session": session,
+    }
+
+    first = build_operator_deep_research_plan(**inputs)
+    replay = build_operator_deep_research_plan(**inputs)
+
+    assert first == replay
+    assert first.work_kind is ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH
+    assert first.calendar_session_id == session.calendar_session_id
+    assert first.calendar_session_hash == session.session_hash
+    assert first.operator_trigger_id == inputs["operator_trigger_id"]
+    assert first.operator_reason_code == inputs["operator_reason_code"]
+    assert not first.trigger_source_ids
+    assert (
+        dispatch_target_for(first.work_kind)
+        is ResearchDispatchTarget.DEEP_RESEARCH_CYCLE_V1
+    )
+    assert first.real_order_routing is False
+
+
+def test_operator_deep_research_rejects_partial_or_unavailable_session() -> None:
+    session = _session(
+        identity="operator-incomplete-session",
+        session_date=date(2026, 7, 30),
+        open_at=datetime(2026, 7, 30, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 30, 20, 0, tzinfo=UTC),
+        available_at=datetime(2026, 7, 29, 20, 5, tzinfo=UTC),
+    )
+    common = {
+        "schedule": _schedule(),
+        "config_manifest_hash": "f" * 64,
+        "operator_trigger_id": "q1-v12-incomplete-session",
+        "operator_reason_code": "FIRST_LIVE_SESSION",
+        "scheduled_for": datetime(2026, 7, 30, 22, 5, tzinfo=UTC),
+        "session": session,
+    }
+
+    with pytest.raises(ValueError, match="completed market session"):
+        build_operator_deep_research_plan(
+            **common,
+            data_available_cutoff=datetime(
+                2026,
+                7,
+                30,
+                19,
+                59,
+                tzinfo=UTC,
+            ),
+        )
+    with pytest.raises(ValueError, match="unavailable at its cutoff"):
+        build_operator_deep_research_plan(
+            **{
+                **common,
+                "session": session.model_copy(
+                    update={
+                        "available_at": datetime(
+                            2026,
+                            7,
+                            30,
+                            22,
+                            1,
+                            tzinfo=UTC,
+                        )
+                    }
+                ),
+            },
+            data_available_cutoff=datetime(
+                2026,
+                7,
+                30,
+                22,
+                0,
+                tzinfo=UTC,
+            ),
+        )

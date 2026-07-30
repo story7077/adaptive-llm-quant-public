@@ -15,31 +15,27 @@ from trading.persistence.db import (
     upgrade_database,
 )
 
-REVISION = "0021_research_execution_lease_v1"
-HEAD_REVISION = "0022_operator_deep_research_work"
-DOWN_REVISION = "0020_candidate_evaluation_dataset_v2"
-TABLE = "research_schedule_events"
-CONSTRAINT = "ck_research_schedule_event_type"
+REVISION = "0022_operator_deep_research_work"
+DOWN_REVISION = "0021_research_execution_lease_v1"
+TABLE = "research_schedule_work_items"
+CONSTRAINT = "ck_research_schedule_work_kind"
 
 
-def test_research_execution_lease_migration_roundtrip_and_guards(
+def test_operator_deep_research_migration_roundtrip_and_guards(
     tmp_path: Path,
 ) -> None:
     database_url = (
         "sqlite+pysqlite:///"
-        f"{(tmp_path / 'research-execution-lease.db').as_posix()}"
+        f"{(tmp_path / 'operator-deep-research.db').as_posix()}"
     )
     upgrade_database(database_url)
     engine = create_database_engine(database_url)
-    assert current_revision(engine) == HEAD_REVISION
-    constraints = {
+    assert current_revision(engine) == REVISION
+    expression = {
         item["name"]: str(item["sqltext"])
         for item in inspect(engine).get_check_constraints(TABLE)
-    }
-    expression = constraints[CONSTRAINT]
-    assert "EXECUTION_LEASE_ACQUIRED" in expression
-    assert "EXECUTION_LEASE_RECLAIMED" in expression
-    assert "EXECUTION_LEASE_RENEWED" in expression
+    }[CONSTRAINT]
+    assert "OPERATOR_DEEP_RESEARCH" in expression
     with engine.connect() as connection:
         triggers = {
             row[0]
@@ -61,18 +57,16 @@ def test_research_execution_lease_migration_roundtrip_and_guards(
         item["name"]: str(item["sqltext"])
         for item in inspect(downgraded).get_check_constraints(TABLE)
     }[CONSTRAINT]
-    assert "EXECUTION_LEASE_ACQUIRED" not in downgraded_expression
-    assert "EXECUTION_LEASE_RECLAIMED" not in downgraded_expression
-    assert "EXECUTION_LEASE_RENEWED" not in downgraded_expression
+    assert "OPERATOR_DEEP_RESEARCH" not in downgraded_expression
     downgraded.dispose()
 
     upgrade_database(database_url)
     upgraded = create_database_engine(database_url)
-    assert current_revision(upgraded) == HEAD_REVISION
+    assert current_revision(upgraded) == REVISION
     upgraded.dispose()
 
 
-def test_research_execution_lease_postgresql_offline_ddl() -> None:
+def test_operator_deep_research_postgresql_offline_ddl() -> None:
     config = alembic_config(
         "postgresql+psycopg://placeholder:placeholder@localhost/placeholder"
     )
@@ -85,6 +79,4 @@ def test_research_execution_lease_postgresql_offline_ddl() -> None:
         )
     sql = output.getvalue()
     assert f"ALTER TABLE {TABLE} DROP CONSTRAINT {CONSTRAINT}" in sql
-    assert "EXECUTION_LEASE_ACQUIRED" in sql
-    assert "EXECUTION_LEASE_RECLAIMED" in sql
-    assert "EXECUTION_LEASE_RENEWED" in sql
+    assert "OPERATOR_DEEP_RESEARCH" in sql

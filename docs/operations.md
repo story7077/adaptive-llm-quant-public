@@ -341,6 +341,31 @@ the configured IANA timezone, including DST. Evidence-triggered work is created
 only after the configured number of globally unique, previously unconsumed
 content hashes is available.
 
+For a bounded first-live-session or other explicitly approved post-session
+cycle, append one operator deep-research plan:
+
+```powershell
+uv run python -m trading.cli research schedule-operator-deep `
+  --trigger-id <STABLE_OPERATOR_TRIGGER_ID> `
+  --reason-code FIRST_LIVE_SESSION `
+  --calendar-session-id <VERSIONED_CALENDAR_SESSION_ID> `
+  --scheduled-for <UTC_TIME_AFTER_DAILY_AGGREGATION> `
+  --data-available-cutoff <UTC_COMPLETED_SESSION_CUTOFF>
+```
+
+Migration `0022_operator_deep_research_work` adds the typed
+`OPERATOR_DEEP_RESEARCH` work kind. The command binds the immutable calendar
+session, actual close, operator trigger, reason code, config hash, and cutoff in
+an append-only plan. The session must already be available to the scheduler and
+must be closed by the cutoff. Repeating the same trigger and payload is a no-op;
+reusing the trigger with different immutable content fails closed.
+
+An operator deep cycle cannot be leased until the same session's
+`DAILY_AGGREGATION` has an append-only `SUCCEEDED` event under the same schedule
+and config version. It still dispatches only
+`RESEARCH_DEEP_CYCLE_V1`; it does not invoke a model, promote a Challenger, or
+create an order by itself.
+
 `schedule-work` first plans due work and then creates one typed, append-only
 dispatch receipt. It does not execute the research model itself. Run it at the
 configured `worker_poll_seconds` cadence through the local process supervisor.
@@ -754,7 +779,9 @@ The Research tab reports:
 
 - current Champion and mutation policy;
 - selected Commander and selection version;
-- Web Scout model/reasoning/access requirements;
+- Web Scout model/reasoning/access requirements, the last accepted evidence
+  bundle, and an explicit notice that this read-only status endpoint does not
+  probe the current external browser connection;
 - catalog asset classes;
 - recent cycles and evidence;
 - proposals and Challengers;
