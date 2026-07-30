@@ -460,6 +460,20 @@ def test_research_cli_executes_versioned_file_pipeline(
     status = ResearchRepository(factory).status()
     assert status["challengers"][0]["challenger_id"] == manifest.challenger_id
     assert status["challengers"][0]["current_status"] == "PROPOSED"
+    assert status["web_scout_evidence"] == {
+        "status": "LAST_ACCEPTED_EVIDENCE",
+        "current_connection_status": "NOT_PROBED_BY_STATUS_ENDPOINT",
+        "latest_accepted_evidence": {
+            "research_cycle_id": evidence.research_cycle_id,
+            "evidence_bundle_hash": canonical_hash(evidence),
+            "evidence_schema_version": "research_evidence_bundle_v1",
+            "model_family": "GPT-5.6 Sol Pro",
+            "reasoning_profile": "xhigh",
+            "source_count": len(evidence.sources),
+            "claim_count": len(evidence.claims),
+            "accepted_at": as_of + timedelta(minutes=1),
+        },
+    }
 
     failure_payload = {
         "schema_version": "candidate_test_failure_v1",
