@@ -1202,6 +1202,87 @@ The local fresh-process Commander/Builder entry point was then verified to load
 that exact clean `main` commit. New Research cycles use the repaired contract;
 the historical failures continue to report their original results.
 
+## Completed-session Research trigger and live-PIT handoff
+
+Public
+[PR 40](https://github.com/story7077/adaptive-llm-quant-public/pull/40)
+added the missing product-owned bridge from one completed paper session into
+the existing deep Research Plane. The new append-only
+`OPERATOR_DEEP_RESEARCH` work kind records a typed operator trigger and reason,
+binds the exact versioned market-calendar session and data cutoff, and cannot
+be claimed until the same session's `DAILY_AGGREGATION` work has a terminal
+`SUCCEEDED` event. It does not reinterpret or consume the preserved pre-live
+backlog. Migration `0022_operator_deep_research_work` and SQLite/PostgreSQL
+append-only guards were deployed before the scheduler was restarted. PR 40
+merged as `9c0dd74c9025e028ec4bf6501fb4459c33ac056b`.
+
+The first live operator plan is immutable and idempotent:
+
+| Field | Value |
+| --- | --- |
+| Work kind | `OPERATOR_DEEP_RESEARCH` |
+| Calendar session | `2026-07-30`, regular close `2026-07-30T20:00:00Z` |
+| Scheduled time | `2026-07-30T22:05:00Z` |
+| Data cutoff | `2026-07-30T22:05:00Z` |
+| Reason | `FIRST_LIVE_SESSION` |
+| Plan hash | `bd57a0e53806d794f936f8b186fc1e6b3f1e58a43a1b38ef8ebdf775d1cfc2e1` |
+| Initial state | `PENDING`, attempt 0, no dispatch receipt |
+
+Repeating the same scheduling command returned `created_count=0` and the same
+work-item and plan hashes. Database-clock fencing therefore left the plan
+pending before its due time. The current Research consumer was restarted after
+PR 40 so its in-memory contract includes the new work kind; the trading runtime
+and its immutable v12 code identity were not restarted or changed.
+
+The ignored local launch boundary now builds `ResearchRequestV2` from a
+point-in-time daily-bar catalog, an immutable Research memory snapshot, and a
+persisted Meta Controller action plan. It does not read the template's static
+performance, failure, regime, market-evidence, memory, or action-plan
+summaries. A preflight at the scheduled cutoff resolved 17 research
+instruments, 1,167 to 1,510 completed daily observations per instrument, and
+latest completed coverage through `2026-07-29`; the catalog is recomputed after
+the session, so these preflight values are not frozen as the final Research
+input.
+
+The original `adaptive-cross-asset-alpha-v1` experiment family had consumed its
+three-submission budget: one Candidate remained `PROPOSED` and two immutable
+versions of the same hypothesis remained `TEST_FAILED`. The budget was not
+silently increased. The first prospective live-PIT cycle instead uses the
+versioned `adaptive-cross-asset-alpha-live-pit-v1` family with a three-submission
+budget, while the earlier Candidates and outcomes remain available through the
+trusted recursive memory.
+
+Live preflight independently verified:
+
+- AGBrowse status `ready`;
+- headed Chrome and CDP connected;
+- the actual ChatGPT UI tuple `GPT-5.6 Sol Pro` / `Pro` / `xhigh`;
+- no model or API fallback;
+- selected Research Commander `CODEX_SOL_MAX`;
+- clean Research Commander commit
+  `66f4b0b3d096deb70c6c8b85ef3d13a26cf87233`;
+- all seven inherited holding symbols plus QQQ and SOXX present in the IEX
+  subscription set; and
+- QQQ and SOXX each with 1,509 positive completed daily observations through
+  `2026-07-29`, with no point-in-time duplicate conflict.
+
+Populated live status exposed one operations-only serialization defect: the
+latest accepted Scout timestamp remained a Python `datetime` inside the
+repository status object. Public
+[PR 41](https://github.com/story7077/adaptive-llm-quant-public/pull/41)
+now converts the CLI boundary to JSON-compatible values and covers the accepted
+evidence timestamp in integration tests. It merged as
+`91dd693978cb5ea3477612730bca99ab288d203e` after 700 tests, Ruff, Pyright,
+all-config validation, a local public-release scan, and both public security
+workflows passed.
+
+This handoff proves readiness and immutable scheduling, not a completed
+Research Cycle, a profitable strategy, or a successful Challenger. The actual
+session, post-close Web Scout, fresh Codex Commander, optional separate
+Builder, two deterministic replays, seven run-scoped ledger checks, and final
+Research artifacts remain pending. `real_order_routing=false` and
+`automatic_promotion_enabled=false` remain enforced.
+
 ## Validation
 
 Post-cycle failure-gate validation:
