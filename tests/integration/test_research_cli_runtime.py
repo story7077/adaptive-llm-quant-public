@@ -474,6 +474,14 @@ def test_research_cli_executes_versioned_file_pipeline(
             "accepted_at": as_of + timedelta(minutes=1),
         },
     }
+    cli_status = runner.invoke(app, ["research", "status"])
+    assert cli_status.exit_code == 0, cli_status.output
+    assert json.loads(cli_status.output)["web_scout_evidence"][
+        "latest_accepted_evidence"
+    ]["accepted_at"] == (as_of + timedelta(minutes=1)).isoformat().replace(
+        "+00:00",
+        "Z",
+    )
 
     failure_payload = {
         "schema_version": "candidate_test_failure_v1",
