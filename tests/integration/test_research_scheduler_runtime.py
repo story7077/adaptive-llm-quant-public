@@ -18,6 +18,7 @@ from trading.persistence.models import (
 from trading.persistence.research_scheduler import (
     ResearchScheduleEventRow,
     ResearchScheduleFenceError,
+    ResearchSchedulerPersistenceError,
     ResearchSchedulerRepository,
     ResearchScheduleWorkItemRow,
 )
@@ -396,6 +397,83 @@ def test_outcome_and_memory_work_wait_for_predecessor_success(
     assert (
         memory_lease.work_kind
         is ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION
+    )
+
+
+def test_operator_deep_work_is_idempotent_and_waits_for_daily_aggregation(
+    sqlite_database,
+    repository_root: Path,
+) -> None:
+    _, _, factory = sqlite_database
+    _seed_calendar(factory)
+    repository, service = _service(factory, repository_root)
+    common = {
+        "operator_trigger_id": "q1-v12-2020-07-24-post-session",
+        "operator_reason_code": "FIRST_LIVE_SESSION",
+        "calendar_session_id": "calendar-2020-07-24",
+        "scheduled_for": PLAN_AS_OF,
+        "data_available_cutoff": PLAN_AS_OF,
+    }
+
+    first = service.plan_operator_deep_research(**common)
+    replay = service.plan_operator_deep_research(**common)
+
+    assert first["created_count"] == 1
+    assert replay["created_count"] == 0
+    assert first["plan"]["work_kind"] == "OPERATOR_DEEP_RESEARCH"
+    assert first["automatic_promotion_enabled"] is False
+    assert first["real_order_routing"] is False
+    with pytest.raises(
+        ResearchSchedulerPersistenceError,
+        match="different immutable content",
+    ):
+        service.plan_operator_deep_research(
+            **{
+                **common,
+                "operator_reason_code": "MANUAL_RETRY",
+            }
+        )
+
+    planned = service.plan(as_of=PLAN_AS_OF)
+    assert planned["created_count"] == 1
+    daily_lease = repository.claim_next(
+        lease_owner="daily-before-operator",
+        lease_seconds=900,
+        maximum_attempts=3,
+    )
+    assert daily_lease is not None
+    assert daily_lease.work_kind is ResearchScheduleWorkKind.DAILY_AGGREGATION
+    daily_receipt = repository.commit_dispatch(lease=daily_lease)
+    assert (
+        repository.claim_next(
+            lease_owner="operator-blocked-before-daily-success",
+            lease_seconds=900,
+            maximum_attempts=3,
+        )
+        is None
+    )
+    daily_execution_lease = _claim_execution(
+        repository,
+        consumer_id="daily-before-operator-consumer",
+    )
+    assert daily_execution_lease.receipt_id == daily_receipt.receipt_id
+    repository.record_execution_outcome(
+        execution_lease=daily_execution_lease,
+        succeeded=True,
+        reason_code=None,
+        maximum_attempts=3,
+        result=_maintenance_result(repository, daily_execution_lease),
+    )
+
+    operator_lease = repository.claim_next(
+        lease_owner="operator-after-daily",
+        lease_seconds=900,
+        maximum_attempts=3,
+    )
+    assert operator_lease is not None
+    assert (
+        operator_lease.work_kind
+        is ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH
     )
 
 
@@ -799,3 +877,49 @@ args.result.write_text(
     assert status.exit_code == 0, status.output
     assert '"scheduler"' in status.stdout
     assert '"real_order_routing": false' in status.stdout.lower()
+
+
+def test_research_scheduler_cli_appends_operator_deep_plan(
+    sqlite_database,
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_url, _, factory = sqlite_database
+    _seed_calendar(factory)
+    monkeypatch.setenv("TRADING_DATABASE_URL", database_url)
+    monkeypatch.setenv(
+        "TRADING_CONFIG_DIR",
+        str(repository_root / "config"),
+    )
+    monkeypatch.setenv("TRADING_RAW_STORE", str(tmp_path / "raw"))
+    monkeypatch.setenv(
+        "TRADING_PAPER_ACCOUNT_FILE",
+        str(repository_root / "config" / "paper-account.example.yaml"),
+    )
+    runner = CliRunner()
+    command = [
+        "research",
+        "schedule-operator-deep",
+        "--trigger-id",
+        "q1-v12-cli-post-session",
+        "--reason-code",
+        "FIRST_LIVE_SESSION",
+        "--calendar-session-id",
+        "calendar-2020-07-24",
+        "--scheduled-for",
+        PLAN_AS_OF.isoformat(),
+        "--data-available-cutoff",
+        PLAN_AS_OF.isoformat(),
+    ]
+
+    first = runner.invoke(app, command)
+    replay = runner.invoke(app, command)
+
+    assert first.exit_code == 0, first.output
+    assert replay.exit_code == 0, replay.output
+    assert '"created_count": 1' in first.stdout
+    assert '"created_count": 0' in replay.stdout
+    assert '"work_kind": "OPERATOR_DEEP_RESEARCH"' in first.stdout
+    assert '"automatic_promotion_enabled": false' in first.stdout
+    assert '"real_order_routing": false' in first.stdout

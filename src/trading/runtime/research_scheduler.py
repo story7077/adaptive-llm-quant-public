@@ -15,10 +15,15 @@ from trading.research.scheduler import (
     ResearchSchedulePlanV1,
     ResearchWorkDispatchReceiptV1,
     build_due_schedule_plans,
+    build_operator_deep_research_plan,
 )
 
 
 class ResearchSchedulerConfigurationError(RuntimeError):
+    pass
+
+
+class ResearchSchedulerPlanningError(RuntimeError):
     pass
 
 
@@ -74,6 +79,55 @@ class ResearchSchedulerService:
             "plan_hashes": [item.plan_hash for item in plans],
             "config_manifest_hash": self._config.manifest_hash,
             "schedule_version": schedule.schedule_version,
+            "real_order_routing": False,
+        }
+
+    def plan_operator_deep_research(
+        self,
+        *,
+        operator_trigger_id: str,
+        operator_reason_code: str,
+        calendar_session_id: str,
+        scheduled_for: datetime,
+        data_available_cutoff: datetime,
+        created_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        instant = require_aware_utc(created_at or self._clock.now())
+        schedule = self._config.config.schedule
+        sessions, _, _ = self._repository.planning_inputs(
+            as_of=instant,
+            calendar_version=schedule.market_calendar_version,
+        )
+        matching = tuple(
+            session
+            for session in sessions
+            if session.calendar_session_id == calendar_session_id
+        )
+        if len(matching) != 1:
+            raise ResearchSchedulerPlanningError(
+                "operator deep research requires one available versioned "
+                f"calendar session: {calendar_session_id}"
+            )
+        plan = build_operator_deep_research_plan(
+            schedule=schedule,
+            config_manifest_hash=self._config.manifest_hash,
+            operator_trigger_id=operator_trigger_id,
+            operator_reason_code=operator_reason_code,
+            scheduled_for=scheduled_for,
+            data_available_cutoff=data_available_cutoff,
+            session=matching[0],
+        )
+        created = self._repository.store_plans(
+            (plan,),
+            created_at=instant,
+        )
+        return {
+            "created_at": instant.isoformat().replace("+00:00", "Z"),
+            "created_count": created,
+            "plan": plan.model_dump(mode="json", exclude_none=True),
+            "config_manifest_hash": self._config.manifest_hash,
+            "schedule_version": schedule.schedule_version,
+            "automatic_promotion_enabled": False,
             "real_order_routing": False,
         }
 

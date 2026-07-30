@@ -20,6 +20,7 @@ from trading.research.scheduler import (
     ResearchScheduleWorkKind,
     ResearchWorkDispatchReceiptV1,
     ResearchWorkExecutionLeaseV1,
+    schedule_plan_payload_hash,
 )
 
 SHA256_PATTERN = r"^[a-f0-9]{64}$"
@@ -116,7 +117,8 @@ class ResearchWorkExecutionRequestV1(DomainModel):
             self.execution_id != expected_execution_id
             or self.plan.work_item_id != self.receipt.work_item_id
             or self.plan.work_kind is not self.receipt.work_kind
-            or self.receipt.work_payload_hash != canonical_hash(self.plan)
+            or self.receipt.work_payload_hash
+            != schedule_plan_payload_hash(self.plan)
             or self.config_manifest_hash != self.plan.config_manifest_hash
             or self.config_manifest_hash != self.receipt.config_manifest_hash
         ):
