@@ -754,7 +754,9 @@ The Research tab reports:
 
 - current Champion and mutation policy;
 - selected Commander and selection version;
-- Web Scout model/reasoning/access requirements;
+- Web Scout model/reasoning/access requirements, the last accepted evidence
+  bundle, and an explicit notice that this read-only status endpoint does not
+  probe the current external browser connection;
 - catalog asset classes;
 - recent cycles and evidence;
 - proposals and Challengers;

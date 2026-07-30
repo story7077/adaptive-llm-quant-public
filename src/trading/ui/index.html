@@ -1646,8 +1646,12 @@
       $("researchChampionPolicy").textContent = currentChampion
         ? `human designation #${currentChampion.sequence} · auto=${currentChampion.automatic_promotion_enabled} · routing=${currentChampion.real_order_routing}`
         : `${data.operational_algorithm?.algorithm_version || "—"} · VERSIONED_CHALLENGER_ONLY`;
-      $("researchScoutState").textContent = data.web_scout?.status || "—";
-      $("researchScoutContract").textContent = `${data.web_scout?.required_model || "—"} · ${data.web_scout?.required_reasoning || "—"} · ${data.web_scout?.access_path || "—"}`;
+      const webScout = data.web_scout || {};
+      const acceptedScoutEvidence = webScout.latest_accepted_evidence;
+      $("researchScoutState").textContent = acceptedScoutEvidence
+        ? `${webScout.status || "LAST_ACCEPTED_EVIDENCE"} · ${formatDate(acceptedScoutEvidence.accepted_at)}`
+        : webScout.status || "—";
+      $("researchScoutContract").textContent = `${webScout.required_model || "—"} · ${webScout.required_reasoning || "—"} · ${webScout.access_path || "—"} · connection=${webScout.current_connection_status || "—"}`;
       $("researchUniverse").textContent = `${(data.available_data_catalog?.asset_classes || []).join(" · ")} · hardcoded allowlist=${data.available_data_catalog?.hardcoded_symbol_allowlist}`;
       const recursive = data.recursive_improvement || {};
       const outcomeLedger = recursive.experiment_outcome_ledger ||

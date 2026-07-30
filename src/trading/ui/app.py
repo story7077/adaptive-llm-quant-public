@@ -753,6 +753,7 @@ def create_app(
             prospective_status=prospective_status,
             persisted_status=persisted_status,
         )
+        web_scout_evidence = persisted_status["web_scout_evidence"]
         return {
             **persisted_status,
             "recursive_improvement": recursive_improvement_status(
@@ -777,7 +778,7 @@ def create_app(
                 "required_model": "GPT-5.6 Sol Pro",
                 "required_reasoning": "xhigh",
                 "access_path": "CHATGPT_WEB_AGBROWSE",
-                "status": "LOCAL_RUNTIME_REQUIRED",
+                **web_scout_evidence,
             },
             "available_data_catalog": {
                 "asset_classes": ["US_EQUITY", "US_ETF"],
