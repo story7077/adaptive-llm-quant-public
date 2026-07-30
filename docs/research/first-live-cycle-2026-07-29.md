@@ -739,8 +739,10 @@ headed-Chrome WebGPT scout conversation. It produced
 `scheduled-research-cycle_1a3efe10275ac9748967d419`, bound to:
 
 - WebGPT request `scheduled-web-scout_a58890bdf20446c4cf9046f2`;
-- conversation `6a6a4b82-830c-83e8-8ca0-792dab20360b`;
-- browser session `320dcdc9-ee35-4f20-80bd-399804592126`;
+- fresh-conversation binding attestation
+  `sha256:aa7de74945febb92d6986043c63ac9e3ed5a16471b3f0635388b487ad8c7d3b4`;
+- headed-browser binding attestation
+  `sha256:dd0b29969bc72bc8982ebecff5391b9645e9083fb9965fd73250b55ce40aaf35`;
 - `GPT-5.6 Sol Pro` with `xhigh` reasoning;
 - 13 accepted sources: seven `TIER_1_OFFICIAL` and six
   `TIER_2_PRIMARY_DATA`; and
@@ -849,7 +851,8 @@ WebGPT conversation rather than resuming any prior Scout or Commander context.
 The headed-Chrome postflight verified:
 
 - request `requested-evidence-web-scout_152c3a871b5f5e105b0c72a9`;
-- conversation `6a6a54a1-7cb8-83e8-b37d-e41190f1254f`;
+- fresh-conversation binding attestation
+  `sha256:af0635ab0d467eeb6d118799e186d7b6de5ada414bcc9e0b1c5f4ade1fd44b43`;
 - the previously bound local browser session;
 - `GPT-5.6 Sol Pro`, `xhigh`, and Pro access;
 - a complete, non-interrupted response with active browsing; and
