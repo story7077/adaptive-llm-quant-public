@@ -20,6 +20,7 @@ class ResearchScheduleWorkKind(StrEnum):
     DAILY_AGGREGATION = "DAILY_AGGREGATION"
     OUTCOME_MATURATION = "OUTCOME_MATURATION"
     RESEARCH_MEMORY_MATERIALIZATION = "RESEARCH_MEMORY_MATERIALIZATION"
+    OPERATOR_DEEP_RESEARCH = "OPERATOR_DEEP_RESEARCH"
     WEEKLY_DEEP_RESEARCH = "WEEKLY_DEEP_RESEARCH"
     EVIDENCE_TRIGGERED_RESEARCH = "EVIDENCE_TRIGGERED_RESEARCH"
 
@@ -98,6 +99,16 @@ class ResearchSchedulePlanV1(DomainModel):
     trigger_source_ids: tuple[str, ...]
     trigger_content_hashes: tuple[str, ...]
     trigger_manifest_hash: str = Field(min_length=1)
+    operator_trigger_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+    )
+    operator_reason_code: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z][A-Z0-9_]{1,79}$",
+    )
     config_manifest_hash: str = Field(min_length=1)
     plan_hash: str = Field(min_length=1)
     real_order_routing: Literal[False] = False
@@ -120,6 +131,7 @@ class ResearchSchedulePlanV1(DomainModel):
             ResearchScheduleWorkKind.DAILY_AGGREGATION,
             ResearchScheduleWorkKind.OUTCOME_MATURATION,
             ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION,
+            ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH,
             ResearchScheduleWorkKind.WEEKLY_DEEP_RESEARCH,
         } and any(value is None for value in session_fields):
             raise ValueError("calendar-backed work requires a versioned session")
@@ -128,6 +140,19 @@ class ResearchSchedulePlanV1(DomainModel):
                 raise ValueError("evidence-triggered work requires bounded evidence")
         elif self.trigger_source_ids or self.trigger_content_hashes:
             raise ValueError("calendar cadence work cannot carry evidence triggers")
+        operator_fields = (
+            self.operator_trigger_id,
+            self.operator_reason_code,
+        )
+        if self.work_kind is ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH:
+            if any(value is None for value in operator_fields):
+                raise ValueError(
+                    "operator deep research requires trigger ID and reason code"
+                )
+        elif any(value is not None for value in operator_fields):
+            raise ValueError(
+                "only operator deep research may carry operator trigger fields"
+            )
         if tuple(sorted(self.trigger_source_ids)) != self.trigger_source_ids:
             raise ValueError("trigger source IDs must be sorted")
         if tuple(sorted(self.trigger_content_hashes)) != self.trigger_content_hashes:
@@ -293,6 +318,51 @@ def dispatch_target_for(
     return ResearchDispatchTarget.DEEP_RESEARCH_CYCLE_V1
 
 
+def build_operator_deep_research_plan(
+    *,
+    schedule: ResearchScheduleConfig,
+    config_manifest_hash: str,
+    operator_trigger_id: str,
+    operator_reason_code: str,
+    scheduled_for: datetime,
+    data_available_cutoff: datetime,
+    session: VersionedResearchMarketSession,
+) -> ResearchSchedulePlanV1:
+    scheduled = require_aware_utc(scheduled_for)
+    cutoff = require_aware_utc(data_available_cutoff)
+    if session.calendar_version != schedule.market_calendar_version:
+        raise ValueError(
+            "operator deep research session calendar version mismatch"
+        )
+    if session.available_at > cutoff:
+        raise ValueError(
+            "operator deep research session was unavailable at its cutoff"
+        )
+    if session.close_at > cutoff:
+        raise ValueError(
+            "operator deep research requires a completed market session"
+        )
+    empty_trigger_hash = canonical_hash(
+        {"source_ids": (), "content_hashes": ()}
+    )
+    return _make_plan(
+        work_kind=ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH,
+        identity=operator_trigger_id,
+        scheduled_for=scheduled,
+        data_available_cutoff=cutoff,
+        calendar_session_id=session.calendar_session_id,
+        calendar_session_hash=session.session_hash,
+        calendar_version=session.calendar_version,
+        trigger_source_ids=(),
+        trigger_content_hashes=(),
+        trigger_manifest_hash=empty_trigger_hash,
+        operator_trigger_id=operator_trigger_id,
+        operator_reason_code=operator_reason_code,
+        schedule=schedule,
+        config_manifest_hash=config_manifest_hash,
+    )
+
+
 def build_dispatch_receipt(
     *,
     plan: ResearchSchedulePlanV1,
@@ -314,7 +384,7 @@ def build_dispatch_receipt(
         "attempt_number": lease.attempt_number,
         "lease_token": lease.lease_token,
         "dispatch_target": dispatch_target_for(plan.work_kind),
-        "work_payload_hash": canonical_hash(plan),
+        "work_payload_hash": schedule_plan_payload_hash(plan),
         "config_manifest_hash": plan.config_manifest_hash,
         "created_at": instant,
         "real_order_routing": False,
@@ -533,6 +603,8 @@ def _make_plan(
     trigger_source_ids: tuple[str, ...],
     trigger_content_hashes: tuple[str, ...],
     trigger_manifest_hash: str,
+    operator_trigger_id: str | None = None,
+    operator_reason_code: str | None = None,
     schedule: ResearchScheduleConfig,
     config_manifest_hash: str,
 ) -> ResearchSchedulePlanV1:
@@ -564,6 +636,10 @@ def _make_plan(
         "config_manifest_hash": config_manifest_hash,
         "real_order_routing": False,
     }
+    if operator_trigger_id is not None:
+        payload["operator_trigger_id"] = operator_trigger_id
+    if operator_reason_code is not None:
+        payload["operator_reason_code"] = operator_reason_code
     return ResearchSchedulePlanV1.model_validate(
         {**payload, "plan_hash": canonical_hash(payload)}
     )
@@ -611,14 +687,34 @@ def _work_kind_order(value: ResearchScheduleWorkKind) -> int:
         ResearchScheduleWorkKind.DAILY_AGGREGATION: 0,
         ResearchScheduleWorkKind.OUTCOME_MATURATION: 1,
         ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION: 2,
-        ResearchScheduleWorkKind.WEEKLY_DEEP_RESEARCH: 3,
-        ResearchScheduleWorkKind.EVIDENCE_TRIGGERED_RESEARCH: 4,
+        ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH: 3,
+        ResearchScheduleWorkKind.WEEKLY_DEEP_RESEARCH: 4,
+        ResearchScheduleWorkKind.EVIDENCE_TRIGGERED_RESEARCH: 5,
     }[value]
 
 
 def _plan_hash_payload(plan: ResearchSchedulePlanV1) -> dict[str, object]:
     payload = plan.model_dump(mode="python", exclude={"plan_hash"})
+    if plan.operator_trigger_id is None:
+        payload.pop("operator_trigger_id")
+    if plan.operator_reason_code is None:
+        payload.pop("operator_reason_code")
     return payload
+
+
+def schedule_plan_json_payload(
+    plan: ResearchSchedulePlanV1,
+) -> dict[str, object]:
+    payload = plan.model_dump(mode="json")
+    if plan.operator_trigger_id is None:
+        payload.pop("operator_trigger_id")
+    if plan.operator_reason_code is None:
+        payload.pop("operator_reason_code")
+    return payload
+
+
+def schedule_plan_payload_hash(plan: ResearchSchedulePlanV1) -> str:
+    return canonical_hash(schedule_plan_json_payload(plan))
 
 
 def _receipt_hash_payload(

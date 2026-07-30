@@ -47,6 +47,7 @@ from trading.research.scheduler import (
     ResearchWorkLeaseV1,
     VersionedResearchMarketSession,
     build_dispatch_receipt,
+    schedule_plan_json_payload,
 )
 
 
@@ -311,11 +312,11 @@ class ResearchSchedulerRepository:
                     ResearchScheduleWorkItemRow,
                     plan.work_item_id,
                 )
+                plan_payload = schedule_plan_json_payload(plan)
                 if existing is not None:
                     if (
                         existing.plan_hash != plan.plan_hash
-                        or existing.payload_json
-                        != plan.model_dump(mode="json")
+                        or existing.payload_json != plan_payload
                     ):
                         raise ResearchSchedulerPersistenceError(
                             "schedule work identity has different immutable content"
@@ -335,7 +336,7 @@ class ResearchSchedulerRepository:
                         config_manifest_hash=plan.config_manifest_hash,
                         plan_hash=plan.plan_hash,
                         real_order_routing=False,
-                        payload_json=plan.model_dump(mode="json"),
+                        payload_json=plan_payload,
                         created_at=instant,
                     )
                 )
@@ -1446,6 +1447,7 @@ def _schedule_prerequisite_predicate(latest: Any) -> Any:
     dependent_kinds = (
         ResearchScheduleWorkKind.OUTCOME_MATURATION.value,
         ResearchScheduleWorkKind.RESEARCH_MEMORY_MATERIALIZATION.value,
+        ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH.value,
     )
     return or_(
         ResearchScheduleWorkItemRow.work_kind.not_in(dependent_kinds),
@@ -1466,6 +1468,14 @@ def _schedule_prerequisite_predicate(latest: Any) -> Any:
             predecessor_succeeded(
                 ResearchScheduleWorkKind.OUTCOME_MATURATION,
                 alias_name="outcome_predecessor",
+            ),
+        ),
+        and_(
+            ResearchScheduleWorkItemRow.work_kind
+            == ResearchScheduleWorkKind.OPERATOR_DEEP_RESEARCH.value,
+            predecessor_succeeded(
+                ResearchScheduleWorkKind.DAILY_AGGREGATION,
+                alias_name="operator_daily_predecessor",
             ),
         ),
     )

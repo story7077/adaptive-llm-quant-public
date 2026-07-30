@@ -39,7 +39,7 @@ def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
     url = f"sqlite+pysqlite:///{(tmp_path / 'migration.db').as_posix()}"
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0021_research_execution_lease_v1"
+    assert current_revision(engine) == "0022_operator_deep_research_work"
     engine.dispose()
 
     downgrade_database(url, "base")
@@ -54,7 +54,7 @@ def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0021_research_execution_lease_v1"
+    assert current_revision(engine) == "0022_operator_deep_research_work"
     engine.dispose()
 
 
@@ -125,7 +125,7 @@ def test_q1_migration_preserves_legacy_append_only_rows(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0021_research_execution_lease_v1"
+    assert current_revision(engine) == "0022_operator_deep_research_work"
     with engine.connect() as connection:
         decision = connection.execute(
             text(
@@ -188,7 +188,7 @@ def test_q1_migration_preserves_legacy_append_only_rows(tmp_path: Path) -> None:
 
     upgrade_database(url)
     engine = create_database_engine(url)
-    assert current_revision(engine) == "0021_research_execution_lease_v1"
+    assert current_revision(engine) == "0022_operator_deep_research_work"
     with engine.connect() as connection:
         assert (
             connection.execute(

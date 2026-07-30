@@ -273,7 +273,10 @@ from trading.runtime.research_dispatch_consumer import (
     ResearchDispatchConsumerService,
     SubprocessResearchDispatchExecutor,
 )
-from trading.runtime.research_scheduler import ResearchSchedulerService
+from trading.runtime.research_scheduler import (
+    ResearchSchedulerPlanningError,
+    ResearchSchedulerService,
+)
 from trading.runtime.scheduler import PaperCycleStore
 from trading.settings import (
     ALPACA_PAPER_CONFIG_FILE,
@@ -1905,6 +1908,63 @@ def research_schedule_plan(
         result = service.plan(
             as_of=_research_timestamp(as_of, "--as-of"),
         )
+    finally:
+        engine.dispose()
+    _emit(result)
+
+
+@research_app.command("schedule-operator-deep")
+def research_schedule_operator_deep(
+    operator_trigger_id: Annotated[
+        str,
+        typer.Option("--trigger-id", min=1, max=160),
+    ],
+    operator_reason_code: Annotated[
+        str,
+        typer.Option("--reason-code", min=2, max=80),
+    ],
+    calendar_session_id: Annotated[
+        str,
+        typer.Option("--calendar-session-id", min=1, max=100),
+    ],
+    scheduled_for: Annotated[
+        str,
+        typer.Option("--scheduled-for"),
+    ],
+    data_available_cutoff: Annotated[
+        str,
+        typer.Option("--data-available-cutoff"),
+    ],
+) -> None:
+    """Append one completed-session-bound deep Research Cycle plan."""
+
+    settings = Settings.from_env(repo_root())
+    _require_research_paper_only(settings)
+    engine = create_database_engine(settings.database_url)
+    try:
+        service = ResearchSchedulerService(
+            repository=ResearchSchedulerRepository(make_session_factory(engine)),
+            config=load_research_config(settings.config_dir),
+        )
+        result = service.plan_operator_deep_research(
+            operator_trigger_id=operator_trigger_id,
+            operator_reason_code=operator_reason_code,
+            calendar_session_id=calendar_session_id,
+            scheduled_for=_research_timestamp(
+                scheduled_for,
+                "--scheduled-for",
+            ),
+            data_available_cutoff=_research_timestamp(
+                data_available_cutoff,
+                "--data-available-cutoff",
+            ),
+        )
+    except (
+        ResearchSchedulerPersistenceError,
+        ResearchSchedulerPlanningError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(_safe_research_error(exc)) from None
     finally:
         engine.dispose()
     _emit(result)
