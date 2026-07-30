@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated, Any, cast
 
 import typer
+from pydantic_core import to_jsonable_python
 from sqlalchemy import select, text
 
 from trading.control.bundles import export_request_bundle, run_codex_bundle
@@ -4627,7 +4628,14 @@ def _safe_research_error(exc: Exception) -> str:
 
 
 def _emit(payload: dict[str, Any]) -> None:
-    typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    typer.echo(
+        json.dumps(
+            to_jsonable_python(payload),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def _emit_json_line(payload: dict[str, Any]) -> None:
