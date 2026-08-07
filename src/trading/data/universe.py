@@ -50,11 +50,7 @@ def basic_iex_stream_plan(
     required_quote_symbols: tuple[str, ...] = (),
 ) -> IexStreamSubscriptionPlan:
     symbols = market_data_symbols(config)
-    symbol_set = set(symbols)
     required = _ordered_symbols(required_quote_symbols)
-    missing = [symbol for symbol in required if symbol not in symbol_set]
-    if missing:
-        raise ValueError(f"Required quote symbols missing from universe: {missing}")
 
     quote_capacity = ALPACA_BASIC_STREAM_SUBSCRIPTION_LIMIT - len(symbols)
     if len(required) > quote_capacity:
@@ -64,9 +60,7 @@ def basic_iex_stream_plan(
     quote_priority = _ordered_symbols(
         (*required, *PREFERRED_LIVE_QUOTE_SYMBOLS, *symbols)
     )
-    quotes = tuple(
-        symbol for symbol in quote_priority if symbol in symbol_set
-    )[:quote_capacity]
+    quotes = quote_priority[:quote_capacity]
     plan = IexStreamSubscriptionPlan(
         trades=(),
         quotes=quotes,
