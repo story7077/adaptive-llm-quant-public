@@ -417,6 +417,11 @@ def test_candidate_discovery_registration_is_idempotent_and_non_promoting(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    decision_now = NOW + timedelta(minutes=5)
+    monkeypatch.setattr(
+        "trading.persistence.experiment_outcomes._database_now",
+        lambda _session: decision_now,
+    )
     database_url, _, factory = sqlite_database
     challenger_id, test_manifest, artifact_created_at = _seed_candidate(
         factory,
