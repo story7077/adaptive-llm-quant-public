@@ -34,3 +34,16 @@ def test_basic_iex_plan_prioritizes_paper_positions_within_30(config_bundle) -> 
     )
     assert plan.trades == ()
     assert plan.updated_bars == ()
+
+
+def test_basic_iex_plan_accepts_quote_only_inherited_positions(config_bundle) -> None:
+    required = ("PANW", "V")
+
+    plan = basic_iex_stream_plan(
+        config_bundle,
+        required_quote_symbols=required,
+    )
+
+    assert set(required).issubset(plan.quotes)
+    assert set(required).isdisjoint(plan.bars)
+    assert plan.subscription_count == 30
